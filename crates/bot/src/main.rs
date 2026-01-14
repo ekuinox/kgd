@@ -47,20 +47,20 @@ impl EventHandler for Handler {
         ctx: SerenityContext,
         interaction: serenity::model::application::Interaction,
     ) {
-        if let serenity::model::application::Interaction::Command(command) = interaction {
-            if let Err(e) = self.handle_command(&ctx, &command).await {
-                eprintln!("Error handling command: {}", e);
+        if let serenity::model::application::Interaction::Command(command) = interaction
+            && let Err(e) = self.handle_command(&ctx, &command).await
+        {
+            eprintln!("Error handling command: {}", e);
 
-                let response = CreateInteractionResponseMessage::new()
-                    .content(format!("Error: {}", e))
-                    .ephemeral(true);
+            let response = CreateInteractionResponseMessage::new()
+                .content(format!("Error: {}", e))
+                .ephemeral(true);
 
-                if let Err(e) = command
-                    .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                    .await
-                {
-                    eprintln!("Failed to send error response: {}", e);
-                }
+            if let Err(e) = command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await
+            {
+                eprintln!("Failed to send error response: {}", e);
             }
         }
     }
