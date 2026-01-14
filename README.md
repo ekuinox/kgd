@@ -91,7 +91,7 @@ Botが起動したら、Discordで以下のスラッシュコマンドが使え�
 ```
 kgd/
 ├── Cargo.toml              # Workspace 設定
-├── rules.md                # 開発ルール
+├── CONTRIBUTING.md         # 開発ルール
 ├── config.example.toml     # 設定ファイルのサンプル
 ├── .gitignore
 └── crates/
@@ -102,7 +102,7 @@ kgd/
 
 ## 開発
 
-開発に関する詳細は [rules.md](rules.md) を参照してください。
+開発に関する詳細は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
 
 ### Just のインストール
 
