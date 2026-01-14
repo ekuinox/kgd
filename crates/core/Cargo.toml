@@ -1,0 +1,10 @@
+[package]
+name = "kgd-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+wol = { workspace = true }
+macaddr = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,27 @@
+# Discord Bot Configuration
+[discord]
+# Your Discord Bot Token
+# Get this from: https://discord.com/developers/applications
+token = "YOUR_DISCORD_BOT_TOKEN"
+
+# Server Configurations
+# Add your servers here with their MAC addresses and IP addresses
+
+[[servers]]
+name = "Main Server"
+mac_address = "AA:BB:CC:DD:EE:FF"
+ip_address = "192.168.1.100"
+description = "メインサーバー"
+
+[[servers]]
+name = "Storage Server"
+mac_address = "11:22:33:44:55:66"
+ip_address = "192.168.1.101"
+description = "ストレージサーバー"
+
+# Add more servers as needed:
+# [[servers]]
+# name = "Another Server"
+# mac_address = "AA:BB:CC:DD:EE:FF"
+# ip_address = "192.168.1.102"
+# description = "説明 (optional)"

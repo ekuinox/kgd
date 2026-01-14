@@ -1,0 +1,16 @@
+[package]
+name = "kgd-bot"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "kgd-bot"
+path = "src/main.rs"
+
+[dependencies]
+serenity = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+kgd-config = { path = "../config" }
+kgd-core = { path = "../core" }
