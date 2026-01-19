@@ -18,7 +18,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build application
 COPY . .
-RUN cargo build --release --bin kgd-bot
+RUN cargo build --release --bin kgd
 
 # ===== Stage 4: Runtime =====
 FROM debian:bookworm-slim AS runtime
@@ -33,12 +33,12 @@ RUN useradd -r -s /bin/false kgd
 WORKDIR /app
 
 # Copy binary
-COPY --from=builder /app/target/release/kgd-bot /app/kgd-bot
+COPY --from=builder /app/target/release/kgd /app/kgd
 
 # Set capability for raw socket (WoL)
-RUN setcap cap_net_raw+ep /app/kgd-bot
+RUN setcap cap_net_raw+ep /app/kgd
 
 # Switch to non-root user
 USER kgd
 
-ENTRYPOINT ["/app/kgd-bot"]
+ENTRYPOINT ["/app/kgd"]

@@ -1,12 +1,12 @@
 [package]
-name = "kgd-bot"
+name = "kgd"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "kgd-bot"
+name = "kgd"
 path = "src/main.rs"
 
 [dependencies]

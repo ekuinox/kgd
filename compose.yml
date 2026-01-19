@@ -1,7 +1,7 @@
 services:
-  kgd-bot:
+  kgd:
     image: ghcr.io/ekuinox/kgd:latest
-    container_name: kgd-bot
+    container_name: kgd
     restart: unless-stopped
     network_mode: host  # Required for WoL broadcast
     cap_add:
