@@ -1,6 +1,8 @@
+mod config;
+mod wol;
+
 use anyhow::{Context, Result};
-use kgd_config::Config;
-use kgd_core::send_wol_packet;
+use config::Config;
 use serenity::all::{
     CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse,
     CreateInteractionResponseMessage, GatewayIntents,
@@ -10,6 +12,7 @@ use serenity::builder::CreateEmbedFooter;
 use serenity::client::Context as SerenityContext;
 use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
+use wol::send_wol_packet;
 
 struct Handler {
     config: Config,

@@ -18,13 +18,6 @@ pub type Result<T> = std::result::Result<T, WolError>;
 /// # Arguments
 /// * `mac_address` - MAC address in format "AA:BB:CC:DD:EE:FF"
 /// * `broadcast_addr` - Optional broadcast address (default: "255.255.255.255:9")
-///
-/// # Example
-/// ```no_run
-/// use kgd_core::send_wol_packet;
-///
-/// let result = send_wol_packet("AA:BB:CC:DD:EE:FF", None);
-/// ```
 pub fn send_wol_packet(mac_address: &str, broadcast_addr: Option<&str>) -> Result<()> {
     // Parse MAC address
     let mac = parse_mac_address(mac_address)?;
