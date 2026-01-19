@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ===== Stage 1: Chef =====
-FROM lukemathwalker/cargo-chef:latest-rust-1.85-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.92-bookworm AS chef
 WORKDIR /app
 
 # ===== Stage 2: Planner =====
