@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ===== Stage 1: Chef =====
-FROM rust:1.84-bookworm AS chef
+FROM rust:1.85-bookworm AS chef
 RUN cargo install cargo-chef
 WORKDIR /app
 
