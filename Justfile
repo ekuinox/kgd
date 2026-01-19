@@ -1,5 +1,7 @@
 # KGD Project Justfile
 
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
 # Default recipe (show available commands)
 default:
     @just --list
@@ -33,15 +35,15 @@ build:
     @echo "Building release binary..."
     cargo build --release
 
-# Run the Discord bot
+# Run the daemon
 run:
-    @echo "Starting Discord bot..."
-    cargo run --bin kgd-bot
+    @echo "Starting KGD daemon..."
+    cargo run --bin kgd
 
-# Run the Discord bot in release mode
+# Run the daemon in release mode
 run-release:
-    @echo "Starting Discord bot (release mode)..."
-    cargo run --bin kgd-bot --release
+    @echo "Starting KGD daemon (release mode)..."
+    cargo run --bin kgd --release
 
 # Clean build artifacts
 clean:
