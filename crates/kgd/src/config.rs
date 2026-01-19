@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use macaddr::MacAddr6;
 use serde::Deserialize;
+use serde_with::{DisplayFromStr, serde_as};
 use std::fs;
 use std::path::Path;
 
@@ -14,10 +16,12 @@ pub struct DiscordConfig {
     pub token: String,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub name: String,
-    pub mac_address: String,
+    #[serde_as(as = "DisplayFromStr")]
+    pub mac_address: MacAddr6,
     pub ip_address: String,
     pub description: Option<String>,
 }

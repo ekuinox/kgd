@@ -18,6 +18,7 @@ macaddr = "1.0"
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
+serde_with = "3.15"
 toml = "0.9"
 
 # Async runtime

@@ -96,7 +96,7 @@ impl Handler {
             .context(format!("Server '{}' not found", server_name))?;
 
         // Send WOL packet
-        send_wol_packet(&server.mac_address, None).context("Failed to send WOL packet")?;
+        send_wol_packet(server.mac_address, None).context("Failed to send WOL packet")?;
 
         let response = CreateInteractionResponseMessage::new()
             .content(format!(

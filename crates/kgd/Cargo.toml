@@ -14,6 +14,7 @@ serenity = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+serde_with = { workspace = true }
 toml = { workspace = true }
 wol = { workspace = true }
 macaddr = { workspace = true }
