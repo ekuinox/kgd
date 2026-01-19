@@ -1,0 +1,10 @@
+services:
+  kgd-bot:
+    image: ghcr.io/ekuinox/kgd:latest
+    container_name: kgd-bot
+    restart: unless-stopped
+    network_mode: host  # Required for WoL broadcast
+    cap_add:
+      - NET_RAW  # Required for WoL packets
+    volumes:
+      - ./config.toml:/app/config.toml:ro
