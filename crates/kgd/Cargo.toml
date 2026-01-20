@@ -19,3 +19,4 @@ toml = { workspace = true }
 wol = { workspace = true }
 macaddr = { workspace = true }
 thiserror = { workspace = true }
+clap = { workspace = true }

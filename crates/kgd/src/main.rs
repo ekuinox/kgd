@@ -2,7 +2,8 @@ mod config;
 mod wol;
 
 use anyhow::{Context, Result};
-use config::{Config, open_config};
+use clap::Parser;
+use config::{Config, open_config, write_default_config};
 use serenity::all::{
     CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse,
     CreateInteractionResponseMessage, GatewayIntents,
@@ -12,7 +13,17 @@ use serenity::builder::CreateEmbedFooter;
 use serenity::client::Context as SerenityContext;
 use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
+use std::path::PathBuf;
 use wol::send_wol_packet;
+
+#[derive(Parser)]
+struct Args {
+    #[arg(long, default_value = "config.toml")]
+    config: PathBuf,
+
+    #[arg(long)]
+    init: bool,
+}
 
 struct Handler {
     config: Config,
@@ -150,8 +161,16 @@ impl Handler {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+
+    if args.init {
+        write_default_config(&args.config)?;
+        println!("Created default configuration at {:?}", args.config);
+        return Ok(());
+    }
+
     // Load configuration
-    let config = open_config("./config.toml").context("Failed to load configuration")?;
+    let config = open_config(&args.config).context("Failed to load configuration")?;
     println!(
         "Loaded configuration with {} server(s)",
         config.servers.len()
