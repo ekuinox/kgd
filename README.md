@@ -1,4 +1,4 @@
-# KGD (Kuinox General Dashboard)
+# KGD (Kuaga General Daemon)
 
 自宅サーバー管理用のDiscord Bot。Wake-on-LAN (WOL) 機能を提供します。
 
