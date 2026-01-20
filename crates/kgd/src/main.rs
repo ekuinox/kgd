@@ -86,8 +86,7 @@ impl Handler {
         ctx: &SerenityContext,
         command: &CommandInteraction,
     ) -> Result<()> {
-        let user_id = command.user.id.get();
-        if !self.config.discord.is_admin(user_id) {
+        if !self.config.discord.admins.contains(&command.user.id.get()) {
             let response = CreateInteractionResponseMessage::new()
                 .content("You are not authorized to use this bot.")
                 .ephemeral(true);

@@ -27,12 +27,6 @@ impl Default for DiscordConfig {
     }
 }
 
-impl DiscordConfig {
-    pub fn is_admin(&self, user_id: u64) -> bool {
-        self.admins.is_empty() || self.admins.contains(&user_id)
-    }
-}
-
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ServerConfig {
