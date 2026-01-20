@@ -14,6 +14,7 @@ use serenity::client::Context as SerenityContext;
 use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
 use std::path::PathBuf;
+use tracing::{error, info, warn};
 use wol::send_wol_packet;
 
 #[derive(Parser)]
@@ -32,9 +33,8 @@ struct Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: SerenityContext, ready: serenity::model::gateway::Ready) {
-        println!("{} is connected!", ready.user.name);
+        info!(user = %ready.user.name, "Bot connected");
 
-        // Register slash commands
         let commands = vec![
             CreateCommand::new("wol")
                 .description("Wake up a server using Wake-on-LAN")
@@ -50,9 +50,9 @@ impl EventHandler for Handler {
         ];
 
         if let Err(e) = serenity::all::Command::set_global_commands(&ctx.http, commands).await {
-            eprintln!("Failed to register commands: {}", e);
+            error!(error = %e, "Failed to register commands");
         } else {
-            println!("Successfully registered slash commands");
+            info!("Slash commands registered");
         }
     }
 
@@ -64,7 +64,7 @@ impl EventHandler for Handler {
         if let serenity::model::application::Interaction::Command(command) = interaction
             && let Err(e) = self.handle_command(&ctx, &command).await
         {
-            eprintln!("Error handling command: {}", e);
+            error!(error = %e, command = %command.data.name, "Command error");
 
             let response = CreateInteractionResponseMessage::new()
                 .content(format!("Error: {}", e))
@@ -74,7 +74,7 @@ impl EventHandler for Handler {
                 .create_response(&ctx.http, CreateInteractionResponse::Message(response))
                 .await
             {
-                eprintln!("Failed to send error response: {}", e);
+                error!(error = %e, "Failed to send error response");
             }
         }
     }
@@ -86,7 +86,9 @@ impl Handler {
         ctx: &SerenityContext,
         command: &CommandInteraction,
     ) -> Result<()> {
-        if !self.config.discord.admins.contains(&command.user.id.get()) {
+        let user_id = command.user.id.get();
+        if !self.config.discord.admins.contains(&user_id) {
+            warn!(user_id, "Unauthorized access attempt");
             let response = CreateInteractionResponseMessage::new()
                 .content("You are not authorized to use this bot.")
                 .ephemeral(true);
@@ -116,8 +118,8 @@ impl Handler {
             .find_server(server_name)
             .context(format!("Server '{}' not found", server_name))?;
 
-        // Send WOL packet
         send_wol_packet(server.mac_address, None).context("Failed to send WOL packet")?;
+        info!(server = %server.name, mac = %server.mac_address, "WOL packet sent");
 
         let response = CreateInteractionResponseMessage::new()
             .content(format!(
@@ -169,23 +171,25 @@ impl Handler {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
+
     let args = Args::parse();
 
     if args.init {
         write_default_config(&args.config)?;
-        println!("Created default configuration at {:?}", args.config);
+        info!(path = ?args.config, "Created default configuration");
         return Ok(());
     }
 
-    // Load configuration
     let config = open_config(&args.config).context("Failed to load configuration")?;
-    println!(
-        "Loaded configuration with {} server(s)",
-        config.servers.len()
-    );
+    info!(servers = config.servers.len(), "Configuration loaded");
 
-    // Create client
-    let intents = GatewayIntents::empty(); // We don't need any gateway intents for slash commands
+    let intents = GatewayIntents::empty();
     let handler = Handler {
         config: config.clone(),
     };
@@ -195,8 +199,7 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to create client")?;
 
-    // Start listening
-    println!("Starting bot...");
+    info!("Starting bot");
     client.start().await.context("Client error")?;
 
     Ok(())
