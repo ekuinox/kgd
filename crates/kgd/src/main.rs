@@ -189,7 +189,7 @@ async fn main() -> Result<()> {
     let config = open_config(&args.config).context("Failed to load configuration")?;
     info!(servers = config.servers.len(), "Configuration loaded");
 
-    let intents = GatewayIntents::empty();
+    let intents = GatewayIntents::GUILDS;
     let handler = Handler {
         config: config.clone(),
     };
