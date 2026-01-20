@@ -27,24 +27,15 @@ pub struct ServerConfig {
 }
 
 impl Config {
-    /// Load configuration from a file path
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content =
-            fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
-        let config: Config =
-            toml::from_str(&content).context("Failed to parse configuration file")?;
-        Ok(config)
-    }
-
-    /// Load configuration from default path (./config.toml)
-    pub fn from_env() -> Result<Self> {
-        Self::load("./config.toml")
-    }
-
-    /// Find a server by name
     pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
         self.servers.iter().find(|s| s.name == name)
     }
+}
+
+pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
+    let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
+    let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
+    Ok(config)
 }
 
 impl ServerConfig {

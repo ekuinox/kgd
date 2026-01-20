@@ -2,7 +2,7 @@ mod config;
 mod wol;
 
 use anyhow::{Context, Result};
-use config::Config;
+use config::{Config, open_config};
 use serenity::all::{
     CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse,
     CreateInteractionResponseMessage, GatewayIntents,
@@ -151,7 +151,7 @@ impl Handler {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load configuration
-    let config = Config::from_env().context("Failed to load configuration")?;
+    let config = open_config("./config.toml").context("Failed to load configuration")?;
     println!(
         "Loaded configuration with {} server(s)",
         config.servers.len()
