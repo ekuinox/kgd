@@ -14,11 +14,18 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 
 # Build dependencies (cached if recipe.json unchanged)
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json
 
 # Build application
 COPY . .
-RUN cargo build --release --bin kgd
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release --bin kgd && \
+    cp /app/target/release/kgd /app/kgd-binary
 
 # ===== Stage 4: Runtime =====
 FROM debian:bookworm-slim AS runtime
@@ -33,7 +40,7 @@ RUN useradd -r -s /bin/false kgd
 WORKDIR /app
 
 # Copy binary
-COPY --from=builder /app/target/release/kgd /app/kgd
+COPY --from=builder /app/kgd-binary /app/kgd
 
 # Set capability for raw socket (WoL)
 RUN setcap cap_net_raw+ep /app/kgd
