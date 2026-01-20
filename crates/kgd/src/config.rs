@@ -5,13 +5,13 @@ use serde_with::{DisplayFromStr, serde_as};
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct Config {
     pub discord: DiscordConfig,
     pub servers: Vec<ServerConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DiscordConfig {
     pub token: String,
 }
@@ -25,7 +25,7 @@ impl Default for DiscordConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub name: String,
     #[serde_as(as = "DisplayFromStr")]
@@ -66,4 +66,37 @@ pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
     let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
     fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_example_config() {
+        let content = include_str!("../../../config.example.toml");
+        let config: Config = toml::from_str(content).expect("Failed to parse config.example.toml");
+
+        let expected = Config {
+            discord: DiscordConfig {
+                token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
+            },
+            servers: vec![
+                ServerConfig {
+                    name: "Main Server".to_string(),
+                    mac_address: MacAddr6::new(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF),
+                    ip_address: "192.168.1.100".to_string(),
+                    description: "メインサーバー".to_string(),
+                },
+                ServerConfig {
+                    name: "Storage Server".to_string(),
+                    mac_address: MacAddr6::new(0x11, 0x22, 0x33, 0x44, 0x55, 0x66),
+                    ip_address: "192.168.1.101".to_string(),
+                    description: "ストレージサーバー".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(config, expected);
+    }
 }
