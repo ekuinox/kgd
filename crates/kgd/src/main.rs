@@ -86,6 +86,17 @@ impl Handler {
         ctx: &SerenityContext,
         command: &CommandInteraction,
     ) -> Result<()> {
+        let user_id = command.user.id.get();
+        if !self.config.discord.is_admin(user_id) {
+            let response = CreateInteractionResponseMessage::new()
+                .content("You are not authorized to use this bot.")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
         match command.data.name.as_str() {
             "wol" => self.handle_wol(ctx, command).await,
             "servers" => self.handle_servers(ctx, command).await,

@@ -3,6 +3,9 @@
 # Your Discord Bot Token
 # Get this from: https://discord.com/developers/applications
 token = "YOUR_DISCORD_BOT_TOKEN"
+# List of Discord user IDs allowed to use the bot
+# If empty, all users can use the bot
+admins = []
 
 # Server Configurations
 # Add your servers here with their MAC addresses and IP addresses

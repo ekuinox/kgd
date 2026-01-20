@@ -14,13 +14,22 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DiscordConfig {
     pub token: String,
+    #[serde(default)]
+    pub admins: Vec<u64>,
 }
 
 impl Default for DiscordConfig {
     fn default() -> Self {
         Self {
             token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
+            admins: vec![],
         }
+    }
+}
+
+impl DiscordConfig {
+    pub fn is_admin(&self, user_id: u64) -> bool {
+        self.admins.is_empty() || self.admins.contains(&user_id)
     }
 }
 
@@ -80,6 +89,7 @@ mod tests {
         let expected = Config {
             discord: DiscordConfig {
                 token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
+                admins: vec![],
             },
             servers: vec![
                 ServerConfig {
