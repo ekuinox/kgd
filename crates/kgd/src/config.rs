@@ -31,7 +31,8 @@ pub struct ServerConfig {
     #[serde_as(as = "DisplayFromStr")]
     pub mac_address: MacAddr6,
     pub ip_address: String,
-    pub description: Option<String>,
+    #[serde(default)]
+    pub description: String,
 }
 
 impl Default for ServerConfig {
@@ -40,7 +41,7 @@ impl Default for ServerConfig {
             name: "example-server".to_string(),
             mac_address: MacAddr6::new(0x00, 0x11, 0x22, 0x33, 0x44, 0x55),
             ip_address: "192.168.1.100".to_string(),
-            description: Some("Example server".to_string()),
+            description: "Example server".to_string(),
         }
     }
 }
@@ -65,11 +66,4 @@ pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
     let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
     fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
-}
-
-impl ServerConfig {
-    /// Get the description or a default message
-    pub fn description(&self) -> &str {
-        self.description.as_deref().unwrap_or("No description")
-    }
 }

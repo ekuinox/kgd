@@ -135,9 +135,7 @@ impl Handler {
         for server in &self.config.servers {
             let field_value = format!(
                 "**IP:** {}\n**MAC:** {}\n**Description:** {}",
-                server.ip_address,
-                server.mac_address,
-                server.description()
+                server.ip_address, server.mac_address, server.description
             );
             embed = embed.field(&server.name, field_value, false);
         }
