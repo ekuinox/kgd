@@ -1,7 +1,12 @@
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use serenity::all::{
-    CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse,
-    CreateInteractionResponseMessage, GatewayIntents,
+    ChannelId, CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed,
+    CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, GatewayIntents,
+    Http,
 };
 use serenity::async_trait;
 use serenity::builder::CreateEmbedFooter;
@@ -10,7 +15,8 @@ use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
 use tracing::{error, info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, ServerConfig, StatusConfig};
+use crate::ping::ping;
 use crate::wol::send_wol_packet;
 
 pub struct Handler {
@@ -40,6 +46,15 @@ impl EventHandler for Handler {
             error!(error = %e, "Failed to register commands");
         } else {
             info!("Slash commands registered");
+        }
+
+        if let Some(status_config) = &self.config.status {
+            let http = ctx.http.clone();
+            let servers = self.config.servers.clone();
+            let status_config = status_config.clone();
+            tokio::spawn(async move {
+                run_status_monitor(http, servers, status_config).await;
+            });
         }
     }
 
@@ -153,6 +168,50 @@ impl Handler {
             .await?;
 
         Ok(())
+    }
+}
+
+async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config: StatusConfig) {
+    let channel_id = ChannelId::new(config.channel_id);
+    let interval = Duration::from_secs(config.interval_seconds);
+    let ping_timeout = Duration::from_secs(5);
+
+    info!(
+        channel_id = config.channel_id,
+        interval_seconds = config.interval_seconds,
+        "Starting status monitor"
+    );
+
+    loop {
+        let mut embed = CreateEmbed::new()
+            .title("Server Status")
+            .color(0x00ff00);
+
+        for server in &servers {
+            let ip: IpAddr = match server.ip_address.parse() {
+                Ok(ip) => ip,
+                Err(_) => {
+                    embed = embed.field(&server.name, "❌ Invalid IP address", true);
+                    continue;
+                }
+            };
+
+            let is_online = ping(ip, ping_timeout).await;
+            let status = if is_online { "🟢 Online" } else { "🔴 Offline" };
+            embed = embed.field(&server.name, status, true);
+        }
+
+        embed = embed.footer(CreateEmbedFooter::new(format!(
+            "Updated every {} seconds",
+            config.interval_seconds
+        )));
+
+        let message = CreateMessage::new().embed(embed);
+        if let Err(e) = channel_id.send_message(&http, message).await {
+            error!(error = %e, "Failed to send status message");
+        }
+
+        tokio::time::sleep(interval).await;
     }
 }
 

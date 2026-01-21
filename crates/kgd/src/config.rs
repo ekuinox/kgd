@@ -9,6 +9,7 @@ use std::path::Path;
 pub struct Config {
     pub discord: DiscordConfig,
     pub servers: Vec<ServerConfig>,
+    pub status: Option<StatusConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -47,6 +48,17 @@ impl Default for ServerConfig {
             description: "Example server".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StatusConfig {
+    pub channel_id: u64,
+    #[serde(default = "default_interval_seconds")]
+    pub interval_seconds: u64,
+}
+
+fn default_interval_seconds() -> u64 {
+    300 // 5 minutes
 }
 
 impl Config {
@@ -99,6 +111,7 @@ mod tests {
                     description: "ストレージサーバー".to_string(),
                 },
             ],
+            status: None,
         };
 
         assert_eq!(config, expected);

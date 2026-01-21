@@ -1,5 +1,6 @@
 mod config;
 mod discord;
+mod ping;
 mod wol;
 
 use anyhow::{Context, Result};
