@@ -48,15 +48,13 @@ impl EventHandler for Handler {
             info!("Slash commands registered");
         }
 
-        if let Some(status_config) = &self.config.status {
-            let http = ctx.http.clone();
-            let servers = self.config.servers.clone();
-            let channel_id = self.config.discord.status_channel_id;
-            let interval = status_config.interval;
-            tokio::spawn(async move {
-                run_status_monitor(http, servers, channel_id, interval).await;
-            });
-        }
+        let http = ctx.http.clone();
+        let servers = self.config.servers.clone();
+        let channel_id = self.config.discord.status_channel_id;
+        let interval = self.config.status.interval;
+        tokio::spawn(async move {
+            run_status_monitor(http, servers, channel_id, interval).await;
+        });
     }
 
     async fn interaction_create(

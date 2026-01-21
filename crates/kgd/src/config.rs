@@ -11,7 +11,7 @@ use serde_with::{DisplayFromStr, serde_as};
 pub struct Config {
     pub discord: DiscordConfig,
     pub servers: Vec<ServerConfig>,
-    pub status: Option<StatusConfig>,
+    pub status: StatusConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -58,6 +58,14 @@ impl Default for ServerConfig {
 pub struct StatusConfig {
     #[serde(default = "default_interval", with = "humantime_serde")]
     pub interval: Duration,
+}
+
+impl Default for StatusConfig {
+    fn default() -> Self {
+        Self {
+            interval: default_interval(),
+        }
+    }
 }
 
 fn default_interval() -> Duration {
@@ -115,7 +123,7 @@ mod tests {
                     description: "ストレージサーバー".to_string(),
                 },
             ],
-            status: None,
+            status: StatusConfig::default(),
         };
 
         assert_eq!(config, expected);
