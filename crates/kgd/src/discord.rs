@@ -188,9 +188,7 @@ async fn run_status_monitor(
     loop {
         info!("Checking server status");
 
-        let mut embed = CreateEmbed::new()
-            .title("Server Status")
-            .color(0x00ff00);
+        let mut embed = CreateEmbed::new().title("Server Status").color(0x00ff00);
 
         for server in &servers {
             let ip: IpAddr = match server.ip_address.parse() {
@@ -202,7 +200,11 @@ async fn run_status_monitor(
             };
 
             let is_online = ping(ip, ping_timeout).await;
-            let status = if is_online { "🟢 Online" } else { "🔴 Offline" };
+            let status = if is_online {
+                "🟢 Online"
+            } else {
+                "🔴 Offline"
+            };
             info!(server = %server.name, online = is_online, "Server status checked");
             embed = embed.field(&server.name, status, true);
         }
