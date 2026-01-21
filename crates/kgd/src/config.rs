@@ -19,7 +19,7 @@ pub struct DiscordConfig {
     pub token: String,
     #[serde(default)]
     pub admins: Vec<u64>,
-    pub status_channel_id: Option<u64>,
+    pub status_channel_id: u64,
 }
 
 impl Default for DiscordConfig {
@@ -27,7 +27,7 @@ impl Default for DiscordConfig {
         Self {
             token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
             admins: vec![],
-            status_channel_id: None,
+            status_channel_id: 0,
         }
     }
 }
@@ -99,7 +99,7 @@ mod tests {
             discord: DiscordConfig {
                 token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
                 admins: vec![],
-                status_channel_id: None,
+                status_channel_id: 123456789012345678,
             },
             servers: vec![
                 ServerConfig {
