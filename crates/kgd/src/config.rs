@@ -19,6 +19,7 @@ pub struct DiscordConfig {
     pub token: String,
     #[serde(default)]
     pub admins: Vec<u64>,
+    pub status_channel_id: Option<u64>,
 }
 
 impl Default for DiscordConfig {
@@ -26,6 +27,7 @@ impl Default for DiscordConfig {
         Self {
             token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
             admins: vec![],
+            status_channel_id: None,
         }
     }
 }
@@ -54,7 +56,6 @@ impl Default for ServerConfig {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct StatusConfig {
-    pub channel_id: u64,
     #[serde(default = "default_interval", with = "humantime_serde")]
     pub interval: Duration,
 }
@@ -98,6 +99,7 @@ mod tests {
             discord: DiscordConfig {
                 token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
                 admins: vec![],
+                status_channel_id: None,
             },
             servers: vec![
                 ServerConfig {

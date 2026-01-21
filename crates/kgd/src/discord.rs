@@ -15,7 +15,7 @@ use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
 use tracing::{error, info, warn};
 
-use crate::config::{Config, ServerConfig, StatusConfig};
+use crate::config::{Config, ServerConfig};
 use crate::ping::ping;
 use crate::wol::send_wol_packet;
 
@@ -48,12 +48,15 @@ impl EventHandler for Handler {
             info!("Slash commands registered");
         }
 
-        if let Some(status_config) = &self.config.status {
+        if let (Some(channel_id), Some(status_config)) = (
+            self.config.discord.status_channel_id,
+            &self.config.status,
+        ) {
             let http = ctx.http.clone();
             let servers = self.config.servers.clone();
-            let status_config = status_config.clone();
+            let interval = status_config.interval;
             tokio::spawn(async move {
-                run_status_monitor(http, servers, status_config).await;
+                run_status_monitor(http, servers, channel_id, interval).await;
             });
         }
     }
@@ -171,13 +174,18 @@ impl Handler {
     }
 }
 
-async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config: StatusConfig) {
-    let channel_id = ChannelId::new(config.channel_id);
+async fn run_status_monitor(
+    http: Arc<Http>,
+    servers: Vec<ServerConfig>,
+    channel_id: u64,
+    interval: Duration,
+) {
+    let channel_id = ChannelId::new(channel_id);
     let ping_timeout = Duration::from_secs(5);
 
     info!(
-        channel_id = config.channel_id,
-        interval = ?config.interval,
+        channel_id = channel_id.get(),
+        interval = ?interval,
         "Starting status monitor"
     );
 
@@ -202,7 +210,7 @@ async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config:
 
         embed = embed.footer(CreateEmbedFooter::new(format!(
             "Updated every {}",
-            humantime::format_duration(config.interval)
+            humantime::format_duration(interval)
         )));
 
         let message = CreateMessage::new().embed(embed);
@@ -210,7 +218,7 @@ async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config:
             error!(error = %e, "Failed to send status message");
         }
 
-        tokio::time::sleep(config.interval).await;
+        tokio::time::sleep(interval).await;
     }
 }
 
