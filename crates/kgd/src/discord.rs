@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,10 +12,11 @@ use serenity::builder::CreateEmbedFooter;
 use serenity::client::Context as SerenityContext;
 use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::config::{Config, ServerConfig};
-use crate::ping::ping;
+use crate::config::Config;
+use crate::status::ServerStatus;
 use crate::wol::send_wol_packet;
 
 pub struct Handler {
@@ -47,14 +47,6 @@ impl EventHandler for Handler {
         } else {
             info!("Slash commands registered");
         }
-
-        let http = ctx.http.clone();
-        let servers = self.config.servers.clone();
-        let channel_id = self.config.discord.status_channel_id;
-        let interval = self.config.status.interval;
-        tokio::spawn(async move {
-            run_status_monitor(http, servers, channel_id, interval).await;
-        });
     }
 
     async fn interaction_create(
@@ -170,60 +162,40 @@ impl Handler {
     }
 }
 
-async fn run_status_monitor(
+pub struct StatusNotifier {
     http: Arc<Http>,
-    servers: Vec<ServerConfig>,
-    channel_id: u64,
+    channel_id: ChannelId,
     interval: Duration,
-) {
-    let channel_id = ChannelId::new(channel_id);
-    let ping_timeout = Duration::from_secs(5);
+}
 
-    info!(
-        channel_id = channel_id.get(),
-        interval = ?interval,
-        "Starting status monitor"
-    );
+impl StatusNotifier {
+    pub async fn send(&self, statuses: &[ServerStatus]) {
+        let mut embed = CreateEmbed::new()
+            .title("Server Status")
+            .color(0x00ff00);
 
-    loop {
-        info!("Checking server status");
-
-        let mut embed = CreateEmbed::new().title("Server Status").color(0x00ff00);
-
-        for server in &servers {
-            let ip: IpAddr = match server.ip_address.parse() {
-                Ok(ip) => ip,
-                Err(_) => {
-                    embed = embed.field(&server.name, "❌ Invalid IP address", true);
-                    continue;
-                }
-            };
-
-            let is_online = ping(ip, ping_timeout).await;
-            let status = if is_online {
+        for status in statuses {
+            let status_text = if status.online {
                 "🟢 Online"
             } else {
                 "🔴 Offline"
             };
-            info!(server = %server.name, online = is_online, "Server status checked");
-            embed = embed.field(&server.name, status, true);
+            embed = embed.field(&status.name, status_text, true);
         }
 
         embed = embed.footer(CreateEmbedFooter::new(format!(
             "Updated every {}",
-            humantime::format_duration(interval)
+            humantime::format_duration(self.interval)
         )));
 
         let message = CreateMessage::new().embed(embed);
-        if let Err(e) = channel_id.send_message(&http, message).await {
+        if let Err(e) = self.channel_id.send_message(&self.http, message).await {
             error!(error = %e, "Failed to send status message");
         }
-
-        tokio::time::sleep(interval).await;
     }
 }
 
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -> Result<()> {
     let intents = GatewayIntents::GUILDS;
     let handler = Handler {
         config: config.clone(),
@@ -234,8 +206,26 @@ pub async fn run(config: Config) -> Result<()> {
         .await
         .context("Failed to create client")?;
 
+    let http = client.http.clone();
+    let channel_id = ChannelId::new(config.discord.status_channel_id);
+    let interval = config.status.interval;
+
+    let notifier = StatusNotifier {
+        http,
+        channel_id,
+        interval,
+    };
+
+    tokio::spawn(run_status_receiver(notifier, status_rx));
+
     info!("Starting bot");
     client.start().await.context("Client error")?;
 
     Ok(())
+}
+
+async fn run_status_receiver(notifier: StatusNotifier, mut rx: mpsc::Receiver<Vec<ServerStatus>>) {
+    while let Some(statuses) = rx.recv().await {
+        notifier.send(&statuses).await;
+    }
 }
