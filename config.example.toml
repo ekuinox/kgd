@@ -33,4 +33,4 @@ description = "ストレージサーバー"
 # Uncomment to enable periodic status updates
 # [status]
 # channel_id = 123456789012345678  # Discord channel ID to post status
-# interval_seconds = 300  # Update interval in seconds (default: 300 = 5 minutes)
+# interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m

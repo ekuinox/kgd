@@ -1,9 +1,11 @@
+use std::fs;
+use std::path::Path;
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
-use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct Config {
@@ -53,12 +55,12 @@ impl Default for ServerConfig {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct StatusConfig {
     pub channel_id: u64,
-    #[serde(default = "default_interval_seconds")]
-    pub interval_seconds: u64,
+    #[serde(default = "default_interval", with = "humantime_serde")]
+    pub interval: Duration,
 }
 
-fn default_interval_seconds() -> u64 {
-    300 // 5 minutes
+fn default_interval() -> Duration {
+    Duration::from_secs(300) // 5 minutes
 }
 
 impl Config {

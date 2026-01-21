@@ -173,12 +173,11 @@ impl Handler {
 
 async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config: StatusConfig) {
     let channel_id = ChannelId::new(config.channel_id);
-    let interval = Duration::from_secs(config.interval_seconds);
     let ping_timeout = Duration::from_secs(5);
 
     info!(
         channel_id = config.channel_id,
-        interval_seconds = config.interval_seconds,
+        interval = ?config.interval,
         "Starting status monitor"
     );
 
@@ -202,8 +201,8 @@ async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config:
         }
 
         embed = embed.footer(CreateEmbedFooter::new(format!(
-            "Updated every {} seconds",
-            config.interval_seconds
+            "Updated every {}",
+            humantime::format_duration(config.interval)
         )));
 
         let message = CreateMessage::new().embed(embed);
@@ -211,7 +210,7 @@ async fn run_status_monitor(http: Arc<Http>, servers: Vec<ServerConfig>, config:
             error!(error = %e, "Failed to send status message");
         }
 
-        tokio::time::sleep(interval).await;
+        tokio::time::sleep(config.interval).await;
     }
 }
 
