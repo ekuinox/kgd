@@ -1,13 +1,17 @@
-use macaddr::MacAddr6;
 use std::net::{Ipv4Addr, SocketAddr};
+
+use macaddr::MacAddr6;
 use thiserror::Error;
 
+/// Wake-on-LAN 操作で発生しうるエラー。
 #[derive(Error, Debug)]
 pub enum WolError {
+    /// ネットワーク操作に失敗した場合のエラー
     #[error("Network error: {0}")]
     NetworkError(#[from] std::io::Error),
 }
 
+/// Wake-on-LAN 操作の結果型。
 pub type Result<T> = std::result::Result<T, WolError>;
 
 /// Send a Wake-on-LAN magic packet to the specified MAC address

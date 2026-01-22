@@ -5,14 +5,14 @@ mod status;
 mod version;
 mod wol;
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use clap::Parser;
-use config::{open_config, write_default_config};
-use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::info;
+
+use crate::config::{open_config, write_default_config};
 
 #[derive(Parser)]
 #[command(version = version::short_version())]
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let config = open_config(&args.config).context("Failed to load configuration")?;
+    let config = open_config(&args.config).context("設定ファイルの読み込みに失敗しました")?;
     info!(servers = config.servers.len(), "Configuration loaded");
 
     let (status_tx, status_rx) = mpsc::channel(1);

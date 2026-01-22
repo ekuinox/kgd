@@ -1,22 +1,27 @@
-use std::fs;
-use std::path::Path;
-use std::time::Duration;
+use std::{fs, path::Path, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
+/// アプリケーション全体の設定を保持する構造体。
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct Config {
+    /// Discord Bot の設定
     pub discord: DiscordConfig,
+    /// 監視対象のサーバー一覧
     pub servers: Vec<ServerConfig>,
+    /// ステータスモニターの設定
     pub status: StatusConfig,
 }
 
+/// Discord Bot の設定。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DiscordConfig {
+    /// Discord Bot のトークン
     pub token: String,
+    /// コマンド実行を許可する管理者のユーザーID一覧
     #[serde(default)]
     pub admins: Vec<u64>,
     /// サーバーステータスを通知するDiscordチャンネルのID
@@ -33,13 +38,18 @@ impl Default for DiscordConfig {
     }
 }
 
+/// 監視対象サーバーの設定。
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ServerConfig {
+    /// サーバー名（識別用）
     pub name: String,
+    /// Wake-on-LAN 送信先の MAC アドレス
     #[serde_as(as = "DisplayFromStr")]
     pub mac_address: MacAddr6,
+    /// ping 送信先の IP アドレス
     pub ip_address: String,
+    /// サーバーの説明文
     #[serde(default)]
     pub description: String,
 }
@@ -58,7 +68,7 @@ impl Default for ServerConfig {
 /// ステータスモニターの設定。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct StatusConfig {
-    /// ステータスチェックの実行間隔 (デフォルト: 5分)
+    /// ステータスチェックの実行間隔（デフォルト: 5分）
     #[serde(default = "default_interval", with = "humantime_serde")]
     pub interval: Duration,
 }
@@ -76,24 +86,28 @@ fn default_interval() -> Duration {
 }
 
 impl Config {
+    /// 指定された名前のサーバー設定を検索する。
     pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
         self.servers.iter().find(|s| s.name == name)
     }
 }
 
+/// 指定されたパスから設定ファイルを読み込む。
 pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
-    let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
-    let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
+    let content =
+        fs::read_to_string(path.as_ref()).context("設定ファイルの読み込みに失敗しました")?;
+    let config: Config = toml::from_str(&content).context("設定ファイルのパースに失敗しました")?;
     Ok(config)
 }
 
+/// デフォルト設定を指定されたパスに書き出す。
 pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
     let config = Config {
         servers: vec![ServerConfig::default()],
         ..Default::default()
     };
-    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
-    fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
+    let content = toml::to_string_pretty(&config).context("設定のシリアライズに失敗しました")?;
+    fs::write(path.as_ref(), content).context("設定ファイルの書き込みに失敗しました")?;
     Ok(())
 }
 
