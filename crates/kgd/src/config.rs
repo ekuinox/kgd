@@ -6,14 +6,14 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
 /// 指定されたパスから設定ファイルを読み込む。
-pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
+pub fn open_config(path: impl AsRef<Path>) -> Result<Config> {
     let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
     let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
     Ok(config)
 }
 
 /// デフォルト設定を指定されたパスに書き出す。
-pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
+pub fn write_default_config(path: impl AsRef<Path>) -> Result<()> {
     let config = Config {
         servers: vec![ServerConfig::default()],
         ..Default::default()
