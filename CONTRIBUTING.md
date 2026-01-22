@@ -114,6 +114,55 @@ use self::foo::FooState;
 
 ### モジュール内の書き方
 
+外部に公開している関数や構造体をファイルの上部に置き、公開しないものを下部に配置すること
+
+```rust
+// 公開する単純な関数が一番上
+pub fn create(value: usize) -> State {
+    State::new(value)
+}
+
+// 公開する構造体
+pub struct State {
+    count: usize,
+    text: String,
+}
+
+// 構造体への実装は構造体のすぐ下
+impl State {
+    pub fn new(count: usize) -> State {
+        State::with_text(count, Default::default())
+    }
+    pub fn with_text(count: usize, text: String) -> State {
+        State { count, text }
+    }
+    pub fn state_text(&self) -> String {
+        create_text(count, &text)
+    }
+}
+
+// 構造体へのトレイト実装は構造体の下
+impl Default for State {
+    fn default() -> State {
+        todo!()
+    }
+}
+
+// 公開しない構造体
+struct Foo;
+
+// 外部に公開しない関数
+fn create_text(count: usize, text: &str) -> String {
+    let suffix = create_suffix();
+    todo!()
+}
+
+// create_text の内部で呼び出されるだけなので更に下
+fn create_suffix() -> String {
+    todo!()
+}
+```
+
 外部から使用される関数、構造体などをなるべくファイルの先頭よりに実装する
 
 `fn main()` からの距離が近いものほど浅い位置になるように
