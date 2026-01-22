@@ -5,6 +5,24 @@ use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
+/// 指定されたパスから設定ファイルを読み込む。
+pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
+    let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
+    let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
+    Ok(config)
+}
+
+/// デフォルト設定を指定されたパスに書き出す。
+pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
+    let config = Config {
+        servers: vec![ServerConfig::default()],
+        ..Default::default()
+    };
+    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
+    fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
+    Ok(())
+}
+
 /// アプリケーション全体の設定を保持する構造体。
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct Config {
@@ -14,6 +32,13 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     /// ステータスモニターの設定
     pub status: StatusConfig,
+}
+
+impl Config {
+    /// 指定された名前のサーバー設定を検索する。
+    pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
+        self.servers.iter().find(|s| s.name == name)
+    }
 }
 
 /// Discord Bot の設定。
@@ -79,31 +104,6 @@ impl Default for StatusConfig {
             interval: default_interval(),
         }
     }
-}
-
-impl Config {
-    /// 指定された名前のサーバー設定を検索する。
-    pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
-        self.servers.iter().find(|s| s.name == name)
-    }
-}
-
-/// 指定されたパスから設定ファイルを読み込む。
-pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
-    let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
-    let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
-    Ok(config)
-}
-
-/// デフォルト設定を指定されたパスに書き出す。
-pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
-    let config = Config {
-        servers: vec![ServerConfig::default()],
-        ..Default::default()
-    };
-    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
-    fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
-    Ok(())
 }
 
 fn default_interval() -> Duration {
