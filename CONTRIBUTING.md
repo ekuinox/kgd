@@ -11,6 +11,7 @@ just validate
 ```
 
 このコマンドは自動的に以下を実行します:
+
 - `cargo fmt` - コードフォーマット
 - `cargo check` - ビルドチェック
 - `cargo clippy` - Lintチェック
@@ -40,11 +41,13 @@ just run-release   # Discord Botを起動 (リリースモード)
 ## 依存の管理
 
 ### バージョン選択
+
 - 新しい依存を追加する際は、極力最新のバージョンを調べて使用すること
 - crates.io で最新の安定版を確認する
 - メジャーバージョンの変更には注意し、CHANGELOG を確認する
 
 ### Workspace での共有
+
 - 依存は原則として workspace 間で共有すること
 - 共通の依存は `Cargo.toml` の `[workspace.dependencies]` に定義する
 - 各クレートでは `workspace = true` を使用して参照する
@@ -58,11 +61,76 @@ new-crate = "1.0"
 
 # Individual crate Cargo.toml
 [dependencies]
-new-crate = { workspace = true }
+new-crate.workspace = true
 ```
 
-## コード品質
+`{ workspace = true }` のようなインラインテーブルを使用するのは必要になったときのみで、テーブル内で指定する値が一つの場合は `.` で代入すること
+
+## Rust コードを書くとき
+
+### コード品質
 
 - Clippy の警告は可能な限り解消すること
 - 不要な警告を無視する場合は、理由をコメントで明記すること
 - コードは `cargo fmt` でフォーマットすること
+
+### コメント
+
+構造体やフィールドについては doc コメントを使って、対象の目的や使い方などを記載する
+
+```rust
+/// ここ
+struct Foo {
+    /// ここ
+    count: usize,
+}
+```
+
+### import の書き方
+
+- ブロックを分けて `use` する
+  - `std`
+  - `anyhow` や `clap` などの外部クレート
+  - 内部の依存 `crate`
+  - 自身の依存 `self`
+- トレイトメソッドのみを使用する場合の `use` は `as _;` を使う
+- 同じクレートから `use` する場合はマージして書く
+
+以下はこのプロジェクトが理想とする `use` の書き方
+
+```rust
+use std::{time::Duration, path::PathBuf};
+
+use anyhow::{Context as _, Result};
+use clap::Parser;
+use tokio::sync::mpsc;
+use tracing::info;
+
+use crate::config::open_config;
+
+use self::foo::FooState;
+```
+
+### モジュール内の書き方
+
+外部から使用される関数、構造体などをなるべくファイルの先頭よりに実装する
+
+`fn main()` からの距離が近いものほど浅い位置になるように
+
+### 単体テスト
+
+なるべく単体テストを実装すること
+
+単体テストは `mod tests` 内に実装する
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_foo() {
+        assert!(foo());
+    }
+}
+```
