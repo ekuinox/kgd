@@ -19,6 +19,7 @@ pub struct DiscordConfig {
     pub token: String,
     #[serde(default)]
     pub admins: Vec<u64>,
+    /// サーバーステータスを通知するDiscordチャンネルのID
     pub status_channel_id: u64,
 }
 
@@ -54,8 +55,10 @@ impl Default for ServerConfig {
     }
 }
 
+/// ステータスモニターの設定。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct StatusConfig {
+    /// ステータスチェックの実行間隔 (デフォルト: 5分)
     #[serde(default = "default_interval", with = "humantime_serde")]
     pub interval: Duration,
 }

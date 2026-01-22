@@ -162,6 +162,7 @@ impl Handler {
     }
 }
 
+/// サーバーステータスをDiscordチャンネルに通知するための構造体。
 pub struct StatusNotifier {
     http: Arc<Http>,
     channel_id: ChannelId,
@@ -169,10 +170,9 @@ pub struct StatusNotifier {
 }
 
 impl StatusNotifier {
+    /// サーバーステータスをDiscordチャンネルに埋め込みメッセージとして送信する。
     pub async fn send(&self, statuses: &[ServerStatus]) {
-        let mut embed = CreateEmbed::new()
-            .title("Server Status")
-            .color(0x00ff00);
+        let mut embed = CreateEmbed::new().title("Server Status").color(0x00ff00);
 
         for status in statuses {
             let status_text = if status.online {
@@ -224,6 +224,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     Ok(())
 }
 
+/// ステータスモニターからの通知を受信し、Discordに転送するループを実行する。
 async fn run_status_receiver(notifier: StatusNotifier, mut rx: mpsc::Receiver<Vec<ServerStatus>>) {
     while let Some(statuses) = rx.recv().await {
         notifier.send(&statuses).await;

@@ -51,6 +51,12 @@ async fn main() -> Result<()> {
     discord::run(config, status_rx).await
 }
 
+/// サーバーステータスを定期的にチェックし、結果をチャンネルに送信するループを実行する。
+///
+/// # Arguments
+/// * `servers` - 監視対象のサーバー設定リスト
+/// * `interval` - チェック間隔
+/// * `tx` - ステータス結果を送信するチャンネル
 async fn run_status_monitor(
     servers: Vec<config::ServerConfig>,
     interval: Duration,
