@@ -25,3 +25,7 @@ tracing-subscriber = { workspace = true }
 surge-ping = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
+const_format = { workspace = true }
+
+[build-dependencies]
+vergen-gitcl = { workspace = true }
