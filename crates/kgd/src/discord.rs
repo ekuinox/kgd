@@ -235,7 +235,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let mut client = Client::builder(&config.discord.token, intents)
         .event_handler(handler)
         .await
-        .context("Discord クライアントの作成に失敗しました")?;
+        .context("Failed to create Discord client")?;
 
     let http = client.http.clone();
     let channel_id = ChannelId::new(config.discord.status_channel_id);
@@ -250,10 +250,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     tokio::spawn(run_status_receiver(notifier, status_rx));
 
     info!("Starting bot");
-    client
-        .start()
-        .await
-        .context("Discord クライアントでエラーが発生しました")?;
+    client.start().await.context("Discord client error")?;
 
     Ok(())
 }

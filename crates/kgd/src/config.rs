@@ -94,9 +94,8 @@ impl Config {
 
 /// 指定されたパスから設定ファイルを読み込む。
 pub fn open_config<P: AsRef<Path>>(path: P) -> Result<Config> {
-    let content =
-        fs::read_to_string(path.as_ref()).context("設定ファイルの読み込みに失敗しました")?;
-    let config: Config = toml::from_str(&content).context("設定ファイルのパースに失敗しました")?;
+    let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
+    let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
     Ok(config)
 }
 
@@ -106,8 +105,8 @@ pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
         servers: vec![ServerConfig::default()],
         ..Default::default()
     };
-    let content = toml::to_string_pretty(&config).context("設定のシリアライズに失敗しました")?;
-    fs::write(path.as_ref(), content).context("設定ファイルの書き込みに失敗しました")?;
+    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
+    fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
 }
 
