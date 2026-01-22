@@ -10,22 +10,22 @@ name = "kgd"
 path = "src/main.rs"
 
 [dependencies]
-serenity = { workspace = true }
-tokio = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true }
-serde_with = { workspace = true }
-toml = { workspace = true }
-wol = { workspace = true }
-macaddr = { workspace = true }
-thiserror = { workspace = true }
-clap = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-surge-ping = { workspace = true }
-humantime = { workspace = true }
-humantime-serde = { workspace = true }
-const_format = { workspace = true }
+serenity.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+toml.workspace = true
+wol.workspace = true
+macaddr.workspace = true
+thiserror.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+surge-ping.workspace = true
+humantime.workspace = true
+humantime-serde.workspace = true
+const_format.workspace = true
 
 [build-dependencies]
-vergen-gitcl = { workspace = true }
+vergen-gitcl.workspace = true
