@@ -81,10 +81,6 @@ impl Default for StatusConfig {
     }
 }
 
-fn default_interval() -> Duration {
-    Duration::from_secs(300) // 5 minutes
-}
-
 impl Config {
     /// 指定された名前のサーバー設定を検索する。
     pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
@@ -108,6 +104,10 @@ pub fn write_default_config<P: AsRef<Path>>(path: P) -> Result<()> {
     let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
     fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
+}
+
+fn default_interval() -> Duration {
+    Duration::from_secs(300) // 5 minutes
 }
 
 #[cfg(test)]

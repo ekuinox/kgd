@@ -2,13 +2,11 @@
 //!
 //! 設定されたサーバー一覧に対してpingを実行し、オンライン/オフライン状態を取得する。
 
-use std::net::IpAddr;
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
 
 use tracing::info;
 
-use crate::config::ServerConfig;
-use crate::ping::ping;
+use crate::{config::ServerConfig, ping::ping};
 
 /// サーバーのステータス情報を表す構造体。
 pub struct ServerStatus {

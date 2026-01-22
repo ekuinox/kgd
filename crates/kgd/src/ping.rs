@@ -1,7 +1,7 @@
 //! ICMP pingによるサーバー到達性チェック機能を提供する。
 
-use std::net::IpAddr;
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
+
 use surge_ping::{Client, Config, PingIdentifier, PingSequence};
 
 /// 指定されたIPアドレスにICMP pingを送信し、到達可能かどうかを判定する。
