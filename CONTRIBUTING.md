@@ -189,3 +189,37 @@ mod tests {
 
 - tracing や標準エラー出力などの開発者向けのエラーメッセージについては原則、英文で記載すること
 - ユーザーの目にはいる Discord のメッセージなどは日本語文で記載すること
+
+### 型境界の書き方について
+
+- できるだけ `impl T` を使う
+- `impl` を使えない場合、 `where` を使って境界を示す
+- 構造体メンバのジェネリクスは必要な箇所だけ境界を指定する
+
+```rust
+fn f0(text: impl AsRef<str>) {
+    unreachable!()
+}
+
+fn f1<T>(text: T) -> T where T: AsRef<str> {
+    unreachable!()
+}
+
+struct Foo<T> {
+    x: T,
+}
+
+impl<T> Foo<T> {
+    /// new 自体は境界を設定しない
+    fn new(x: T) -> Foo<T> {
+        todo!()
+    }
+}
+
+impl<T> Foo<T> where T: AsRef<str> {
+    /// 文字列を取得するところは絞り込む
+    fn text(&self) -> &str {
+        self.x.as_ref()
+    }
+}
+```
