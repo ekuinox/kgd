@@ -1,16 +1,22 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use serenity::all::{
-    CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse,
-    CreateInteractionResponseMessage, GatewayIntents,
+    ChannelId, CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed,
+    CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, GatewayIntents,
+    Http,
 };
 use serenity::async_trait;
 use serenity::builder::CreateEmbedFooter;
 use serenity::client::Context as SerenityContext;
 use serenity::model::application::CommandOptionType;
 use serenity::prelude::*;
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
+use crate::status::ServerStatus;
 use crate::wol::send_wol_packet;
 
 pub struct Handler {
@@ -156,7 +162,40 @@ impl Handler {
     }
 }
 
-pub async fn run(config: Config) -> Result<()> {
+/// サーバーステータスをDiscordチャンネルに通知するための構造体。
+pub struct StatusNotifier {
+    http: Arc<Http>,
+    channel_id: ChannelId,
+    interval: Duration,
+}
+
+impl StatusNotifier {
+    /// サーバーステータスをDiscordチャンネルに埋め込みメッセージとして送信する。
+    pub async fn send(&self, statuses: &[ServerStatus]) {
+        let mut embed = CreateEmbed::new().title("Server Status").color(0x00ff00);
+
+        for status in statuses {
+            let status_text = if status.online {
+                "🟢 Online"
+            } else {
+                "🔴 Offline"
+            };
+            embed = embed.field(&status.name, status_text, true);
+        }
+
+        embed = embed.footer(CreateEmbedFooter::new(format!(
+            "Updated every {}",
+            humantime::format_duration(self.interval)
+        )));
+
+        let message = CreateMessage::new().embed(embed);
+        if let Err(e) = self.channel_id.send_message(&self.http, message).await {
+            error!(error = %e, "Failed to send status message");
+        }
+    }
+}
+
+pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -> Result<()> {
     let intents = GatewayIntents::GUILDS;
     let handler = Handler {
         config: config.clone(),
@@ -167,8 +206,27 @@ pub async fn run(config: Config) -> Result<()> {
         .await
         .context("Failed to create client")?;
 
+    let http = client.http.clone();
+    let channel_id = ChannelId::new(config.discord.status_channel_id);
+    let interval = config.status.interval;
+
+    let notifier = StatusNotifier {
+        http,
+        channel_id,
+        interval,
+    };
+
+    tokio::spawn(run_status_receiver(notifier, status_rx));
+
     info!("Starting bot");
     client.start().await.context("Client error")?;
 
     Ok(())
+}
+
+/// ステータスモニターからの通知を受信し、Discordに転送するループを実行する。
+async fn run_status_receiver(notifier: StatusNotifier, mut rx: mpsc::Receiver<Vec<ServerStatus>>) {
+    while let Some(statuses) = rx.recv().await {
+        notifier.send(&statuses).await;
+    }
 }

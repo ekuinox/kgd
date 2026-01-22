@@ -6,6 +6,8 @@ token = "YOUR_DISCORD_BOT_TOKEN"
 # List of Discord user IDs allowed to use the bot
 # If empty, all users can use the bot
 admins = []
+# Discord channel ID for status updates
+status_channel_id = 123456789012345678
 
 # Server Configurations
 # Add your servers here with their MAC addresses and IP addresses
@@ -28,3 +30,7 @@ description = "ストレージサーバー"
 # mac_address = "AA:BB:CC:DD:EE:FF"
 # ip_address = "192.168.1.102"
 # description = "説明 (optional)"
+
+# Status Monitor Configuration
+[status]
+interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m

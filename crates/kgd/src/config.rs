@@ -1,14 +1,17 @@
+use std::fs;
+use std::path::Path;
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
-use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct Config {
     pub discord: DiscordConfig,
     pub servers: Vec<ServerConfig>,
+    pub status: StatusConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -16,6 +19,8 @@ pub struct DiscordConfig {
     pub token: String,
     #[serde(default)]
     pub admins: Vec<u64>,
+    /// サーバーステータスを通知するDiscordチャンネルのID
+    pub status_channel_id: u64,
 }
 
 impl Default for DiscordConfig {
@@ -23,6 +28,7 @@ impl Default for DiscordConfig {
         Self {
             token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
             admins: vec![],
+            status_channel_id: 0,
         }
     }
 }
@@ -47,6 +53,26 @@ impl Default for ServerConfig {
             description: "Example server".to_string(),
         }
     }
+}
+
+/// ステータスモニターの設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct StatusConfig {
+    /// ステータスチェックの実行間隔 (デフォルト: 5分)
+    #[serde(default = "default_interval", with = "humantime_serde")]
+    pub interval: Duration,
+}
+
+impl Default for StatusConfig {
+    fn default() -> Self {
+        Self {
+            interval: default_interval(),
+        }
+    }
+}
+
+fn default_interval() -> Duration {
+    Duration::from_secs(300) // 5 minutes
 }
 
 impl Config {
@@ -84,6 +110,7 @@ mod tests {
             discord: DiscordConfig {
                 token: "YOUR_DISCORD_BOT_TOKEN".to_string(),
                 admins: vec![],
+                status_channel_id: 123456789012345678,
             },
             servers: vec![
                 ServerConfig {
@@ -99,6 +126,7 @@ mod tests {
                     description: "ストレージサーバー".to_string(),
                 },
             ],
+            status: StatusConfig::default(),
         };
 
         assert_eq!(config, expected);
