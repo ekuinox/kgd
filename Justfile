@@ -36,14 +36,14 @@ build:
     cargo build --release
 
 # Run the daemon
-run:
+run *args:
     @echo "Starting KGD daemon..."
-    cargo run --bin kgd
+    cargo run --bin kgd -- {{args}}
 
 # Run the daemon in release mode
-run-release:
+run-release *args:
     @echo "Starting KGD daemon (release mode)..."
-    cargo run --bin kgd --release
+    cargo run --bin kgd --release -- {{args}}
 
 # Clean build artifacts
 clean:

@@ -36,6 +36,9 @@ jobs:
       - name: Build with cross
         run: cross build --release --target aarch64-unknown-linux-gnu
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -55,6 +58,17 @@ jobs:
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image for verification
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+
+      - name: Verify version
+        run: docker run --rm --platform linux/arm64 ${{ env.IMAGE_NAME }}:test --version
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

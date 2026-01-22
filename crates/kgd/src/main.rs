@@ -2,6 +2,7 @@ mod config;
 mod discord;
 mod ping;
 mod status;
+mod version;
 mod wol;
 
 use std::time::Duration;
@@ -14,6 +15,7 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 #[derive(Parser)]
+#[command(version = version::short_version())]
 struct Args {
     #[arg(long, default_value = "config.toml")]
     config: PathBuf,

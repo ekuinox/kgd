@@ -31,6 +31,10 @@ thiserror = "2.0"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Version info
+vergen-gitcl = { version = "9.1", features = ["build", "cargo"] }
+const_format = "0.2"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

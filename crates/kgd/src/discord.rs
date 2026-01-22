@@ -17,6 +17,7 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::status::ServerStatus;
+use crate::version;
 use crate::wol::send_wol_packet;
 
 pub struct Handler {
@@ -40,6 +41,7 @@ impl EventHandler for Handler {
                     .required(true),
                 ),
             CreateCommand::new("servers").description("List all configured servers"),
+            CreateCommand::new("version").description("Show bot version information"),
         ];
 
         if let Err(e) = serenity::all::Command::set_global_commands(&ctx.http, commands).await {
@@ -94,6 +96,7 @@ impl Handler {
         match command.data.name.as_str() {
             "wol" => self.handle_wol(ctx, command).await,
             "servers" => self.handle_servers(ctx, command).await,
+            "version" => self.handle_version(ctx, command).await,
             _ => Ok(()),
         }
     }
@@ -149,6 +152,30 @@ impl Handler {
             "Total: {} server(s)",
             self.config.servers.len()
         )));
+
+        let response = CreateInteractionResponseMessage::new()
+            .embed(embed)
+            .ephemeral(false);
+
+        command
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        Ok(())
+    }
+
+    async fn handle_version(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        let embed = CreateEmbed::new()
+            .title("kgd")
+            .color(0x5865f2)
+            .field("Version", version::VERSION, true)
+            .field("Git SHA", version::GIT_SHA, true)
+            .field("Target", version::TARGET_TRIPLE, true)
+            .field("Built", version::BUILD_DATE, false);
 
         let response = CreateInteractionResponseMessage::new()
             .embed(embed)
