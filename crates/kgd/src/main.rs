@@ -5,17 +5,20 @@ mod status;
 mod version;
 mod wol;
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use clap::Parser;
-use config::{open_config, write_default_config};
-use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::info;
 
+use crate::{
+    config::{open_config, write_default_config},
+    version::short_version,
+};
+
 #[derive(Parser)]
-#[command(version = version::short_version())]
+#[command(version = short_version())]
 struct Args {
     #[arg(long, default_value = "config.toml")]
     config: PathBuf,
@@ -40,6 +43,8 @@ async fn main() -> Result<()> {
         info!(path = ?args.config, "Created default configuration");
         return Ok(());
     }
+
+    tracing::info!(version = short_version(), "kgd version");
 
     let config = open_config(&args.config).context("Failed to load configuration")?;
     info!(servers = config.servers.len(), "Configuration loaded");

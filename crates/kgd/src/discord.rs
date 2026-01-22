@@ -1,26 +1,26 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result};
-use serenity::all::{
-    ChannelId, CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed,
-    CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, GatewayIntents,
-    Http,
+use anyhow::{Context as _, Result};
+use serenity::{
+    all::{
+        ChannelId, CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed,
+        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, GatewayIntents,
+        Http,
+    },
+    async_trait,
+    builder::CreateEmbedFooter,
+    client::Context as SerenityContext,
+    model::application::CommandOptionType,
+    prelude::*,
 };
-use serenity::async_trait;
-use serenity::builder::CreateEmbedFooter;
-use serenity::client::Context as SerenityContext;
-use serenity::model::application::CommandOptionType;
-use serenity::prelude::*;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::config::Config;
-use crate::status::ServerStatus;
-use crate::version;
-use crate::wol::send_wol_packet;
+use crate::{config::Config, status::ServerStatus, version, wol::send_wol_packet};
 
+/// Discord イベントを処理するハンドラー。
 pub struct Handler {
+    /// アプリケーション設定
     config: Config,
 }
 
@@ -44,10 +44,23 @@ impl EventHandler for Handler {
             CreateCommand::new("version").description("Show bot version information"),
         ];
 
-        if let Err(e) = serenity::all::Command::set_global_commands(&ctx.http, commands).await {
-            error!(error = %e, "Failed to register commands");
-        } else {
-            info!("Slash commands registered");
+        match serenity::all::Command::set_global_commands(&ctx.http, commands).await {
+            Ok(commands) => {
+                // 登録したコマンド名とバージョンや時刻を tracing に出す
+                let commands = commands
+                    .iter()
+                    .map(|command| {
+                        (
+                            command.name.as_str(),
+                            (command.version.get(), command.version.created_at().to_utc()),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>();
+                info!(?commands, "Slash commands registered");
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to register commands");
+            }
         }
     }
 
@@ -191,8 +204,11 @@ impl Handler {
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
 pub struct StatusNotifier {
+    /// Discord API クライアント
     http: Arc<Http>,
+    /// 通知先チャンネルID
     channel_id: ChannelId,
+    /// ステータスチェック間隔（フッター表示用）
     interval: Duration,
 }
 
@@ -222,6 +238,7 @@ impl StatusNotifier {
     }
 }
 
+/// Discord Bot を起動し、イベントループを開始する。
 pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -> Result<()> {
     let intents = GatewayIntents::GUILDS;
     let handler = Handler {
@@ -231,7 +248,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let mut client = Client::builder(&config.discord.token, intents)
         .event_handler(handler)
         .await
-        .context("Failed to create client")?;
+        .context("Failed to create Discord client")?;
 
     let http = client.http.clone();
     let channel_id = ChannelId::new(config.discord.status_channel_id);
@@ -246,7 +263,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     tokio::spawn(run_status_receiver(notifier, status_rx));
 
     info!("Starting bot");
-    client.start().await.context("Client error")?;
+    client.start().await.context("Discord client error")?;
 
     Ok(())
 }
