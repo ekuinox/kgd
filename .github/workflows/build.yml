@@ -11,6 +11,26 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny and cargo-machete
+        run: cargo install cargo-deny cargo-machete
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Run cargo-deny
+        run: just deny
+
+      - name: Run cargo-machete
+        run: just machete
+
   build:
     runs-on: ubuntu-latest
     permissions:

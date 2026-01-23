@@ -1,0 +1,62 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+]
+all-features = true
+
+# Advisories check - checks for security vulnerabilities
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = []
+
+# Licenses check - checks for allowed licenses
+# コピーレフト（伝搬性のある）ライセンスは許可しない
+# GPL, LGPL, AGPL, EUPL などは含まない
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+]
+# kgd itself is unlicensed (private project)
+private = { ignore = true }
+
+# 以下のコピーレフト（伝搬性のある）ライセンスは許可しない（allow に含めない）:
+# - GPL (GPL-1.0, GPL-2.0, GPL-3.0 およびその派生)
+# - LGPL (LGPL-2.0, LGPL-2.1, LGPL-3.0 およびその派生)
+# - AGPL (AGPL-1.0, AGPL-3.0 およびその派生)
+# - EUPL (EUPL-1.0, EUPL-1.1, EUPL-1.2)
+# - その他: CC-BY-SA, OSL, CDDL, EPL など
+# allow リストにないライセンスは自動的に拒否される
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# Bans check - checks for denied/duplicate crates (optional)
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+# Sources check - checks for allowed sources (optional)
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -13,7 +13,7 @@ authors = ["ekuinox"]
 serenity = "0.12"
 
 # Wake-on-LAN
-wol = "0.4"
+wake-on-lan = "0.2"
 macaddr = "1.0"
 
 # Configuration
