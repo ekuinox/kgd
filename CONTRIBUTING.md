@@ -26,11 +26,36 @@ cargo clippy
 
 すべてのチェックが通過することを確認してからコミットしてください。
 
+## プッシュ前のチェック
+
+リモートにプッシュする前に、依存クレートのライセンスと脆弱性をチェックしてください。
+
+```bash
+just deny
+```
+
+このコマンドは `cargo deny check` を実行し、以下をチェックします:
+
+- **advisories** - 依存クレートのセキュリティ脆弱性
+- **licenses** - 依存クレートのライセンス（コピーレフトライセンスは許可していません）
+- **bans** - 禁止されたクレートや重複クレート
+- **sources** - 許可されたソース（crates.io のみ）
+
+また、不要な依存がないかもチェックしてください:
+
+```bash
+just machete
+```
+
+このコマンドは `cargo machete` を実行し、使用されていない依存クレートを検出します。
+
 ### その他の便利なコマンド
 
 ```bash
 just test          # テストを実行
-just ci            # CI環境と同じチェック (fmt check, check, clippy, test)
+just ci            # CI環境と同じチェック (fmt check, check, clippy, deny, machete, test)
+just deny          # 依存クレートのライセンスと脆弱性をチェック
+just machete       # 不要な依存クレートを検出
 just build         # リリースビルド
 just run           # Discord Botを起動 (開発モード)
 just run-release   # Discord Botを起動 (リリースモード)

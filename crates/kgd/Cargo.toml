@@ -30,3 +30,6 @@ const_format.workspace = true
 
 [build-dependencies]
 vergen-gitcl.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["humantime-serde"]

@@ -2,7 +2,10 @@
 # https://embarkstudios.github.io/cargo-deny/
 
 [graph]
-targets = []
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+]
 all-features = true
 
 # Advisories check - checks for security vulnerabilities

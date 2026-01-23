@@ -30,6 +30,11 @@ deny:
     @echo "Running cargo deny..."
     cargo deny check
 
+# Check for unused dependencies
+machete:
+    @echo "Running cargo machete..."
+    cargo machete
+
 # Run tests
 test:
     @echo "Running tests..."
@@ -65,8 +70,8 @@ update:
     @echo "Updating dependencies..."
     cargo update
 
-# Full CI check (fmt check, check, clippy, deny, test)
-ci: fmt-check check clippy deny test
+# Full CI check (fmt check, check, clippy, deny, machete, test)
+ci: fmt-check check clippy deny machete test
     @echo "✅ CI checks passed!"
 
 # Check formatting without modifying files
