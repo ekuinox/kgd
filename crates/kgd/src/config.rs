@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{fs, path::Path, time::Duration};
 
 use anyhow::{Context as _, Result};
 use macaddr::MacAddr6;
@@ -120,6 +116,8 @@ fn default_interval() -> Duration {
 /// 日報機能の設定。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DiaryConfig {
+    /// PostgreSQL データベース URL
+    pub database_url: String,
     /// Notion API トークン
     pub notion_token: String,
     /// 日報を保存する Notion データベース ID
@@ -135,9 +133,6 @@ pub struct DiaryConfig {
     /// 同期成功時にメッセージに付けるリアクション絵文字
     #[serde(default = "default_sync_reaction")]
     pub sync_reaction: String,
-    /// 紐付け情報を保存するファイルパス
-    #[serde(default = "default_store_path")]
-    pub store_path: PathBuf,
 }
 
 /// Notion タグ設定。
@@ -158,10 +153,6 @@ fn default_title_property() -> String {
 
 fn default_sync_reaction() -> String {
     "✅".to_string()
-}
-
-fn default_store_path() -> PathBuf {
-    PathBuf::from("diary_store.json")
 }
 
 #[cfg(test)]

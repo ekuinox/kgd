@@ -1,17 +1,11 @@
 //! スレッドと Notion ページの紐付け情報を永続化するストア。
 
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-};
-
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
     pub thread_id: u64,
@@ -26,98 +20,96 @@ pub struct DiaryEntry {
 }
 
 /// スレッドと Notion ページの紐付け情報を管理するストア。
+#[derive(Clone)]
 pub struct DiaryStore {
-    /// 永続化ファイルのパス
-    path: PathBuf,
-    /// スレッドID -> エントリ のマッピング
-    entries: HashMap<u64, DiaryEntry>,
+    pool: PgPool,
 }
 
 impl DiaryStore {
-    /// ストアを読み込む。ファイルが存在しない場合は空のストアを作成する。
-    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let entries = if path.exists() {
-            let content = fs::read_to_string(&path).context("Failed to read diary store")?;
-            serde_json::from_str(&content).context("Failed to parse diary store")?
-        } else {
-            HashMap::new()
-        };
-        Ok(Self { path, entries })
-    }
+    /// データベースに接続し、マイグレーションを実行する。
+    pub async fn connect(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(database_url)
+            .await
+            .context("Failed to connect to database")?;
 
-    /// ストアをファイルに保存する。
-    pub fn save(&self) -> Result<()> {
-        let content = serde_json::to_string_pretty(&self.entries)
-            .context("Failed to serialize diary store")?;
-        fs::write(&self.path, content).context("Failed to write diary store")?;
-        Ok(())
+        // マイグレーションを実行
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .context("Failed to run migrations")?;
+
+        Ok(Self { pool })
     }
 
     /// エントリを追加する。
-    pub fn insert(&mut self, entry: DiaryEntry) -> Result<()> {
-        self.entries.insert(entry.thread_id, entry);
-        self.save()
+    pub async fn insert(&self, entry: &DiaryEntry) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO diary_entries (thread_id, page_id, page_url, date, created_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (thread_id) DO UPDATE SET
+                page_id = EXCLUDED.page_id,
+                page_url = EXCLUDED.page_url,
+                date = EXCLUDED.date
+            "#,
+        )
+        .bind(entry.thread_id as i64)
+        .bind(&entry.page_id)
+        .bind(&entry.page_url)
+        .bind(&entry.date)
+        .bind(entry.created_at)
+        .execute(&self.pool)
+        .await
+        .context("Failed to insert diary entry")?;
+
+        Ok(())
     }
 
     /// スレッド ID からエントリを取得する。
-    pub fn get_by_thread(&self, thread_id: u64) -> Option<&DiaryEntry> {
-        self.entries.get(&thread_id)
+    pub async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
+        let row = sqlx::query(
+            r#"
+            SELECT thread_id, page_id, page_url, date, created_at
+            FROM diary_entries
+            WHERE thread_id = $1
+            "#,
+        )
+        .bind(thread_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch diary entry by thread")?;
+
+        Ok(row.map(|r| DiaryEntry {
+            thread_id: r.get::<i64, _>("thread_id") as u64,
+            page_id: r.get("page_id"),
+            page_url: r.get("page_url"),
+            date: r.get("date"),
+            created_at: r.get("created_at"),
+        }))
     }
 
     /// 日付からエントリを取得する。
-    pub fn get_by_date(&self, date: &str) -> Option<&DiaryEntry> {
-        self.entries.values().find(|e| e.date == date)
-    }
-}
+    pub async fn get_by_date(&self, date: &str) -> Result<Option<DiaryEntry>> {
+        let row = sqlx::query(
+            r#"
+            SELECT thread_id, page_id, page_url, date, created_at
+            FROM diary_entries
+            WHERE date = $1
+            "#,
+        )
+        .bind(date)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch diary entry by date")?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write as _;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn load_empty_store() {
-        let temp = NamedTempFile::new().unwrap();
-        let path = temp.path();
-        std::fs::remove_file(path).ok();
-
-        let store = DiaryStore::load(path).unwrap();
-        assert!(store.entries.is_empty());
-    }
-
-    #[test]
-    fn insert_and_get() {
-        let temp = NamedTempFile::new().unwrap();
-        let path = temp.path().to_path_buf();
-        std::fs::remove_file(&path).ok();
-
-        let mut store = DiaryStore::load(&path).unwrap();
-
-        let entry = DiaryEntry {
-            thread_id: 123,
-            page_id: "page-123".to_string(),
-            page_url: "https://notion.so/page-123".to_string(),
-            date: "2024-01-01".to_string(),
-            created_at: Utc::now(),
-        };
-
-        store.insert(entry.clone()).unwrap();
-
-        assert!(store.get_by_thread(123).is_some());
-        assert!(store.get_by_date("2024-01-01").is_some());
-        assert!(store.get_by_thread(999).is_none());
-    }
-
-    #[test]
-    fn load_existing_store() {
-        let mut temp = NamedTempFile::new().unwrap();
-        let json = r#"{"123":{"thread_id":123,"page_id":"p1","page_url":"https://notion.so/p1","date":"2024-01-01","created_at":"2024-01-01T00:00:00Z"}}"#;
-        temp.write_all(json.as_bytes()).unwrap();
-
-        let store = DiaryStore::load(temp.path()).unwrap();
-        assert_eq!(store.entries.len(), 1);
-        assert!(store.get_by_thread(123).is_some());
+        Ok(row.map(|r| DiaryEntry {
+            thread_id: r.get::<i64, _>("thread_id") as u64,
+            page_id: r.get("page_id"),
+            page_url: r.get("page_url"),
+            date: r.get("date"),
+            created_at: r.get("created_at"),
+        }))
     }
 }

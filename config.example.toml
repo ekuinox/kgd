@@ -38,6 +38,9 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # Diary Feature Configuration (Optional)
 # Enables integration between Discord forum threads and Notion pages
 # [diary]
+# PostgreSQL database URL for storing thread-page mappings
+# database_url = "postgres://kgd:kgd@localhost:5432/kgd"
+
 # Notion Integration Token
 # Create one at: https://www.notion.so/my-integrations
 # notion_token = "secret_xxxxxxxxxxxxxxxxxxxxx"
@@ -63,6 +66,3 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # Emoji reaction added to messages when synced successfully (default: ✅)
 # Use the actual Unicode emoji character, not the name
 # sync_reaction = "✅"
-
-# Path to store thread-page mappings (default: diary_store.json)
-# store_path = "diary_store.json"

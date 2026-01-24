@@ -13,7 +13,7 @@ use serenity::{
     model::application::CommandOptionType,
     prelude::*,
 };
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -29,7 +29,7 @@ pub struct Handler {
     /// アプリケーション設定
     config: Config,
     /// 日報ストア（日報機能が有効な場合）
-    diary_store: Option<Arc<RwLock<DiaryStore>>>,
+    diary_store: Option<DiaryStore>,
     /// Notion クライアント（日報機能が有効な場合）
     notion_client: Option<Arc<NotionClient>>,
 }
@@ -137,12 +137,11 @@ impl EventHandler for Handler {
         }
 
         // 該当スレッドの日報エントリを取得
-        let store = self.diary_store.as_ref().unwrap().read().await;
-        let Some(entry) = store.get_by_thread(message.channel_id.get()) else {
+        let store = self.diary_store.as_ref().unwrap();
+        let Ok(Some(entry)) = store.get_by_thread(message.channel_id.get()).await else {
             return;
         };
         let page_id = entry.page_id.clone();
-        drop(store);
 
         // Notion に同期
         let notion = self.notion_client.as_ref().unwrap();
@@ -318,32 +317,30 @@ impl Handler {
         let date = today_jst();
 
         // 既に今日の日報が存在するかチェック
-        {
-            let store = self.diary_store.as_ref().unwrap().read().await;
-            if let Some(entry) = store.get_by_date(&date) {
-                let thread_id = ChannelId::new(entry.thread_id);
+        let store = self.diary_store.as_ref().unwrap();
+        if let Some(entry) = store.get_by_date(&date).await? {
+            let thread_id = ChannelId::new(entry.thread_id);
 
-                // スレッドのロックを解除して再開
-                let edit = EditThread::new().archived(false).locked(false);
-                thread_id
-                    .edit_thread(&ctx.http, edit)
-                    .await
-                    .context("スレッドのロック解除に失敗しました")?;
+            // スレッドのロックを解除して再開
+            let edit = EditThread::new().archived(false).locked(false);
+            thread_id
+                .edit_thread(&ctx.http, edit)
+                .await
+                .context("スレッドのロック解除に失敗しました")?;
 
-                info!(
-                    date = %date,
-                    thread_id = entry.thread_id,
-                    "Diary thread reopened"
-                );
+            info!(
+                date = %date,
+                thread_id = entry.thread_id,
+                "Diary thread reopened"
+            );
 
-                let response = CreateInteractionResponseMessage::new()
-                    .content(format!("今日の日報を再開しました: <#{}>", entry.thread_id))
-                    .ephemeral(false);
-                command
-                    .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                    .await?;
-                return Ok(());
-            }
+            let response = CreateInteractionResponseMessage::new()
+                .content(format!("今日の日報を再開しました: <#{}>", entry.thread_id))
+                .ephemeral(false);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
         }
 
         // Notion ページを作成
@@ -372,10 +369,7 @@ impl Handler {
             created_at: chrono::Utc::now(),
         };
 
-        {
-            let mut store = self.diary_store.as_ref().unwrap().write().await;
-            store.insert(entry)?;
-        }
+        store.insert(&entry).await?;
 
         info!(date = %date, thread_id = thread.id.get(), "Diary created");
 
@@ -422,17 +416,19 @@ impl Handler {
         }
 
         // 該当スレッドが日報スレッドか確認
+        let store = self.diary_store.as_ref().unwrap();
+        if store
+            .get_by_thread(command.channel_id.get())
+            .await?
+            .is_none()
         {
-            let store = self.diary_store.as_ref().unwrap().read().await;
-            if store.get_by_thread(command.channel_id.get()).is_none() {
-                let response = CreateInteractionResponseMessage::new()
-                    .content("このスレッドは日報スレッドではありません")
-                    .ephemeral(true);
-                command
-                    .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                    .await?;
-                return Ok(());
-            }
+            let response = CreateInteractionResponseMessage::new()
+                .content("このスレッドは日報スレッドではありません")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
         }
 
         // 先にレスポンスを返す（アーカイブ後はレスポンスを返せないため）
@@ -499,8 +495,9 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let (diary_store, notion_client) = if let Some(diary_config) = &config.diary {
         intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
-        let store =
-            DiaryStore::load(&diary_config.store_path).context("Failed to load diary store")?;
+        let store = DiaryStore::connect(&diary_config.database_url)
+            .await
+            .context("Failed to connect to database")?;
         let notion = NotionClient::new(
             &diary_config.notion_token,
             &diary_config.notion_database_id,
@@ -509,7 +506,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         )
         .context("Failed to create Notion client")?;
 
-        (Some(Arc::new(RwLock::new(store))), Some(Arc::new(notion)))
+        (Some(store), Some(Arc::new(notion)))
     } else {
         (None, None)
     };
