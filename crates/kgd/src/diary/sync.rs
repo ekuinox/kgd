@@ -108,6 +108,7 @@ impl<'a> MessageSyncer<'a> {
 }
 
 /// ファイル名から画像かどうかを判定する。
+// TODO: 拡張子の前にドットを含めるべき (e.g., ".png") - "somepng" のような誤判定を防ぐ
 fn is_image(filename: &str) -> bool {
     let extensions = ["png", "jpg", "jpeg", "gif", "webp"];
     let lower = filename.to_lowercase();

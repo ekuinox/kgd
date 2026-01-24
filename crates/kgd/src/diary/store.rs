@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
+// TODO: date フィールドを chrono::NaiveDate 型に変更して型安全性を向上させる
 #[derive(Debug, Clone)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
