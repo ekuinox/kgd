@@ -8,11 +8,13 @@ use notion_client::{
     objects::{
         block::{Block, BlockType, ImageValue, ParagraphValue},
         file::{ExternalFile, File},
-        page::PageProperty,
+        page::{PageProperty, SelectPropertyValue},
         parent::Parent,
         rich_text::{RichText, Text},
     },
 };
+
+use crate::config::NotionTagConfig;
 
 /// Notion API クライアントのラッパー。
 pub struct NotionClient {
@@ -22,6 +24,8 @@ pub struct NotionClient {
     database_id: String,
     /// タイトルプロパティ名
     title_property: String,
+    /// ページ作成時に設定するタグ
+    tags: Vec<NotionTagConfig>,
 }
 
 impl NotionClient {
@@ -30,12 +34,14 @@ impl NotionClient {
         token: impl Into<String>,
         database_id: impl Into<String>,
         title_property: impl Into<String>,
+        tags: Vec<NotionTagConfig>,
     ) -> Result<Self> {
         let client = Client::new(token.into(), None).context("Failed to create Notion client")?;
         Ok(Self {
             client,
             database_id: database_id.into(),
             title_property: title_property.into(),
+            tags,
         })
     }
 
@@ -59,6 +65,21 @@ impl NotionClient {
                 }],
             },
         );
+
+        // タグ（セレクトプロパティ）を設定
+        for tag in &self.tags {
+            properties.insert(
+                tag.property.clone(),
+                PageProperty::Select {
+                    id: None,
+                    select: Some(SelectPropertyValue {
+                        id: None,
+                        name: Some(tag.value.clone()),
+                        color: None,
+                    }),
+                },
+            );
+        }
 
         let request = notion_client::endpoints::pages::create::request::CreateAPageRequest {
             parent: Parent::DatabaseId {

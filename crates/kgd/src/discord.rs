@@ -487,6 +487,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
             &diary_config.notion_token,
             &diary_config.notion_database_id,
             &diary_config.notion_title_property,
+            diary_config.notion_tags.clone(),
         )
         .context("Failed to create Notion client")?;
 

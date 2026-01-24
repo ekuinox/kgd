@@ -127,6 +127,9 @@ pub struct DiaryConfig {
     /// Notion データベースのタイトルプロパティ名
     #[serde(default = "default_title_property")]
     pub notion_title_property: String,
+    /// ページ作成時に設定するタグ（セレクトプロパティ）
+    #[serde(default)]
+    pub notion_tags: Vec<NotionTagConfig>,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
@@ -135,6 +138,15 @@ pub struct DiaryConfig {
     /// 紐付け情報を保存するファイルパス
     #[serde(default = "default_store_path")]
     pub store_path: PathBuf,
+}
+
+/// Notion タグ設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NotionTagConfig {
+    /// プロパティ名
+    pub property: String,
+    /// 設定する値
+    pub value: String,
 }
 
 fn default_title_property() -> String {
