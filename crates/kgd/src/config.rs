@@ -124,6 +124,9 @@ pub struct DiaryConfig {
     pub notion_token: String,
     /// 日報を保存する Notion データベース ID
     pub notion_database_id: String,
+    /// Notion データベースのタイトルプロパティ名
+    #[serde(default = "default_title_property")]
+    pub notion_title_property: String,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
@@ -132,6 +135,10 @@ pub struct DiaryConfig {
     /// 紐付け情報を保存するファイルパス
     #[serde(default = "default_store_path")]
     pub store_path: PathBuf,
+}
+
+fn default_title_property() -> String {
+    "Name".to_string()
 }
 
 fn default_sync_reaction() -> String {

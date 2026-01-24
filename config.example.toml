@@ -47,6 +47,10 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # The xxxxx part (before ?v=) is the database ID (remove hyphens if any)
 # notion_database_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
+# Title property name in the Notion database (default: "Name")
+# Check your database's title column name (the leftmost column)
+# notion_title_property = "Name"
+
 # Discord Forum Channel ID where diary threads will be created
 # forum_channel_id = 123456789012345678
 

@@ -20,15 +20,22 @@ pub struct NotionClient {
     client: Client,
     /// 日報を保存するデータベース ID
     database_id: String,
+    /// タイトルプロパティ名
+    title_property: String,
 }
 
 impl NotionClient {
     /// 新しい NotionClient を作成する。
-    pub fn new(token: impl Into<String>, database_id: impl Into<String>) -> Result<Self> {
+    pub fn new(
+        token: impl Into<String>,
+        database_id: impl Into<String>,
+        title_property: impl Into<String>,
+    ) -> Result<Self> {
         let client = Client::new(token.into(), None).context("Failed to create Notion client")?;
         Ok(Self {
             client,
             database_id: database_id.into(),
+            title_property: title_property.into(),
         })
     }
 
@@ -36,9 +43,9 @@ impl NotionClient {
     pub async fn create_diary_page(&self, title: &str) -> Result<(String, String)> {
         let mut properties = BTreeMap::new();
 
-        // タイトルプロパティを設定（データベースのタイトル列名に合わせる）
+        // タイトルプロパティを設定
         properties.insert(
-            "名前".to_string(),
+            self.title_property.clone(),
             PageProperty::Title {
                 id: None,
                 title: vec![RichText::Text {
