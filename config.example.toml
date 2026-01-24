@@ -60,8 +60,9 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # Discord Forum Channel ID where diary threads will be created
 # forum_channel_id = 123456789012345678
 
-# Emoji reaction added to messages when synced successfully (default: white_check_mark)
-# sync_reaction = "white_check_mark"
+# Emoji reaction added to messages when synced successfully (default: ✅)
+# Use the actual Unicode emoji character, not the name
+# sync_reaction = "✅"
 
 # Path to store thread-page mappings (default: diary_store.json)
 # store_path = "diary_store.json"

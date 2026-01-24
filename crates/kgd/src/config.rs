@@ -157,7 +157,7 @@ fn default_title_property() -> String {
 }
 
 fn default_sync_reaction() -> String {
-    "white_check_mark".to_string()
+    "✅".to_string()
 }
 
 fn default_store_path() -> PathBuf {
