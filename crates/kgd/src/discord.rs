@@ -321,12 +321,24 @@ impl Handler {
         {
             let store = self.diary_store.as_ref().unwrap().read().await;
             if let Some(entry) = store.get_by_date(&date) {
+                let thread_id = ChannelId::new(entry.thread_id);
+
+                // スレッドのロックを解除して再開
+                let edit = EditThread::new().archived(false).locked(false);
+                thread_id
+                    .edit_thread(&ctx.http, edit)
+                    .await
+                    .context("スレッドのロック解除に失敗しました")?;
+
+                info!(
+                    date = %date,
+                    thread_id = entry.thread_id,
+                    "Diary thread reopened"
+                );
+
                 let response = CreateInteractionResponseMessage::new()
-                    .content(format!(
-                        "今日の日報は既に作成されています: <#{}>",
-                        entry.thread_id
-                    ))
-                    .ephemeral(true);
+                    .content(format!("今日の日報を再開しました: <#{}>", entry.thread_id))
+                    .ephemeral(false);
                 command
                     .create_response(&ctx.http, CreateInteractionResponse::Message(response))
                     .await?;
