@@ -147,6 +147,9 @@ pub struct NotionTagConfig {
     pub property: String,
     /// 設定する値
     pub value: String,
+    /// マルチセレクトかどうか（デフォルト: false）
+    #[serde(default)]
+    pub multi_select: bool,
 }
 
 fn default_title_property() -> String {

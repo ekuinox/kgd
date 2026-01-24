@@ -51,10 +51,11 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # Check your database's title column name (the leftmost column)
 # notion_title_property = "Name"
 
-# Tags (select properties) to set when creating a page
+# Tags (select/multi_select properties) to set when creating a page
 # [[diary.notion_tags]]
 # property = "Type"
 # value = "日報"
+# multi_select = true  # Set to true for multi_select properties (default: false)
 
 # Discord Forum Channel ID where diary threads will be created
 # forum_channel_id = 123456789012345678

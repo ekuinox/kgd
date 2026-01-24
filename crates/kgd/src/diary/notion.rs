@@ -66,19 +66,25 @@ impl NotionClient {
             },
         );
 
-        // タグ（セレクトプロパティ）を設定
+        // タグ（セレクト/マルチセレクトプロパティ）を設定
         for tag in &self.tags {
-            properties.insert(
-                tag.property.clone(),
+            let select_value = SelectPropertyValue {
+                id: None,
+                name: Some(tag.value.clone()),
+                color: None,
+            };
+            let property = if tag.multi_select {
+                PageProperty::MultiSelect {
+                    id: None,
+                    multi_select: vec![select_value],
+                }
+            } else {
                 PageProperty::Select {
                     id: None,
-                    select: Some(SelectPropertyValue {
-                        id: None,
-                        name: Some(tag.value.clone()),
-                        color: None,
-                    }),
-                },
-            );
+                    select: Some(select_value),
+                }
+            };
+            properties.insert(tag.property.clone(), property);
         }
 
         let request = notion_client::endpoints::pages::create::request::CreateAPageRequest {
