@@ -14,17 +14,13 @@ pub fn open_config(path: impl AsRef<Path>) -> Result<Config> {
 
 /// デフォルト設定を指定されたパスに書き出す。
 pub fn write_default_config(path: impl AsRef<Path>) -> Result<()> {
-    let config = Config {
-        servers: vec![ServerConfig::default()],
-        ..Default::default()
-    };
-    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
+    let content = include_str!("../../../config.example.toml");
     fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
 }
 
 /// アプリケーション全体の設定を保持する構造体。
-#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
     /// Discord Bot の設定
     pub discord: DiscordConfig,
@@ -32,9 +28,8 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     /// ステータスモニターの設定
     pub status: StatusConfig,
-    /// 日報機能の設定（オプション）
-    #[serde(default)]
-    pub diary: Option<DiaryConfig>,
+    /// 日報機能の設定
+    pub diary: DiaryConfig,
 }
 
 impl Config {
@@ -185,7 +180,15 @@ mod tests {
                 },
             ],
             status: StatusConfig::default(),
-            diary: None,
+            diary: DiaryConfig {
+                database_url: "postgres://kgd:kgd@localhost:5432/kgd".to_string(),
+                notion_token: "secret_xxxxxxxxxxxxxxxxxxxxx".to_string(),
+                notion_database_id: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
+                notion_title_property: "Name".to_string(),
+                notion_tags: vec![],
+                forum_channel_id: 123456789012345678,
+                sync_reaction: "✅".to_string(),
+            },
         };
 
         assert_eq!(config, expected);

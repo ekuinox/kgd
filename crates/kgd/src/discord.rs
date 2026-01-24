@@ -28,10 +28,10 @@ use crate::{
 pub struct Handler {
     /// アプリケーション設定
     config: Config,
-    /// 日報ストア（日報機能が有効な場合）
-    diary_store: Option<DiaryStore>,
-    /// Notion クライアント（日報機能が有効な場合）
-    notion_client: Option<Arc<NotionClient>>,
+    /// 日報ストア
+    diary_store: DiaryStore,
+    /// Notion クライアント
+    notion_client: Arc<NotionClient>,
 }
 
 #[async_trait]
@@ -54,23 +54,21 @@ impl EventHandler for Handler {
             CreateCommand::new("version").description("Show bot version information"),
         ];
 
-        // 日報機能が有効な場合はコマンドを追加
-        if self.config.diary.is_some() {
-            commands.push(
-                CreateCommand::new("diary")
-                    .description("日報機能")
-                    .add_option(CreateCommandOption::new(
-                        CommandOptionType::SubCommand,
-                        "new",
-                        "新しい日報を作成する",
-                    ))
-                    .add_option(CreateCommandOption::new(
-                        CommandOptionType::SubCommand,
-                        "close",
-                        "日報スレッドをクローズする",
-                    )),
-            );
-        }
+        // 日報コマンドを追加
+        commands.push(
+            CreateCommand::new("diary")
+                .description("日報機能")
+                .add_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "new",
+                    "新しい日報を作成する",
+                ))
+                .add_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "close",
+                    "日報スレッドをクローズする",
+                )),
+        );
 
         match serenity::all::Command::set_global_commands(&ctx.http, commands).await {
             Ok(commands) => {
@@ -120,11 +118,6 @@ impl EventHandler for Handler {
             return;
         }
 
-        // 日報機能が無効なら何もしない
-        let Some(diary_config) = &self.config.diary else {
-            return;
-        };
-
         // スレッドでない場合は無視
         let Ok(channel) = message.channel(&ctx).await else {
             return;
@@ -137,15 +130,14 @@ impl EventHandler for Handler {
         }
 
         // 該当スレッドの日報エントリを取得
-        let store = self.diary_store.as_ref().unwrap();
-        let Ok(Some(entry)) = store.get_by_thread(message.channel_id.get()).await else {
+        let Ok(Some(entry)) = self.diary_store.get_by_thread(message.channel_id.get()).await
+        else {
             return;
         };
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let notion = self.notion_client.as_ref().unwrap();
-        let syncer = MessageSyncer::new(notion.as_ref());
+        let syncer = MessageSyncer::new(self.notion_client.as_ref());
         match syncer.sync_message(&page_id, &message).await {
             Ok(true) => {
                 info!(
@@ -154,7 +146,8 @@ impl EventHandler for Handler {
                     "Message synced to Notion"
                 );
                 // 成功したらリアクションを付ける
-                let reaction = ReactionType::Unicode(diary_config.sync_reaction.clone());
+                let reaction =
+                    ReactionType::Unicode(self.config.diary.sync_reaction.clone());
                 if let Err(e) = message.react(&ctx.http, reaction).await {
                     error!(error = %e, "Failed to add sync reaction");
                 }
@@ -307,18 +300,13 @@ impl Handler {
         ctx: &SerenityContext,
         command: &CommandInteraction,
     ) -> Result<()> {
-        let diary_config = self
-            .config
-            .diary
-            .as_ref()
-            .context("Diary feature is not configured")?;
+        let diary_config = &self.config.diary;
 
         // 今日の日付を JST で取得
         let date = today_jst();
 
         // 既に今日の日報が存在するかチェック
-        let store = self.diary_store.as_ref().unwrap();
-        if let Some(entry) = store.get_by_date(&date).await? {
+        if let Some(entry) = self.diary_store.get_by_date(&date).await? {
             let thread_id = ChannelId::new(entry.thread_id);
 
             // スレッドのロックを解除して再開
@@ -344,8 +332,8 @@ impl Handler {
         }
 
         // Notion ページを作成
-        let notion = self.notion_client.as_ref().unwrap();
-        let (page_id, page_url) = notion
+        let (page_id, page_url) = self
+            .notion_client
             .create_diary_page(&date)
             .await
             .context("Notion ページの作成に失敗しました")?;
@@ -369,7 +357,7 @@ impl Handler {
             created_at: chrono::Utc::now(),
         };
 
-        store.insert(&entry).await?;
+        self.diary_store.insert(&entry).await?;
 
         info!(date = %date, thread_id = thread.id.get(), "Diary created");
 
@@ -416,8 +404,8 @@ impl Handler {
         }
 
         // 該当スレッドが日報スレッドか確認
-        let store = self.diary_store.as_ref().unwrap();
-        if store
+        if self
+            .diary_store
             .get_by_thread(command.channel_id.get())
             .await?
             .is_none()
@@ -491,25 +479,22 @@ impl StatusNotifier {
 pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -> Result<()> {
     let mut intents = GatewayIntents::GUILDS;
 
-    // 日報機能が有効な場合はメッセージイベントも購読
-    let (diary_store, notion_client) = if let Some(diary_config) = &config.diary {
-        intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+    // メッセージイベントを購読
+    intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
-        let store = DiaryStore::connect(&diary_config.database_url)
-            .await
-            .context("Failed to connect to database")?;
-        let notion = NotionClient::new(
+    let diary_config = &config.diary;
+    let diary_store = DiaryStore::connect(&diary_config.database_url)
+        .await
+        .context("Failed to connect to database")?;
+    let notion_client = Arc::new(
+        NotionClient::new(
             &diary_config.notion_token,
             &diary_config.notion_database_id,
             &diary_config.notion_title_property,
             diary_config.notion_tags.clone(),
         )
-        .context("Failed to create Notion client")?;
-
-        (Some(store), Some(Arc::new(notion)))
-    } else {
-        (None, None)
-    };
+        .context("Failed to create Notion client")?,
+    );
 
     let handler = Handler {
         config: config.clone(),
