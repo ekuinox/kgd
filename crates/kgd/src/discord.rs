@@ -149,6 +149,11 @@ impl EventHandler for Handler {
         let syncer = MessageSyncer::new(notion.as_ref());
         match syncer.sync_message(&page_id, &message).await {
             Ok(true) => {
+                info!(
+                    thread_id = message.channel_id.get(),
+                    message_id = message.id.get(),
+                    "Message synced to Notion"
+                );
                 // 成功したらリアクションを付ける
                 let reaction = ReactionType::Unicode(diary_config.sync_reaction.clone());
                 if let Err(e) = message.react(&ctx.http, reaction).await {
