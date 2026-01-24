@@ -423,8 +423,18 @@ impl Handler {
             }
         }
 
-        // スレッドをアーカイブ (クローズ)
-        let edit = EditThread::new().archived(true);
+        // 先にレスポンスを返す（アーカイブ後はレスポンスを返せないため）
+        let response = CreateInteractionResponseMessage::new()
+            .content("日報スレッドをクローズしています...")
+            .ephemeral(false);
+
+        command
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        // スレッドをアーカイブ & ロック (クローズ)
+        // locked=true にすることで、ユーザーが書き込んでも自動的に再開されない
+        let edit = EditThread::new().archived(true).locked(true);
         command
             .channel_id
             .edit_thread(&ctx.http, edit)
@@ -432,15 +442,6 @@ impl Handler {
             .context("スレッドのクローズに失敗しました")?;
 
         info!(thread_id = command.channel_id.get(), "Diary thread closed");
-
-        // 成功レスポンス
-        let response = CreateInteractionResponseMessage::new()
-            .content("日報スレッドをクローズしました")
-            .ephemeral(false);
-
-        command
-            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-            .await?;
 
         Ok(())
     }
