@@ -122,8 +122,8 @@ fn default_interval() -> Duration {
 pub struct DiaryConfig {
     /// Notion API トークン
     pub notion_token: String,
-    /// 日報ページの親となる Notion ページ ID
-    pub notion_parent_page_id: String,
+    /// 日報を保存する Notion データベース ID
+    pub notion_database_id: String,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字

@@ -18,17 +18,17 @@ use notion_client::{
 pub struct NotionClient {
     /// notion-client のクライアント
     client: Client,
-    /// 日報ページの親となるページ ID
-    parent_page_id: String,
+    /// 日報を保存するデータベース ID
+    database_id: String,
 }
 
 impl NotionClient {
     /// 新しい NotionClient を作成する。
-    pub fn new(token: impl Into<String>, parent_page_id: impl Into<String>) -> Result<Self> {
+    pub fn new(token: impl Into<String>, database_id: impl Into<String>) -> Result<Self> {
         let client = Client::new(token.into(), None).context("Failed to create Notion client")?;
         Ok(Self {
             client,
-            parent_page_id: parent_page_id.into(),
+            database_id: database_id.into(),
         })
     }
 
@@ -36,9 +36,9 @@ impl NotionClient {
     pub async fn create_diary_page(&self, title: &str) -> Result<(String, String)> {
         let mut properties = BTreeMap::new();
 
-        // タイトルプロパティを設定
+        // タイトルプロパティを設定（データベースのタイトル列名に合わせる）
         properties.insert(
-            "title".to_string(),
+            "名前".to_string(),
             PageProperty::Title {
                 id: None,
                 title: vec![RichText::Text {
@@ -54,8 +54,8 @@ impl NotionClient {
         );
 
         let request = notion_client::endpoints::pages::create::request::CreateAPageRequest {
-            parent: Parent::PageId {
-                page_id: self.parent_page_id.clone(),
+            parent: Parent::DatabaseId {
+                database_id: self.database_id.clone(),
             },
             properties,
             ..Default::default()

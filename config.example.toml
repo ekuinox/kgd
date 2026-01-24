@@ -42,9 +42,10 @@ interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
 # Create one at: https://www.notion.so/my-integrations
 # notion_token = "secret_xxxxxxxxxxxxxxxxxxxxx"
 
-# Parent page ID where diary pages will be created
-# Extract from page URL: https://notion.so/xxxxx (the xxxxx part, remove hyphens)
-# notion_parent_page_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# Notion Database ID where diary pages will be created
+# Open the database in Notion, copy the URL: https://notion.so/xxxxx?v=yyy
+# The xxxxx part (before ?v=) is the database ID (remove hyphens if any)
+# notion_database_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # Discord Forum Channel ID where diary threads will be created
 # forum_channel_id = 123456789012345678
