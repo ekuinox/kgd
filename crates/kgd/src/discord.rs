@@ -3,9 +3,9 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use anyhow::{Context as _, Result};
 use serenity::{
     all::{
-        ChannelId, CommandInteraction, CreateCommand, CreateCommandOption, CreateEmbed,
-        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, GatewayIntents,
-        Http,
+        ChannelId, ChannelType, CommandInteraction, CreateCommand, CreateCommandOption,
+        CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
+        CreateMessage, EditThread, GatewayIntents, Http, Message, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -16,12 +16,22 @@ use serenity::{
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::{config::Config, status::ServerStatus, version, wol::send_wol_packet};
+use crate::{
+    config::Config,
+    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_jst},
+    status::ServerStatus,
+    version,
+    wol::send_wol_packet,
+};
 
 /// Discord イベントを処理するハンドラー。
 pub struct Handler {
     /// アプリケーション設定
     config: Config,
+    /// 日報ストア
+    diary_store: DiaryStore,
+    /// Notion クライアント
+    notion_client: Arc<NotionClient>,
 }
 
 #[async_trait]
@@ -29,7 +39,7 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: SerenityContext, ready: serenity::model::gateway::Ready) {
         info!(user = %ready.user.name, "Bot connected");
 
-        let commands = vec![
+        let mut commands = vec![
             CreateCommand::new("wol")
                 .description("Wake up a server using Wake-on-LAN")
                 .add_option(
@@ -44,9 +54,24 @@ impl EventHandler for Handler {
             CreateCommand::new("version").description("Show bot version information"),
         ];
 
+        // 日報コマンドを追加
+        commands.push(
+            CreateCommand::new("diary")
+                .description("日報機能")
+                .add_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "new",
+                    "新しい日報を作成する",
+                ))
+                .add_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "close",
+                    "日報スレッドをクローズする",
+                )),
+        );
+
         match serenity::all::Command::set_global_commands(&ctx.http, commands).await {
             Ok(commands) => {
-                // 登録したコマンド名とバージョンや時刻を tracing に出す
                 let commands = commands
                     .iter()
                     .map(|command| {
@@ -72,7 +97,7 @@ impl EventHandler for Handler {
         if let serenity::model::application::Interaction::Command(command) = interaction
             && let Err(e) = self.handle_command(&ctx, &command).await
         {
-            error!(error = %e, command = %command.data.name, "Command error");
+            error!(error = ?e, command = %command.data.name, "Command error");
 
             let response = CreateInteractionResponseMessage::new()
                 .content(format!("Error: {}", e))
@@ -86,6 +111,55 @@ impl EventHandler for Handler {
             }
         }
     }
+
+    async fn message(&self, ctx: SerenityContext, message: Message) {
+        // Bot 自身のメッセージは無視
+        if message.author.bot {
+            return;
+        }
+
+        // スレッドでない場合は無視
+        let Ok(channel) = message.channel(&ctx).await else {
+            return;
+        };
+        let Some(guild_channel) = channel.guild() else {
+            return;
+        };
+        if guild_channel.kind != ChannelType::PublicThread {
+            return;
+        }
+
+        // 該当スレッドの日報エントリを取得
+        let Ok(Some(entry)) = self.diary_store.get_by_thread(message.channel_id.get()).await
+        else {
+            return;
+        };
+        let page_id = entry.page_id.clone();
+
+        // Notion に同期
+        let syncer = MessageSyncer::new(self.notion_client.as_ref());
+        match syncer.sync_message(&page_id, &message).await {
+            Ok(true) => {
+                info!(
+                    thread_id = message.channel_id.get(),
+                    message_id = message.id.get(),
+                    "Message synced to Notion"
+                );
+                // 成功したらリアクションを付ける
+                let reaction =
+                    ReactionType::Unicode(self.config.diary.sync_reaction.clone());
+                if let Err(e) = message.react(&ctx.http, reaction).await {
+                    error!(error = %e, "Failed to add sync reaction");
+                }
+            }
+            Ok(false) => {
+                // スキップ (空メッセージなど)
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to sync message to Notion");
+            }
+        }
+    }
 }
 
 impl Handler {
@@ -95,7 +169,8 @@ impl Handler {
         command: &CommandInteraction,
     ) -> Result<()> {
         let user_id = command.user.id.get();
-        if !self.config.discord.admins.contains(&user_id) {
+        if !self.config.discord.admins.is_empty() && !self.config.discord.admins.contains(&user_id)
+        {
             warn!(user_id, "Unauthorized access attempt");
             let response = CreateInteractionResponseMessage::new()
                 .content("You are not authorized to use this bot.")
@@ -110,6 +185,7 @@ impl Handler {
             "wol" => self.handle_wol(ctx, command).await,
             "servers" => self.handle_servers(ctx, command).await,
             "version" => self.handle_version(ctx, command).await,
+            "diary" => self.handle_diary(ctx, command).await,
             _ => Ok(()),
         }
     }
@@ -132,7 +208,7 @@ impl Handler {
 
         let response = CreateInteractionResponseMessage::new()
             .content(format!(
-                "✅ Sent WOL packet to {} ({})",
+                "Sent WOL packet to {} ({})",
                 server.name, server.mac_address
             ))
             .ephemeral(false);
@@ -200,6 +276,171 @@ impl Handler {
 
         Ok(())
     }
+
+    async fn handle_diary(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        let subcommand = command
+            .data
+            .options
+            .first()
+            .context("Subcommand not provided")?;
+
+        match subcommand.name.as_str() {
+            "new" => self.handle_diary_new(ctx, command).await,
+            "close" => self.handle_diary_close(ctx, command).await,
+            _ => Ok(()),
+        }
+    }
+
+    async fn handle_diary_new(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        let diary_config = &self.config.diary;
+
+        // 今日の日付を JST で取得
+        let date = today_jst();
+
+        // 既に今日の日報が存在するかチェック
+        if let Some(entry) = self.diary_store.get_by_date(&date).await? {
+            let thread_id = ChannelId::new(entry.thread_id);
+
+            // スレッドのロックを解除して再開
+            let edit = EditThread::new().archived(false).locked(false);
+            thread_id
+                .edit_thread(&ctx.http, edit)
+                .await
+                .context("スレッドのロック解除に失敗しました")?;
+
+            info!(
+                date = %date,
+                thread_id = entry.thread_id,
+                "Diary thread reopened"
+            );
+
+            let response = CreateInteractionResponseMessage::new()
+                .content(format!("今日の日報を再開しました: <#{}>", entry.thread_id))
+                .ephemeral(false);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
+        // Notion ページを作成
+        let (page_id, page_url) = self
+            .notion_client
+            .create_diary_page(&date)
+            .await
+            .context("Notion ページの作成に失敗しました")?;
+
+        // Discord フォーラムにスレッドを作成
+        let forum_channel = ChannelId::new(diary_config.forum_channel_id);
+        let initial_message = CreateMessage::new().content(format!("Notion: {}", page_url));
+        let forum_post = CreateForumPost::new(date.clone(), initial_message);
+
+        let thread = forum_channel
+            .create_forum_post(&ctx.http, forum_post)
+            .await
+            .context("フォーラムスレッドの作成に失敗しました")?;
+
+        // 紐付け情報を保存
+        let entry = DiaryEntry {
+            thread_id: thread.id.get(),
+            page_id,
+            page_url: page_url.clone(),
+            date: date.clone(),
+            created_at: chrono::Utc::now(),
+        };
+
+        self.diary_store.insert(&entry).await?;
+
+        info!(date = %date, thread_id = thread.id.get(), "Diary created");
+
+        // 成功レスポンス
+        let response = CreateInteractionResponseMessage::new()
+            .content(format!(
+                "日報を作成しました\nスレッド: <#{}>\nNotion: {}",
+                thread.id, page_url
+            ))
+            .ephemeral(false);
+
+        command
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        Ok(())
+    }
+
+    async fn handle_diary_close(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        // スレッド内からの呼び出しか確認
+        let channel = command.channel_id.to_channel(&ctx.http).await?;
+        let Some(guild_channel) = channel.guild() else {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このコマンドはサーバー内でのみ使用できます")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        };
+
+        if guild_channel.kind != ChannelType::PublicThread {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このコマンドは日報スレッド内から実行してください")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
+        // 該当スレッドが日報スレッドか確認
+        if self
+            .diary_store
+            .get_by_thread(command.channel_id.get())
+            .await?
+            .is_none()
+        {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このスレッドは日報スレッドではありません")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
+        // 先にレスポンスを返す（アーカイブ後はレスポンスを返せないため）
+        let response = CreateInteractionResponseMessage::new()
+            .content("日報スレッドをクローズしています...")
+            .ephemeral(false);
+
+        command
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        // スレッドをアーカイブ & ロック (クローズ)
+        // locked=true にすることで、ユーザーが書き込んでも自動的に再開されない
+        let edit = EditThread::new().archived(true).locked(true);
+        command
+            .channel_id
+            .edit_thread(&ctx.http, edit)
+            .await
+            .context("スレッドのクローズに失敗しました")?;
+
+        info!(thread_id = command.channel_id.get(), "Diary thread closed");
+
+        Ok(())
+    }
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
@@ -218,11 +459,7 @@ impl StatusNotifier {
         let mut embed = CreateEmbed::new().title("Server Status").color(0x00ff00);
 
         for status in statuses {
-            let status_text = if status.online {
-                "🟢 Online"
-            } else {
-                "🔴 Offline"
-            };
+            let status_text = if status.online { "Online" } else { "Offline" };
             embed = embed.field(&status.name, status_text, true);
         }
 
@@ -240,9 +477,29 @@ impl StatusNotifier {
 
 /// Discord Bot を起動し、イベントループを開始する。
 pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -> Result<()> {
-    let intents = GatewayIntents::GUILDS;
+    let mut intents = GatewayIntents::GUILDS;
+
+    // メッセージイベントを購読
+    intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+
+    let diary_config = &config.diary;
+    let diary_store = DiaryStore::connect(&diary_config.database_url)
+        .await
+        .context("Failed to connect to database")?;
+    let notion_client = Arc::new(
+        NotionClient::new(
+            &diary_config.notion_token,
+            &diary_config.notion_database_id,
+            &diary_config.notion_title_property,
+            diary_config.notion_tags.clone(),
+        )
+        .context("Failed to create Notion client")?,
+    );
+
     let handler = Handler {
         config: config.clone(),
+        diary_store,
+        notion_client,
     };
 
     let mut client = Client::builder(&config.discord.token, intents)

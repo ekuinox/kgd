@@ -14,17 +14,13 @@ pub fn open_config(path: impl AsRef<Path>) -> Result<Config> {
 
 /// デフォルト設定を指定されたパスに書き出す。
 pub fn write_default_config(path: impl AsRef<Path>) -> Result<()> {
-    let config = Config {
-        servers: vec![ServerConfig::default()],
-        ..Default::default()
-    };
-    let content = toml::to_string_pretty(&config).context("Failed to serialize configuration")?;
+    let content = include_str!("../../../config.example.toml");
     fs::write(path.as_ref(), content).context("Failed to write configuration file")?;
     Ok(())
 }
 
 /// アプリケーション全体の設定を保持する構造体。
-#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
     /// Discord Bot の設定
     pub discord: DiscordConfig,
@@ -32,6 +28,8 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     /// ステータスモニターの設定
     pub status: StatusConfig,
+    /// 日報機能の設定
+    pub diary: DiaryConfig,
 }
 
 impl Config {
@@ -110,6 +108,48 @@ fn default_interval() -> Duration {
     Duration::from_secs(300) // 5 minutes
 }
 
+/// 日報機能の設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct DiaryConfig {
+    /// PostgreSQL データベース URL
+    pub database_url: String,
+    /// Notion API トークン
+    pub notion_token: String,
+    /// 日報を保存する Notion データベース ID
+    pub notion_database_id: String,
+    /// Notion データベースのタイトルプロパティ名
+    #[serde(default = "default_title_property")]
+    pub notion_title_property: String,
+    /// ページ作成時に設定するタグ（セレクトプロパティ）
+    #[serde(default)]
+    pub notion_tags: Vec<NotionTagConfig>,
+    /// 日報スレッドを作成する Discord フォーラムチャンネル ID
+    pub forum_channel_id: u64,
+    /// 同期成功時にメッセージに付けるリアクション絵文字
+    #[serde(default = "default_sync_reaction")]
+    pub sync_reaction: String,
+}
+
+/// Notion タグ設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NotionTagConfig {
+    /// プロパティ名
+    pub property: String,
+    /// 設定する値
+    pub value: String,
+    /// マルチセレクトかどうか（デフォルト: false）
+    #[serde(default)]
+    pub multi_select: bool,
+}
+
+fn default_title_property() -> String {
+    "Name".to_string()
+}
+
+fn default_sync_reaction() -> String {
+    "✅".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +180,15 @@ mod tests {
                 },
             ],
             status: StatusConfig::default(),
+            diary: DiaryConfig {
+                database_url: "postgres://kgd:kgd@localhost:5432/kgd".to_string(),
+                notion_token: "secret_xxxxxxxxxxxxxxxxxxxxx".to_string(),
+                notion_database_id: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
+                notion_title_property: "Name".to_string(),
+                notion_tags: vec![],
+                forum_channel_id: 123456789012345678,
+                sync_reaction: "✅".to_string(),
+            },
         };
 
         assert_eq!(config, expected);
