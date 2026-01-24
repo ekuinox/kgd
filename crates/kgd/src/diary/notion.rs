@@ -14,37 +14,31 @@ use notion_client::{
     },
 };
 
-use crate::config::NotionTagConfig;
-
 /// Notion API クライアントのラッパー。
 pub struct NotionClient {
     /// notion-client のクライアント
     client: Client,
-    /// 日報データベース ID
-    database_id: String,
+    /// 日報ページの親となるページ ID
+    parent_page_id: String,
 }
 
 impl NotionClient {
     /// 新しい NotionClient を作成する。
-    pub fn new(token: impl Into<String>, database_id: impl Into<String>) -> Result<Self> {
+    pub fn new(token: impl Into<String>, parent_page_id: impl Into<String>) -> Result<Self> {
         let client = Client::new(token.into(), None).context("Failed to create Notion client")?;
         Ok(Self {
             client,
-            database_id: database_id.into(),
+            parent_page_id: parent_page_id.into(),
         })
     }
 
     /// 日報ページを作成し、ページ ID と URL を返す。
-    pub async fn create_diary_page(
-        &self,
-        title: &str,
-        tags: &[NotionTagConfig],
-    ) -> Result<(String, String)> {
+    pub async fn create_diary_page(&self, title: &str) -> Result<(String, String)> {
         let mut properties = BTreeMap::new();
 
         // タイトルプロパティを設定
         properties.insert(
-            "Name".to_string(),
+            "title".to_string(),
             PageProperty::Title {
                 id: None,
                 title: vec![RichText::Text {
@@ -59,24 +53,9 @@ impl NotionClient {
             },
         );
 
-        // タグプロパティを設定
-        for tag in tags {
-            properties.insert(
-                tag.property.clone(),
-                PageProperty::Select {
-                    id: None,
-                    select: Some(notion_client::objects::page::SelectPropertyValue {
-                        id: None,
-                        name: Some(tag.value.clone()),
-                        color: None,
-                    }),
-                },
-            );
-        }
-
         let request = notion_client::endpoints::pages::create::request::CreateAPageRequest {
-            parent: Parent::DatabaseId {
-                database_id: self.database_id.clone(),
+            parent: Parent::PageId {
+                page_id: self.parent_page_id.clone(),
             },
             properties,
             ..Default::default()

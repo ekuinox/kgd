@@ -122,28 +122,16 @@ fn default_interval() -> Duration {
 pub struct DiaryConfig {
     /// Notion API トークン
     pub notion_token: String,
-    /// 日報を保存する Notion データベース ID
-    pub notion_database_id: String,
+    /// 日報ページの親となる Notion ページ ID
+    pub notion_parent_page_id: String,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
     #[serde(default = "default_sync_reaction")]
     pub sync_reaction: String,
-    /// Notion ページに付与するタグ設定
-    #[serde(default)]
-    pub notion_tags: Vec<NotionTagConfig>,
     /// 紐付け情報を保存するファイルパス
     #[serde(default = "default_store_path")]
     pub store_path: PathBuf,
-}
-
-/// Notion ページに付与するタグの設定。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct NotionTagConfig {
-    /// プロパティ名
-    pub property: String,
-    /// タグの値
-    pub value: String,
 }
 
 fn default_sync_reaction() -> String {

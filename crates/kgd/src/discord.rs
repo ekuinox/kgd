@@ -332,7 +332,7 @@ impl Handler {
         // Notion ページを作成
         let notion = self.notion_client.as_ref().unwrap();
         let (page_id, page_url) = notion
-            .create_diary_page(&date, &diary_config.notion_tags)
+            .create_diary_page(&date)
             .await
             .context("Notion ページの作成に失敗しました")?;
 
@@ -483,9 +483,11 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
 
         let store =
             DiaryStore::load(&diary_config.store_path).context("Failed to load diary store")?;
-        let notion =
-            NotionClient::new(&diary_config.notion_token, &diary_config.notion_database_id)
-                .context("Failed to create Notion client")?;
+        let notion = NotionClient::new(
+            &diary_config.notion_token,
+            &diary_config.notion_parent_page_id,
+        )
+        .context("Failed to create Notion client")?;
 
         (Some(Arc::new(RwLock::new(store))), Some(Arc::new(notion)))
     } else {
