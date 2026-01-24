@@ -31,13 +31,9 @@ impl<'a> MessageSyncer<'a> {
 
         // テキストコンテンツを同期
         if has_content {
-            let formatted = format!(
-                "[{}] {}: {}",
-                message.timestamp.format("%H:%M"),
-                message.author.name,
-                message.content
-            );
-            self.notion.append_text_block(page_id, &formatted).await?;
+            self.notion
+                .append_text_block(page_id, &message.content)
+                .await?;
         }
 
         // 添付ファイルを同期
