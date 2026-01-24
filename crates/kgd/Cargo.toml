@@ -42,4 +42,4 @@ vergen-gitcl.workspace = true
 tempfile.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["humantime-serde"]
+ignored = ["humantime-serde", "openssl"]
