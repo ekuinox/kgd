@@ -27,9 +27,16 @@ surge-ping.workspace = true
 humantime.workspace = true
 humantime-serde.workspace = true
 const_format.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+notion-client.workspace = true
+serde_json.workspace = true
 
 [build-dependencies]
 vergen-gitcl.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["humantime-serde"]

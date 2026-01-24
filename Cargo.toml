@@ -45,3 +45,16 @@ surge-ping = "0.8"
 # Time parsing
 humantime = "2.1"
 humantime-serde = "1.1"
+
+# Date/Time with timezone
+chrono = "0.4"
+chrono-tz = "0.10"
+
+# Notion API
+notion-client = "1.0"
+
+# JSON serialization (for diary store)
+serde_json = "1.0"
+
+# Testing
+tempfile = "3.14"

@@ -1,4 +1,5 @@
 mod config;
+mod diary;
 mod discord;
 mod ping;
 mod status;

@@ -34,3 +34,28 @@ description = "ストレージサーバー"
 # Status Monitor Configuration
 [status]
 interval = "5m"  # Update interval (e.g., "30s", "5m", "1h") - default: 5m
+
+# Diary Feature Configuration (Optional)
+# Enables integration between Discord forum threads and Notion database
+# [diary]
+# Notion Integration Token
+# Create one at: https://www.notion.so/my-integrations
+# notion_token = "secret_xxxxxxxxxxxxxxxxxxxxx"
+
+# Notion Database ID for diary entries
+# Extract from database URL: https://notion.so/xxxxx?v=yyyyy (the xxxxx part)
+# notion_database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Discord Forum Channel ID where diary threads will be created
+# forum_channel_id = 123456789012345678
+
+# Emoji reaction added to messages when synced successfully (default: white_check_mark)
+# sync_reaction = "white_check_mark"
+
+# Path to store thread-page mappings (default: diary_store.json)
+# store_path = "diary_store.json"
+
+# Tags to automatically apply to Notion pages
+# [[diary.notion_tags]]
+# property = "Type"
+# value = "Daily Report"

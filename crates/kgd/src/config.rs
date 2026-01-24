@@ -1,4 +1,8 @@
-use std::{fs, path::Path, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context as _, Result};
 use macaddr::MacAddr6;
@@ -32,6 +36,9 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     /// ステータスモニターの設定
     pub status: StatusConfig,
+    /// 日報機能の設定（オプション）
+    #[serde(default)]
+    pub diary: Option<DiaryConfig>,
 }
 
 impl Config {
@@ -110,6 +117,43 @@ fn default_interval() -> Duration {
     Duration::from_secs(300) // 5 minutes
 }
 
+/// 日報機能の設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct DiaryConfig {
+    /// Notion API トークン
+    pub notion_token: String,
+    /// 日報を保存する Notion データベース ID
+    pub notion_database_id: String,
+    /// 日報スレッドを作成する Discord フォーラムチャンネル ID
+    pub forum_channel_id: u64,
+    /// 同期成功時にメッセージに付けるリアクション絵文字
+    #[serde(default = "default_sync_reaction")]
+    pub sync_reaction: String,
+    /// Notion ページに付与するタグ設定
+    #[serde(default)]
+    pub notion_tags: Vec<NotionTagConfig>,
+    /// 紐付け情報を保存するファイルパス
+    #[serde(default = "default_store_path")]
+    pub store_path: PathBuf,
+}
+
+/// Notion ページに付与するタグの設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NotionTagConfig {
+    /// プロパティ名
+    pub property: String,
+    /// タグの値
+    pub value: String,
+}
+
+fn default_sync_reaction() -> String {
+    "white_check_mark".to_string()
+}
+
+fn default_store_path() -> PathBuf {
+    PathBuf::from("diary_store.json")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +184,7 @@ mod tests {
                 },
             ],
             status: StatusConfig::default(),
+            diary: None,
         };
 
         assert_eq!(config, expected);
