@@ -1,11 +1,10 @@
 //! スレッドと Notion ページの紐付け情報を永続化するストア。
 
 use anyhow::{Context as _, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
-// TODO: date フィールドを chrono::NaiveDate 型に変更して型安全性を向上させる
 #[derive(Debug, Clone)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
@@ -14,8 +13,8 @@ pub struct DiaryEntry {
     pub page_id: String,
     /// Notion ページ URL
     pub page_url: String,
-    /// 日付 (YYYY-MM-DD 形式)
-    pub date: String,
+    /// 日付
+    pub date: NaiveDate,
     /// 作成日時
     pub created_at: DateTime<Utc>,
 }
@@ -59,7 +58,7 @@ impl DiaryStore {
         .bind(entry.thread_id as i64)
         .bind(&entry.page_id)
         .bind(&entry.page_url)
-        .bind(&entry.date)
+        .bind(entry.date)
         .bind(entry.created_at)
         .execute(&self.pool)
         .await
@@ -92,7 +91,7 @@ impl DiaryStore {
     }
 
     /// 日付からエントリを取得する。
-    pub async fn get_by_date(&self, date: &str) -> Result<Option<DiaryEntry>> {
+    pub async fn get_by_date(&self, date: NaiveDate) -> Result<Option<DiaryEntry>> {
         let row = sqlx::query(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at

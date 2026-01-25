@@ -130,7 +130,10 @@ impl EventHandler for Handler {
         }
 
         // 該当スレッドの日報エントリを取得
-        let Ok(Some(entry)) = self.diary_store.get_by_thread(message.channel_id.get()).await
+        let Ok(Some(entry)) = self
+            .diary_store
+            .get_by_thread(message.channel_id.get())
+            .await
         else {
             return;
         };
@@ -146,8 +149,7 @@ impl EventHandler for Handler {
                     "Message synced to Notion"
                 );
                 // 成功したらリアクションを付ける
-                let reaction =
-                    ReactionType::Unicode(self.config.diary.sync_reaction.clone());
+                let reaction = ReactionType::Unicode(self.config.diary.sync_reaction.clone());
                 if let Err(e) = message.react(&ctx.http, reaction).await {
                     error!(error = %e, "Failed to add sync reaction");
                 }
@@ -306,7 +308,7 @@ impl Handler {
         let date = today_jst();
 
         // 既に今日の日報が存在するかチェック
-        if let Some(entry) = self.diary_store.get_by_date(&date).await? {
+        if let Some(entry) = self.diary_store.get_by_date(date).await? {
             let thread_id = ChannelId::new(entry.thread_id);
 
             // スレッドのロックを解除して再開
@@ -331,17 +333,20 @@ impl Handler {
             return Ok(());
         }
 
+        // 日付を文字列に変換 (YYYY-MM-DD 形式)
+        let date_str = date.to_string();
+
         // Notion ページを作成
         let (page_id, page_url) = self
             .notion_client
-            .create_diary_page(&date)
+            .create_diary_page(&date_str)
             .await
             .context("Notion ページの作成に失敗しました")?;
 
         // Discord フォーラムにスレッドを作成
         let forum_channel = ChannelId::new(diary_config.forum_channel_id);
         let initial_message = CreateMessage::new().content(format!("Notion: {}", page_url));
-        let forum_post = CreateForumPost::new(date.clone(), initial_message);
+        let forum_post = CreateForumPost::new(date_str, initial_message);
 
         let thread = forum_channel
             .create_forum_post(&ctx.http, forum_post)
@@ -353,7 +358,7 @@ impl Handler {
             thread_id: thread.id.get(),
             page_id,
             page_url: page_url.clone(),
-            date: date.clone(),
+            date,
             created_at: chrono::Utc::now(),
         };
 

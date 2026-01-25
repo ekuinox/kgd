@@ -108,9 +108,40 @@ impl<'a> MessageSyncer<'a> {
 }
 
 /// ファイル名から画像かどうかを判定する。
-// TODO: 拡張子の前にドットを含めるべき (e.g., ".png") - "somepng" のような誤判定を防ぐ
 fn is_image(filename: &str) -> bool {
-    let extensions = ["png", "jpg", "jpeg", "gif", "webp"];
+    let extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
     let lower = filename.to_lowercase();
     extensions.iter().any(|ext| lower.ends_with(ext))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_image_with_valid_extensions() {
+        assert!(is_image("photo.png"));
+        assert!(is_image("photo.PNG"));
+        assert!(is_image("image.jpg"));
+        assert!(is_image("image.JPG"));
+        assert!(is_image("picture.jpeg"));
+        assert!(is_image("animation.gif"));
+        assert!(is_image("modern.webp"));
+    }
+
+    #[test]
+    fn test_is_image_rejects_similar_names() {
+        // ドットなしの拡張子文字列で終わるファイル名は画像として判定されない
+        assert!(!is_image("somepng"));
+        assert!(!is_image("filejpg"));
+        assert!(!is_image("imagejpeg"));
+    }
+
+    #[test]
+    fn test_is_image_with_non_image_files() {
+        assert!(!is_image("document.pdf"));
+        assert!(!is_image("archive.zip"));
+        assert!(!is_image("script.js"));
+        assert!(!is_image("noextension"));
+    }
 }
