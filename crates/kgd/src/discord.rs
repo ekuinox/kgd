@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::Config,
-    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_jst},
+    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_local},
     status::ServerStatus,
     version,
     wol::send_wol_packet,
@@ -408,8 +408,8 @@ impl Handler {
     ) -> Result<()> {
         let diary_config = &self.config.diary;
 
-        // 今日の日付を JST で取得
-        let date = today_jst();
+        // 今日の日付をローカルタイムゾーンで取得
+        let date = today_local();
 
         // 既に今日の日報が存在するかチェック
         if let Some(entry) = self.diary_store.get_by_date(date).await? {
@@ -437,9 +437,9 @@ impl Handler {
             return Ok(());
         }
 
-        // 日付を文字列に変換 (YYYY-MM-DD 形式、JST で表示)
+        // 日付を文字列に変換 (YYYY-MM-DD 形式、ローカルタイムゾーンで表示)
         let date_str = date
-            .with_timezone(&chrono_tz::Asia::Tokyo)
+            .with_timezone(&chrono::Local)
             .format("%Y-%m-%d")
             .to_string();
 
