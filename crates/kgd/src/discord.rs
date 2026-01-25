@@ -437,8 +437,11 @@ impl Handler {
             return Ok(());
         }
 
-        // 日付を文字列に変換 (YYYY-MM-DD 形式)
-        let date_str = date.format("%Y-%m-%d").to_string();
+        // 日付を文字列に変換 (YYYY-MM-DD 形式、JST で表示)
+        let date_str = date
+            .with_timezone(&chrono_tz::Asia::Tokyo)
+            .format("%Y-%m-%d")
+            .to_string();
 
         // Notion ページを作成
         let (page_id, page_url) = self
