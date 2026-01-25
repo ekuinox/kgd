@@ -334,7 +334,7 @@ impl Handler {
         }
 
         // 日付を文字列に変換 (YYYY-MM-DD 形式)
-        let date_str = date.to_string();
+        let date_str = date.format("%Y-%m-%d").to_string();
 
         // Notion ページを作成
         let (page_id, page_url) = self

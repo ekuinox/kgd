@@ -1,7 +1,7 @@
 //! スレッドと Notion ページの紐付け情報を永続化するストア。
 
 use anyhow::{Context as _, Result};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
@@ -15,7 +15,7 @@ pub struct DiaryEntry {
     /// Notion ページ URL
     pub page_url: String,
     /// 日付
-    pub date: NaiveDate,
+    pub date: DateTime<Utc>,
     /// 作成日時
     pub created_at: DateTime<Utc>,
 }
@@ -84,7 +84,9 @@ impl DiaryStore {
     }
 
     /// 日付からエントリを取得する。
-    pub async fn get_by_date(&self, date: NaiveDate) -> Result<Option<DiaryEntry>> {
+    ///
+    /// 指定された日時が含まれる日（その日の00:00:00から翌日の00:00:00まで）のエントリを検索する。
+    pub async fn get_by_date(&self, date: DateTime<Utc>) -> Result<Option<DiaryEntry>> {
         sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
