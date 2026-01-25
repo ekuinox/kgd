@@ -5,9 +5,10 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
+    #[sqlx(try_from = "i64")]
     pub thread_id: u64,
     /// Notion ページ ID
     pub page_id: String,
@@ -17,40 +18,6 @@ pub struct DiaryEntry {
     pub date: NaiveDate,
     /// 作成日時
     pub created_at: DateTime<Utc>,
-}
-
-/// データベース行との相互変換用の内部構造体。
-#[derive(FromRow)]
-struct DiaryEntryRow {
-    thread_id: i64,
-    page_id: String,
-    page_url: String,
-    date: NaiveDate,
-    created_at: DateTime<Utc>,
-}
-
-impl From<DiaryEntryRow> for DiaryEntry {
-    fn from(row: DiaryEntryRow) -> Self {
-        Self {
-            thread_id: row.thread_id as u64,
-            page_id: row.page_id,
-            page_url: row.page_url,
-            date: row.date,
-            created_at: row.created_at,
-        }
-    }
-}
-
-impl From<&DiaryEntry> for DiaryEntryRow {
-    fn from(entry: &DiaryEntry) -> Self {
-        Self {
-            thread_id: entry.thread_id as i64,
-            page_id: entry.page_id.clone(),
-            page_url: entry.page_url.clone(),
-            date: entry.date,
-            created_at: entry.created_at,
-        }
-    }
 }
 
 /// スレッドと Notion ページの紐付け情報を管理するストア。
@@ -79,7 +46,6 @@ impl DiaryStore {
 
     /// エントリを追加する。
     pub async fn insert(&self, entry: &DiaryEntry) -> Result<()> {
-        let row = DiaryEntryRow::from(entry);
         sqlx::query(
             r#"
             INSERT INTO diary_entries (thread_id, page_id, page_url, date, created_at)
@@ -90,11 +56,11 @@ impl DiaryStore {
                 date = EXCLUDED.date
             "#,
         )
-        .bind(row.thread_id)
-        .bind(&row.page_id)
-        .bind(&row.page_url)
-        .bind(row.date)
-        .bind(row.created_at)
+        .bind(entry.thread_id as i64)
+        .bind(&entry.page_id)
+        .bind(&entry.page_url)
+        .bind(entry.date)
+        .bind(entry.created_at)
         .execute(&self.pool)
         .await
         .context("Failed to insert diary entry")?;
@@ -104,7 +70,7 @@ impl DiaryStore {
 
     /// スレッド ID からエントリを取得する。
     pub async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
-        let row: Option<DiaryEntryRow> = sqlx::query_as(
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -114,14 +80,12 @@ impl DiaryStore {
         .bind(thread_id as i64)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by thread")?;
-
-        Ok(row.map(DiaryEntry::from))
+        .context("Failed to fetch diary entry by thread")
     }
 
     /// 日付からエントリを取得する。
     pub async fn get_by_date(&self, date: NaiveDate) -> Result<Option<DiaryEntry>> {
-        let row: Option<DiaryEntryRow> = sqlx::query_as(
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -131,8 +95,6 @@ impl DiaryStore {
         .bind(date)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by date")?;
-
-        Ok(row.map(DiaryEntry::from))
+        .context("Failed to fetch diary entry by date")
     }
 }
