@@ -5,12 +5,13 @@ use serenity::{
     all::{
         ChannelId, ChannelType, CommandInteraction, CreateCommand, CreateCommandOption,
         CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
-        CreateMessage, EditThread, GatewayIntents, Http, Message, ReactionType,
+        CreateMessage, EditThread, GatewayIntents, Http, Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
     client::Context as SerenityContext,
     model::application::CommandOptionType,
+    model::id::MessageId,
     prelude::*,
 };
 use tokio::sync::mpsc;
@@ -18,7 +19,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::Config,
-    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_jst},
+    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_local},
     status::ServerStatus,
     version,
     wol::send_wol_packet,
@@ -140,12 +141,13 @@ impl EventHandler for Handler {
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let syncer = MessageSyncer::new(self.notion_client.as_ref());
+        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
         match syncer.sync_message(&page_id, &message).await {
-            Ok(true) => {
+            Ok(result) if result.synced => {
                 info!(
                     thread_id = message.channel_id.get(),
                     message_id = message.id.get(),
+                    blocks = result.block_count,
                     "Message synced to Notion"
                 );
                 // 成功したらリアクションを付ける
@@ -154,11 +156,113 @@ impl EventHandler for Handler {
                     error!(error = %e, "Failed to add sync reaction");
                 }
             }
-            Ok(false) => {
+            Ok(_) => {
                 // スキップ (空メッセージなど)
             }
             Err(e) => {
                 error!(error = %e, "Failed to sync message to Notion");
+            }
+        }
+    }
+
+    async fn message_update(
+        &self,
+        ctx: SerenityContext,
+        _old_if_available: Option<Message>,
+        _new: Option<Message>,
+        event: MessageUpdateEvent,
+    ) {
+        // Bot 自身のメッセージは無視
+        if event.author.as_ref().is_some_and(|a| a.bot) {
+            return;
+        }
+
+        // スレッドでない場合は無視
+        let Ok(channel) = event.channel_id.to_channel(&ctx).await else {
+            return;
+        };
+        let Some(guild_channel) = channel.guild() else {
+            return;
+        };
+        if guild_channel.kind != ChannelType::PublicThread {
+            return;
+        }
+
+        // 該当スレッドの日報エントリを取得
+        let Ok(Some(_entry)) = self.diary_store.get_by_thread(event.channel_id.get()).await else {
+            return;
+        };
+
+        // コンテンツがない場合は無視
+        let Some(content) = event.content else {
+            return;
+        };
+
+        // メッセージを取得して更新
+        let Ok(message) = event.channel_id.message(&ctx.http, event.id).await else {
+            return;
+        };
+
+        // メッセージの内容で上書きして更新
+        let mut message = message;
+        message.content = content;
+
+        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
+        match syncer.update_message(&message).await {
+            Ok(true) => {
+                info!(
+                    thread_id = event.channel_id.get(),
+                    message_id = event.id.get(),
+                    "Message updated in Notion"
+                );
+            }
+            Ok(false) => {
+                // 対応するブロックがなかった（新規メッセージの可能性）
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to update message in Notion");
+            }
+        }
+    }
+
+    async fn message_delete(
+        &self,
+        ctx: SerenityContext,
+        channel_id: ChannelId,
+        deleted_message_id: MessageId,
+        _guild_id: Option<serenity::model::id::GuildId>,
+    ) {
+        // スレッドでない場合は無視
+        let Ok(channel) = channel_id.to_channel(&ctx).await else {
+            return;
+        };
+        let Some(guild_channel) = channel.guild() else {
+            return;
+        };
+        if guild_channel.kind != ChannelType::PublicThread {
+            return;
+        }
+
+        // 該当スレッドの日報エントリを取得
+        let Ok(Some(_entry)) = self.diary_store.get_by_thread(channel_id.get()).await else {
+            return;
+        };
+
+        // Notion から対応するブロックを削除
+        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
+        match syncer.delete_message(deleted_message_id.get()).await {
+            Ok(true) => {
+                info!(
+                    thread_id = channel_id.get(),
+                    message_id = deleted_message_id.get(),
+                    "Message deleted from Notion"
+                );
+            }
+            Ok(false) => {
+                // 対応するブロックがなかった
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to delete message from Notion");
             }
         }
     }
@@ -304,8 +408,8 @@ impl Handler {
     ) -> Result<()> {
         let diary_config = &self.config.diary;
 
-        // 今日の日付を JST で取得
-        let date = today_jst();
+        // 今日の日付をローカルタイムゾーンで取得
+        let date = today_local();
 
         // 既に今日の日報が存在するかチェック
         if let Some(entry) = self.diary_store.get_by_date(date).await? {
@@ -333,8 +437,11 @@ impl Handler {
             return Ok(());
         }
 
-        // 日付を文字列に変換 (YYYY-MM-DD 形式)
-        let date_str = date.format("%Y-%m-%d").to_string();
+        // 日付を文字列に変換 (YYYY-MM-DD 形式、ローカルタイムゾーンで表示)
+        let date_str = date
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d")
+            .to_string();
 
         // Notion ページを作成
         let (page_id, page_url) = self

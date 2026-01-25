@@ -4,6 +4,20 @@ use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
+/// メッセージとブロックの対応情報。
+#[derive(Debug, Clone, FromRow)]
+pub struct MessageBlock {
+    /// Discord メッセージ ID
+    #[sqlx(try_from = "i64")]
+    pub message_id: u64,
+    /// Notion ブロック ID
+    pub block_id: String,
+    /// ブロックの種類
+    pub block_type: String,
+    /// ブロックの順序
+    pub block_order: i32,
+}
+
 /// 日報エントリの情報。
 #[derive(Debug, Clone, FromRow)]
 pub struct DiaryEntry {
@@ -98,5 +112,57 @@ impl DiaryStore {
         .fetch_optional(&self.pool)
         .await
         .context("Failed to fetch diary entry by date")
+    }
+
+    /// メッセージとブロックの対応を保存する。
+    pub async fn insert_message_block(&self, block: &MessageBlock) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO diary_message_blocks (message_id, block_id, block_type, block_order)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (block_id) DO NOTHING
+            "#,
+        )
+        .bind(block.message_id as i64)
+        .bind(&block.block_id)
+        .bind(&block.block_type)
+        .bind(block.block_order)
+        .execute(&self.pool)
+        .await
+        .context("Failed to insert message block")?;
+
+        Ok(())
+    }
+
+    /// メッセージ ID から対応するブロック一覧を取得する。
+    pub async fn get_blocks_by_message(&self, message_id: u64) -> Result<Vec<MessageBlock>> {
+        sqlx::query_as(
+            r#"
+            SELECT message_id, block_id, block_type, block_order
+            FROM diary_message_blocks
+            WHERE message_id = $1
+            ORDER BY block_order
+            "#,
+        )
+        .bind(message_id as i64)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch message blocks")
+    }
+
+    /// メッセージ ID に対応するブロックをすべて削除する。
+    pub async fn delete_blocks_by_message(&self, message_id: u64) -> Result<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM diary_message_blocks
+            WHERE message_id = $1
+            "#,
+        )
+        .bind(message_id as i64)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete message blocks")?;
+
+        Ok(())
     }
 }
