@@ -8,7 +8,7 @@ mod store;
 mod sync;
 
 pub use notion::NotionClient;
-pub use store::{DiaryEntry, DiaryStore};
+pub use store::{DiaryEntry, DiaryStore, MessageBlock};
 pub use sync::MessageSyncer;
 
 use chrono::{DateTime, Utc};

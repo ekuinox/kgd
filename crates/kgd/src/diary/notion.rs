@@ -4,9 +4,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context as _, Result, bail};
 use notion_client::{
-    endpoints::{Client, blocks::append::request::AppendBlockChildrenRequest},
+    endpoints::Client,
     objects::{
-        block::{Block, BlockType, ParagraphValue},
         page::{PageProperty, SelectPropertyValue},
         parent::Parent,
         rich_text::{RichText, Text},
@@ -131,41 +130,6 @@ impl NotionClient {
         Ok((page.id, page.url))
     }
 
-    /// ページにテキストブロックを追加する。
-    pub async fn append_text_block(&self, page_id: &str, text: &str) -> Result<()> {
-        let block = Block {
-            block_type: BlockType::Paragraph {
-                paragraph: ParagraphValue {
-                    rich_text: vec![RichText::Text {
-                        text: Text {
-                            content: text.to_string(),
-                            link: None,
-                        },
-                        annotations: None,
-                        plain_text: None,
-                        href: None,
-                    }],
-                    color: None,
-                    children: None,
-                },
-            },
-            ..Default::default()
-        };
-
-        let request = AppendBlockChildrenRequest {
-            children: vec![block],
-            after: None,
-        };
-
-        self.client
-            .blocks
-            .append_block_children(page_id, request)
-            .await
-            .context("Failed to append block")?;
-
-        Ok(())
-    }
-
     /// ファイルをNotionにアップロードし、ファイルアップロードIDを返す。
     pub async fn upload_file(
         &self,
@@ -245,14 +209,61 @@ impl NotionClient {
         Ok(file_upload_id)
     }
 
-    /// ページにアップロード済みファイルの画像ブロックを追加する。
-    pub async fn append_uploaded_image_block(
+    /// ページにテキストブロックを追加し、作成されたブロック ID を返す。
+    pub async fn append_text_block_with_id(&self, page_id: &str, text: &str) -> Result<String> {
+        let body = serde_json::json!({
+            "children": [{
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{
+                        "type": "text",
+                        "text": {
+                            "content": text
+                        }
+                    }]
+                }
+            }]
+        });
+
+        let response = self
+            .http_client
+            .patch(format!(
+                "https://api.notion.com/v1/blocks/{}/children",
+                page_id
+            ))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Notion-Version", NOTION_API_VERSION)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to append text block")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to append text block: {} - {}", status, body);
+        }
+
+        let result: AppendBlockChildrenResponse = response
+            .json()
+            .await
+            .context("Failed to parse append block response")?;
+
+        result
+            .results
+            .first()
+            .map(|b| b.id.clone())
+            .context("No block returned from append")
+    }
+
+    /// ページにアップロード済みファイルの画像ブロックを追加し、作成されたブロック ID を返す。
+    pub async fn append_uploaded_image_block_with_id(
         &self,
         page_id: &str,
         file_upload_id: &str,
-    ) -> Result<()> {
-        // notion-client クレートには file_upload タイプがないため、
-        // 直接 API を呼び出す
+    ) -> Result<String> {
         let body = serde_json::json!({
             "children": [{
                 "object": "block",
@@ -286,6 +297,80 @@ impl NotionClient {
             bail!("Failed to append image block: {} - {}", status, body);
         }
 
+        let result: AppendBlockChildrenResponse = response
+            .json()
+            .await
+            .context("Failed to parse append block response")?;
+
+        result
+            .results
+            .first()
+            .map(|b| b.id.clone())
+            .context("No block returned from append")
+    }
+
+    /// テキストブロックを更新する。
+    pub async fn update_text_block(&self, block_id: &str, text: &str) -> Result<()> {
+        let body = serde_json::json!({
+            "paragraph": {
+                "rich_text": [{
+                    "type": "text",
+                    "text": {
+                        "content": text
+                    }
+                }]
+            }
+        });
+
+        let response = self
+            .http_client
+            .patch(format!("https://api.notion.com/v1/blocks/{}", block_id))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Notion-Version", NOTION_API_VERSION)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to update block")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to update block: {} - {}", status, body);
+        }
+
         Ok(())
     }
+
+    /// ブロックを削除する。
+    pub async fn delete_block(&self, block_id: &str) -> Result<()> {
+        let response = self
+            .http_client
+            .delete(format!("https://api.notion.com/v1/blocks/{}", block_id))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Notion-Version", NOTION_API_VERSION)
+            .send()
+            .await
+            .context("Failed to delete block")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to delete block: {} - {}", status, body);
+        }
+
+        Ok(())
+    }
+}
+
+/// ブロック追加レスポンスのブロック情報。
+#[derive(Debug, Deserialize)]
+struct BlockInfo {
+    id: String,
+}
+
+/// ブロック追加レスポンス。
+#[derive(Debug, Deserialize)]
+struct AppendBlockChildrenResponse {
+    results: Vec<BlockInfo>,
 }
