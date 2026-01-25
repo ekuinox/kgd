@@ -2,12 +2,13 @@
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
+    #[sqlx(try_from = "i64")]
     pub thread_id: u64,
     /// Notion ページ ID
     pub page_id: String,
@@ -69,7 +70,7 @@ impl DiaryStore {
 
     /// スレッド ID からエントリを取得する。
     pub async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
-        let row = sqlx::query(
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -79,20 +80,12 @@ impl DiaryStore {
         .bind(thread_id as i64)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by thread")?;
-
-        Ok(row.map(|r| DiaryEntry {
-            thread_id: r.get::<i64, _>("thread_id") as u64,
-            page_id: r.get("page_id"),
-            page_url: r.get("page_url"),
-            date: r.get("date"),
-            created_at: r.get("created_at"),
-        }))
+        .context("Failed to fetch diary entry by thread")
     }
 
     /// 日付からエントリを取得する。
     pub async fn get_by_date(&self, date: NaiveDate) -> Result<Option<DiaryEntry>> {
-        let row = sqlx::query(
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -102,14 +95,6 @@ impl DiaryStore {
         .bind(date)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by date")?;
-
-        Ok(row.map(|r| DiaryEntry {
-            thread_id: r.get::<i64, _>("thread_id") as u64,
-            page_id: r.get("page_id"),
-            page_url: r.get("page_url"),
-            date: r.get("date"),
-            created_at: r.get("created_at"),
-        }))
+        .context("Failed to fetch diary entry by date")
     }
 }
