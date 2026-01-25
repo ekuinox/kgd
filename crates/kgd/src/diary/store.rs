@@ -2,20 +2,20 @@
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
 /// 日報エントリの情報。
-// TODO: date フィールドを chrono::NaiveDate 型に変更して型安全性を向上させる
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct DiaryEntry {
     /// Discord スレッド ID
+    #[sqlx(try_from = "i64")]
     pub thread_id: u64,
     /// Notion ページ ID
     pub page_id: String,
     /// Notion ページ URL
     pub page_url: String,
-    /// 日付 (YYYY-MM-DD 形式)
-    pub date: String,
+    /// 日付
+    pub date: DateTime<Utc>,
     /// 作成日時
     pub created_at: DateTime<Utc>,
 }
@@ -59,7 +59,7 @@ impl DiaryStore {
         .bind(entry.thread_id as i64)
         .bind(&entry.page_id)
         .bind(&entry.page_url)
-        .bind(&entry.date)
+        .bind(entry.date)
         .bind(entry.created_at)
         .execute(&self.pool)
         .await
@@ -70,7 +70,7 @@ impl DiaryStore {
 
     /// スレッド ID からエントリを取得する。
     pub async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
-        let row = sqlx::query(
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -80,20 +80,14 @@ impl DiaryStore {
         .bind(thread_id as i64)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by thread")?;
-
-        Ok(row.map(|r| DiaryEntry {
-            thread_id: r.get::<i64, _>("thread_id") as u64,
-            page_id: r.get("page_id"),
-            page_url: r.get("page_url"),
-            date: r.get("date"),
-            created_at: r.get("created_at"),
-        }))
+        .context("Failed to fetch diary entry by thread")
     }
 
     /// 日付からエントリを取得する。
-    pub async fn get_by_date(&self, date: &str) -> Result<Option<DiaryEntry>> {
-        let row = sqlx::query(
+    ///
+    /// 指定された日時が含まれる日（その日の00:00:00から翌日の00:00:00まで）のエントリを検索する。
+    pub async fn get_by_date(&self, date: DateTime<Utc>) -> Result<Option<DiaryEntry>> {
+        sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -103,14 +97,6 @@ impl DiaryStore {
         .bind(date)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by date")?;
-
-        Ok(row.map(|r| DiaryEntry {
-            thread_id: r.get::<i64, _>("thread_id") as u64,
-            page_id: r.get("page_id"),
-            page_url: r.get("page_url"),
-            date: r.get("date"),
-            created_at: r.get("created_at"),
-        }))
+        .context("Failed to fetch diary entry by date")
     }
 }
