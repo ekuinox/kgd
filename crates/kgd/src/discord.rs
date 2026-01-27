@@ -443,12 +443,23 @@ impl Handler {
         // 日付を文字列に変換 (YYYY-MM-DD 形式、設定されたタイムゾーンで表示)
         let date_str = format_date_in_timezone(date, &diary_config.timezone);
 
-        // Notion ページを作成
-        let (page_id, page_url) = self
+        // 既存の Notion ページを検索、なければ新規作成
+        let (page_id, page_url, reused) = if let Some((page_id, page_url)) = self
             .notion_client
-            .create_diary_page(&date_str)
+            .find_diary_page_by_title(&date_str)
             .await
-            .context("Notion ページの作成に失敗しました")?;
+            .context("Notion ページの検索に失敗しました")?
+        {
+            info!(date = %date, page_id = %page_id, "Found existing Notion page");
+            (page_id, page_url, true)
+        } else {
+            let (page_id, page_url) = self
+                .notion_client
+                .create_diary_page(&date_str)
+                .await
+                .context("Notion ページの作成に失敗しました")?;
+            (page_id, page_url, false)
+        };
 
         // Discord フォーラムにスレッドを作成
         let forum_channel = ChannelId::new(diary_config.forum_channel_id);
@@ -471,14 +482,22 @@ impl Handler {
 
         self.diary_store.insert(&entry).await?;
 
-        info!(date = %date, thread_id = thread.id.get(), "Diary created");
+        info!(date = %date, thread_id = thread.id.get(), reused, "Diary created");
 
         // 成功レスポンス
-        let response = CreateInteractionResponseMessage::new()
-            .content(format!(
+        let message = if reused {
+            format!(
+                "既存の Notion ページを使用して日報を作成しました\nスレッド: <#{}>\nNotion: {}",
+                thread.id, page_url
+            )
+        } else {
+            format!(
                 "日報を作成しました\nスレッド: <#{}>\nNotion: {}",
                 thread.id, page_url
-            ))
+            )
+        };
+        let response = CreateInteractionResponseMessage::new()
+            .content(message)
             .ephemeral(false);
 
         command

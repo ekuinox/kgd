@@ -70,6 +70,49 @@ impl NotionClient {
         })
     }
 
+    /// 指定したタイトルの日報ページを検索し、存在すればページ ID と URL を返す。
+    pub async fn find_diary_page_by_title(&self, title: &str) -> Result<Option<(String, String)>> {
+        let body = serde_json::json!({
+            "filter": {
+                "property": self.title_property,
+                "title": {
+                    "equals": title
+                }
+            },
+            "page_size": 1
+        });
+
+        let response = self
+            .http_client
+            .post(format!(
+                "https://api.notion.com/v1/databases/{}/query",
+                self.database_id
+            ))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Notion-Version", NOTION_API_VERSION)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to query database")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to query database: {} - {}", status, body);
+        }
+
+        let result: DatabaseQueryResponse = response
+            .json()
+            .await
+            .context("Failed to parse database query response")?;
+
+        Ok(result
+            .results
+            .first()
+            .map(|page| (page.id.clone(), page.url.clone())))
+    }
+
     /// 日報ページを作成し、ページ ID と URL を返す。
     pub async fn create_diary_page(&self, title: &str) -> Result<(String, String)> {
         let mut properties = BTreeMap::new();
@@ -373,4 +416,17 @@ struct BlockInfo {
 #[derive(Debug, Deserialize)]
 struct AppendBlockChildrenResponse {
     results: Vec<BlockInfo>,
+}
+
+/// データベースクエリレスポンスのページ情報。
+#[derive(Debug, Deserialize)]
+struct PageInfo {
+    id: String,
+    url: String,
+}
+
+/// データベースクエリレスポンス。
+#[derive(Debug, Deserialize)]
+struct DatabaseQueryResponse {
+    results: Vec<PageInfo>,
 }
