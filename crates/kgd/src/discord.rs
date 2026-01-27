@@ -19,7 +19,10 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::Config,
-    diary::{DiaryEntry, DiaryStore, MessageSyncer, NotionClient, today_local},
+    diary::{
+        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, format_date_in_timezone,
+        today_in_timezone,
+    },
     status::ServerStatus,
     version,
     wol::send_wol_packet,
@@ -408,8 +411,8 @@ impl Handler {
     ) -> Result<()> {
         let diary_config = &self.config.diary;
 
-        // 今日の日付をローカルタイムゾーンで取得
-        let date = today_local();
+        // 今日の日付を設定されたタイムゾーンで取得
+        let date = today_in_timezone(&diary_config.timezone);
 
         // 既に今日の日報が存在するかチェック
         if let Some(entry) = self.diary_store.get_by_date(date).await? {
@@ -437,11 +440,8 @@ impl Handler {
             return Ok(());
         }
 
-        // 日付を文字列に変換 (YYYY-MM-DD 形式、ローカルタイムゾーンで表示)
-        let date_str = date
-            .with_timezone(&chrono::Local)
-            .format("%Y-%m-%d")
-            .to_string();
+        // 日付を文字列に変換 (YYYY-MM-DD 形式、設定されたタイムゾーンで表示)
+        let date_str = format_date_in_timezone(date, &diary_config.timezone);
 
         // Notion ページを作成
         let (page_id, page_url) = self

@@ -1,6 +1,7 @@
 use std::{fs, path::Path, time::Duration};
 
 use anyhow::{Context as _, Result};
+use chrono_tz::Tz;
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -109,6 +110,7 @@ fn default_interval() -> Duration {
 }
 
 /// 日報機能の設定。
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DiaryConfig {
     /// PostgreSQL データベース URL
@@ -128,6 +130,10 @@ pub struct DiaryConfig {
     /// 同期成功時にメッセージに付けるリアクション絵文字
     #[serde(default = "default_sync_reaction")]
     pub sync_reaction: String,
+    /// 日報の日付計算に使用するタイムゾーン（デフォルト: Asia/Tokyo）
+    #[serde(default = "default_timezone")]
+    #[serde_as(as = "DisplayFromStr")]
+    pub timezone: Tz,
 }
 
 /// Notion タグ設定。
@@ -148,6 +154,10 @@ fn default_title_property() -> String {
 
 fn default_sync_reaction() -> String {
     "✅".to_string()
+}
+
+fn default_timezone() -> Tz {
+    chrono_tz::Asia::Tokyo
 }
 
 #[cfg(test)]
@@ -188,6 +198,7 @@ mod tests {
                 notion_tags: vec![],
                 forum_channel_id: 123456789012345678,
                 sync_reaction: "✅".to_string(),
+                timezone: chrono_tz::Asia::Tokyo,
             },
         };
 
