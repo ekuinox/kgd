@@ -48,6 +48,7 @@ humantime-serde = "1.1"
 
 # Date/Time
 chrono = "0.4"
+chrono-tz = "0.10"
 
 # Notion API
 notion-client = "1.0"
