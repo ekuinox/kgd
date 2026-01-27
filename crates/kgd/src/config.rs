@@ -134,6 +134,11 @@ pub struct DiaryConfig {
     #[serde(default = "default_timezone")]
     #[serde_as(as = "DisplayFromStr")]
     pub timezone: Tz,
+    /// メッセージ本文のフォーマットテンプレート（Handlebars 形式）
+    /// 使用可能な変数: content (メッセージ本文), author (投稿者名), timestamp (投稿日時)
+    /// デフォルト: "{{content}}" (メッセージ本文をそのまま使用)
+    #[serde(default = "default_message_template")]
+    pub message_template: String,
 }
 
 /// Notion タグ設定。
@@ -158,6 +163,10 @@ fn default_sync_reaction() -> String {
 
 fn default_timezone() -> Tz {
     chrono_tz::Asia::Tokyo
+}
+
+fn default_message_template() -> String {
+    "{{content}}".to_string()
 }
 
 #[cfg(test)]
@@ -199,6 +208,7 @@ mod tests {
                 forum_channel_id: 123456789012345678,
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
+                message_template: "{{content}}".to_string(),
             },
         };
 

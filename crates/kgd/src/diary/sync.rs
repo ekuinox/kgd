@@ -1,6 +1,8 @@
 //! Discord メッセージを Notion に同期する機能を提供する。
 
 use anyhow::{Context as _, Result};
+use handlebars::Handlebars;
+use serde::Serialize;
 use serenity::model::channel::{Attachment, Message};
 
 use super::{DiaryStore, MessageBlock, NotionClient};
@@ -13,6 +15,17 @@ pub struct SyncResult {
     pub block_count: usize,
 }
 
+/// テンプレートに渡すコンテキスト。
+#[derive(Serialize)]
+struct TemplateContext<'a> {
+    /// メッセージ本文
+    content: &'a str,
+    /// 投稿者名
+    author: &'a str,
+    /// 投稿日時（ISO 8601 形式）
+    timestamp: String,
+}
+
 /// メッセージを Notion に同期するためのシンクロナイザー。
 pub struct MessageSyncer<'a> {
     /// Notion クライアント
@@ -21,16 +34,48 @@ pub struct MessageSyncer<'a> {
     store: &'a DiaryStore,
     /// HTTP クライアント（画像ダウンロード用）
     http_client: reqwest::Client,
+    /// メッセージフォーマット用テンプレート
+    template: Handlebars<'a>,
 }
 
 impl<'a> MessageSyncer<'a> {
     /// 新しい MessageSyncer を作成する。
-    pub fn new(notion: &'a NotionClient, store: &'a DiaryStore) -> Self {
+    ///
+    /// # Arguments
+    /// * `notion` - Notion クライアント
+    /// * `store` - 日報ストア
+    /// * `message_template` - メッセージフォーマット用 Handlebars テンプレート
+    pub fn new(notion: &'a NotionClient, store: &'a DiaryStore, message_template: &str) -> Self {
+        let mut template = Handlebars::new();
+        // テンプレートのパースに失敗した場合はデフォルトテンプレートを使用
+        if template
+            .register_template_string("message", message_template)
+            .is_err()
+        {
+            template
+                .register_template_string("message", "{{content}}")
+                .expect("Default template should be valid");
+        }
+
         Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
+            template,
         }
+    }
+
+    /// メッセージ内容をテンプレートでフォーマットする。
+    fn format_message(&self, message: &Message) -> String {
+        let context = TemplateContext {
+            content: &message.content,
+            author: &message.author.name,
+            timestamp: message.timestamp.to_rfc3339().unwrap_or_default(),
+        };
+
+        self.template
+            .render("message", &context)
+            .unwrap_or_else(|_| message.content.clone())
     }
 
     /// メッセージを Notion ページに同期する。
@@ -53,9 +98,10 @@ impl<'a> MessageSyncer<'a> {
 
         // テキストコンテンツを同期
         if has_content {
+            let formatted_content = self.format_message(message);
             let block_id = self
                 .notion
-                .append_text_block_with_id(page_id, &message.content)
+                .append_text_block_with_id(page_id, &formatted_content)
                 .await?;
 
             // DB にブロック情報を保存
@@ -96,9 +142,10 @@ impl<'a> MessageSyncer<'a> {
         }
 
         // テキストブロックのみ更新
+        let formatted_content = self.format_message(message);
         for block in blocks.iter().filter(|b| b.block_type == "text") {
             self.notion
-                .update_text_block(&block.block_id, &message.content)
+                .update_text_block(&block.block_id, &formatted_content)
                 .await?;
         }
 
@@ -236,5 +283,76 @@ mod tests {
         assert!(!is_image("archive.zip"));
         assert!(!is_image("script.js"));
         assert!(!is_image("noextension"));
+    }
+
+    #[test]
+    fn test_template_default() {
+        let mut template = Handlebars::new();
+        template
+            .register_template_string("message", "{{content}}")
+            .unwrap();
+
+        let context = TemplateContext {
+            content: "Hello, world!",
+            author: "testuser",
+            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
+        };
+
+        let result = template.render("message", &context).unwrap();
+        assert_eq!(result, "Hello, world!");
+    }
+
+    #[test]
+    fn test_template_with_author() {
+        let mut template = Handlebars::new();
+        template
+            .register_template_string("message", "{{author}}: {{content}}")
+            .unwrap();
+
+        let context = TemplateContext {
+            content: "Hello, world!",
+            author: "testuser",
+            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
+        };
+
+        let result = template.render("message", &context).unwrap();
+        assert_eq!(result, "testuser: Hello, world!");
+    }
+
+    #[test]
+    fn test_template_with_timestamp() {
+        let mut template = Handlebars::new();
+        template
+            .register_template_string("message", "[{{timestamp}}] {{content}}")
+            .unwrap();
+
+        let context = TemplateContext {
+            content: "Hello, world!",
+            author: "testuser",
+            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
+        };
+
+        let result = template.render("message", &context).unwrap();
+        assert_eq!(result, "[2024-01-01T12:00:00+00:00] Hello, world!");
+    }
+
+    #[test]
+    fn test_template_with_all_variables() {
+        let mut template = Handlebars::new();
+        template
+            .register_template_string("message", "[{{timestamp}}] {{author}}: {{content}}")
+            .unwrap();
+
+        let context = TemplateContext {
+            content: "Hello, world!",
+            author: "testuser",
+            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
+        };
+
+        let result = template.render("message", &context).unwrap();
+        assert_eq!(
+            result,
+            "[2024-01-01T12:00:00+00:00] testuser: Hello, world!"
+        );
     }
 }

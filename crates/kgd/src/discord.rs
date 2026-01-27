@@ -144,7 +144,11 @@ impl EventHandler for Handler {
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary.message_template,
+        );
         match syncer.sync_message(&page_id, &message).await {
             Ok(result) if result.synced => {
                 info!(
@@ -210,7 +214,11 @@ impl EventHandler for Handler {
         let mut message = message;
         message.content = content;
 
-        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary.message_template,
+        );
         match syncer.update_message(&message).await {
             Ok(true) => {
                 info!(
@@ -252,7 +260,11 @@ impl EventHandler for Handler {
         };
 
         // Notion から対応するブロックを削除
-        let syncer = MessageSyncer::new(self.notion_client.as_ref(), &self.diary_store);
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary.message_template,
+        );
         match syncer.delete_message(deleted_message_id.get()).await {
             Ok(true) => {
                 info!(
