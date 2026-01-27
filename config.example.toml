@@ -71,3 +71,14 @@ forum_channel_id = 123456789012345678
 # Use IANA timezone names (e.g., "Asia/Tokyo", "America/New_York", "Europe/London", "UTC")
 # Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 # timezone = "Asia/Tokyo"
+
+# Message template (Handlebars format, default: "{{content}}")
+# Available variables:
+#   - content: Message text
+#   - author: Author's username
+#   - timestamp: Message timestamp (ISO 8601 format)
+# Examples:
+#   message_template = "{{content}}"
+#   message_template = "{{author}}: {{content}}"
+#   message_template = "[{{timestamp}}] {{content}}"
+# message_template = "{{content}}"
