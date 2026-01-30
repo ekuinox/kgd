@@ -473,7 +473,9 @@ fn replace_extension(filename: &str, new_ext: &str) -> String {
 /// HEIC データを JPEG に変換する。
 #[cfg(feature = "heic-support")]
 fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
-    use libheif_rs::{ColorSpace, HeifContext, RgbChroma};
+    use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+
+    let lib_heif = LibHeif::new();
 
     // HEIC コンテキストを作成
     let context = HeifContext::read_from_bytes(heic_data).context("Failed to read HEIC data")?;
@@ -484,8 +486,8 @@ fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
         .context("Failed to get primary image handle")?;
 
     // RGB にデコード
-    let image = handle
-        .decode(ColorSpace::Rgb(RgbChroma::Rgb), None)
+    let image = lib_heif
+        .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgb), None)
         .context("Failed to decode HEIC image")?;
 
     // 画像データを取得
