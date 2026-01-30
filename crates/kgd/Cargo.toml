@@ -42,7 +42,7 @@ libheif-rs = { version = "2.6", features = ["embedded-libheif"], optional = true
 image = { version = "0.25", default-features = false, features = ["jpeg"], optional = true }
 
 [features]
-default = []
+default = ["heic-support"]
 heic-support = ["dep:libheif-rs", "dep:image"]
 
 [build-dependencies]
