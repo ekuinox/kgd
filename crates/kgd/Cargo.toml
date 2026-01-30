@@ -36,6 +36,15 @@ handlebars.workspace = true
 sqlx.workspace = true
 openssl.workspace = true
 
+# HEIC/HEIF image support (optional, requires Linux for embedded build)
+libheif-rs = { version = "2.6", features = ["embedded-libheif"], optional = true }
+# Image processing (for JPEG encoding, used with HEIC support)
+image = { version = "0.25", default-features = false, features = ["jpeg"], optional = true }
+
+[features]
+default = []
+heic-support = ["dep:libheif-rs", "dep:image"]
+
 [build-dependencies]
 vergen-gitcl.workspace = true
 

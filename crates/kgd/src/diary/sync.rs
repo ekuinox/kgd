@@ -119,10 +119,11 @@ impl<'a> MessageSyncer<'a> {
 
         // 添付ファイルを同期
         for attachment in &message.attachments {
-            self.sync_attachment_with_tracking(page_id, message.id.get(), attachment, block_order)
+            let synced = self
+                .sync_attachment_with_tracking(page_id, message.id.get(), attachment, block_order)
                 .await?;
-            block_count += 1;
-            block_order += 1;
+            block_count += synced;
+            block_order += synced as i32;
         }
 
         Ok(SyncResult {
@@ -172,28 +173,97 @@ impl<'a> MessageSyncer<'a> {
     }
 
     /// 添付ファイルを Notion に同期し、ブロック情報を追跡する。
+    ///
+    /// 同期されたブロック数を返す（HEIC の場合は JPG 変換版と元ファイルで 2 つ）。
     async fn sync_attachment_with_tracking(
         &self,
         page_id: &str,
         message_id: u64,
         attachment: &Attachment,
         block_order: i32,
-    ) -> Result<()> {
-        // 画像の場合はダウンロードしてNotionにアップロード
-        let (block_id, block_type) = if is_image(&attachment.filename) {
-            let id = self.upload_image_with_id(page_id, attachment).await?;
-            (id, "image")
-        } else {
-            // その他のファイルはリンクとしてテキストブロックに追加
-            let text = format!("[{}]({})", attachment.filename, attachment.url);
-            let id = self
-                .notion
-                .append_text_block_with_id(page_id, &text)
-                .await?;
-            (id, "link")
-        };
+    ) -> Result<usize> {
+        let file_type = classify_file(&attachment.filename);
 
-        // DB にブロック情報を保存
+        match file_type {
+            FileType::Image => {
+                let id = self.upload_image_with_id(page_id, attachment).await?;
+                self.store_message_block(message_id, id, "image", block_order)
+                    .await?;
+                Ok(1)
+            }
+            FileType::Heic => {
+                self.sync_heic_attachment(page_id, message_id, attachment, block_order)
+                    .await
+            }
+            FileType::Other => {
+                // その他のファイルはファイルブロックとしてアップロード
+                let id = self.upload_file_with_id(page_id, attachment).await?;
+                self.store_message_block(message_id, id, "file", block_order)
+                    .await?;
+                Ok(1)
+            }
+        }
+    }
+
+    /// HEIC ファイルを同期する。
+    ///
+    /// heic-support feature が有効な場合は JPG に変換してアップロードし、元の HEIC もアップロードする。
+    /// 無効な場合は HEIC ファイルをそのままアップロードする。
+    #[cfg(feature = "heic-support")]
+    async fn sync_heic_attachment(
+        &self,
+        page_id: &str,
+        message_id: u64,
+        attachment: &Attachment,
+        block_order: i32,
+    ) -> Result<usize> {
+        let mut block_count = 0;
+
+        // JPG に変換してアップロード
+        if let Some(id) = self
+            .upload_heic_as_jpeg_with_id(page_id, attachment)
+            .await?
+        {
+            self.store_message_block(message_id, id, "image", block_order + block_count as i32)
+                .await?;
+            block_count += 1;
+        }
+
+        // 元の HEIC ファイルもアップロード
+        let id = self.upload_file_with_id(page_id, attachment).await?;
+        self.store_message_block(message_id, id, "file", block_order + block_count as i32)
+            .await?;
+        block_count += 1;
+
+        Ok(block_count)
+    }
+
+    /// HEIC ファイルを同期する（heic-support feature が無効な場合）。
+    ///
+    /// HEIC ファイルをそのままファイルブロックとしてアップロードする。
+    #[cfg(not(feature = "heic-support"))]
+    async fn sync_heic_attachment(
+        &self,
+        page_id: &str,
+        message_id: u64,
+        attachment: &Attachment,
+        block_order: i32,
+    ) -> Result<usize> {
+        // HEIC ファイルをそのままアップロード
+        let id = self.upload_file_with_id(page_id, attachment).await?;
+        self.store_message_block(message_id, id, "file", block_order)
+            .await?;
+        Ok(1)
+    }
+
+    /// メッセージブロック情報を DB に保存する。
+    async fn store_message_block(
+        &self,
+        message_id: u64,
+        block_id: String,
+        block_type: &str,
+        block_order: i32,
+    ) -> Result<()> {
         let message_block = MessageBlock {
             message_id,
             block_id,
@@ -201,36 +271,12 @@ impl<'a> MessageSyncer<'a> {
             block_order,
         };
         self.store.insert_message_block(&message_block).await?;
-
         Ok(())
     }
 
     /// 画像をダウンロードしてNotionにアップロードし、ブロック ID を返す。
     async fn upload_image_with_id(&self, page_id: &str, attachment: &Attachment) -> Result<String> {
-        // Discord から画像をダウンロード
-        let response = self
-            .http_client
-            .get(&attachment.url)
-            .send()
-            .await
-            .context("Failed to download image from Discord")?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("Failed to download image: status = {}", response.status());
-        }
-
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("image/png")
-            .to_string();
-
-        let data = response
-            .bytes()
-            .await
-            .context("Failed to read image data")?
-            .to_vec();
+        let (data, content_type) = self.download_attachment(attachment).await?;
 
         // Notion にアップロード
         let file_upload_id = self
@@ -245,13 +291,172 @@ impl<'a> MessageSyncer<'a> {
             .await
             .context("Failed to append uploaded image block")
     }
+
+    /// ファイルをダウンロードしてNotionにアップロードし、ブロック ID を返す。
+    async fn upload_file_with_id(&self, page_id: &str, attachment: &Attachment) -> Result<String> {
+        let (data, content_type) = self.download_attachment(attachment).await?;
+
+        // Notion にアップロード
+        let file_upload_id = self
+            .notion
+            .upload_file(&attachment.filename, &content_type, data)
+            .await
+            .context("Failed to upload file to Notion")?;
+
+        // ファイルブロックを追加して ID を返す
+        self.notion
+            .append_uploaded_file_block_with_id(page_id, &file_upload_id, &attachment.filename)
+            .await
+            .context("Failed to append uploaded file block")
+    }
+
+    /// HEIC ファイルを JPG に変換してNotionにアップロードし、ブロック ID を返す。
+    ///
+    /// 変換に失敗した場合は None を返す（元ファイルのみアップロードされる）。
+    #[cfg(feature = "heic-support")]
+    async fn upload_heic_as_jpeg_with_id(
+        &self,
+        page_id: &str,
+        attachment: &Attachment,
+    ) -> Result<Option<String>> {
+        let (data, _content_type) = self.download_attachment(attachment).await?;
+
+        // HEIC を JPEG に変換
+        let jpeg_data = match convert_heic_to_jpeg(&data) {
+            Ok(jpeg) => jpeg,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to convert HEIC to JPEG, skipping conversion");
+                return Ok(None);
+            }
+        };
+
+        // JPG ファイル名を生成
+        let jpeg_filename = replace_extension(&attachment.filename, "jpg");
+
+        // Notion にアップロード
+        let file_upload_id = self
+            .notion
+            .upload_file(&jpeg_filename, "image/jpeg", jpeg_data)
+            .await
+            .context("Failed to upload converted JPEG to Notion")?;
+
+        // 画像ブロックを追加して ID を返す
+        let block_id = self
+            .notion
+            .append_uploaded_image_block_with_id(page_id, &file_upload_id)
+            .await
+            .context("Failed to append uploaded image block")?;
+
+        Ok(Some(block_id))
+    }
+
+    /// Discord から添付ファイルをダウンロードする。
+    async fn download_attachment(&self, attachment: &Attachment) -> Result<(Vec<u8>, String)> {
+        let response = self
+            .http_client
+            .get(&attachment.url)
+            .send()
+            .await
+            .context("Failed to download file from Discord")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to download file: status = {}", response.status());
+        }
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
+        let data = response
+            .bytes()
+            .await
+            .context("Failed to read file data")?
+            .to_vec();
+
+        Ok((data, content_type))
+    }
 }
 
-/// ファイル名から画像かどうかを判定する。
-fn is_image(filename: &str) -> bool {
-    let extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+/// ファイルの種類。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileType {
+    /// 画像ファイル（.png, .jpg, .jpeg, .gif, .webp）
+    Image,
+    /// HEIC/HEIF ファイル（変換が必要）
+    Heic,
+    /// その他のファイル
+    Other,
+}
+
+/// ファイル名からファイル種類を判定する。
+fn classify_file(filename: &str) -> FileType {
     let lower = filename.to_lowercase();
-    extensions.iter().any(|ext| lower.ends_with(ext))
+
+    let image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+    if image_extensions.iter().any(|ext| lower.ends_with(ext)) {
+        return FileType::Image;
+    }
+
+    let heic_extensions = [".heic", ".heif"];
+    if heic_extensions.iter().any(|ext| lower.ends_with(ext)) {
+        return FileType::Heic;
+    }
+
+    FileType::Other
+}
+
+/// ファイル名の拡張子を置き換える。
+#[cfg(feature = "heic-support")]
+fn replace_extension(filename: &str, new_ext: &str) -> String {
+    if let Some(pos) = filename.rfind('.') {
+        format!("{}.{}", &filename[..pos], new_ext)
+    } else {
+        format!("{}.{}", filename, new_ext)
+    }
+}
+
+/// HEIC データを JPEG に変換する。
+#[cfg(feature = "heic-support")]
+fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
+    use libheif_rs::{ColorSpace, HeifContext, RgbChroma};
+
+    // HEIC コンテキストを作成
+    let context = HeifContext::read_from_bytes(heic_data).context("Failed to read HEIC data")?;
+
+    // プライマリ画像を取得
+    let handle = context
+        .primary_image_handle()
+        .context("Failed to get primary image handle")?;
+
+    // RGB にデコード
+    let image = handle
+        .decode(ColorSpace::Rgb(RgbChroma::Rgb), None)
+        .context("Failed to decode HEIC image")?;
+
+    // 画像データを取得
+    let planes = image.planes();
+    let interleaved = planes.interleaved.context("No interleaved plane found")?;
+
+    let width = image.width() as u32;
+    let height = image.height() as u32;
+
+    // image クレートで JPEG にエンコード
+    use image::{ImageBuffer, Rgb};
+
+    let img: ImageBuffer<Rgb<u8>, _> =
+        ImageBuffer::from_raw(width, height, interleaved.data.to_vec())
+            .context("Failed to create image buffer")?;
+
+    let mut jpeg_data = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut jpeg_data);
+
+    img.write_to(&mut cursor, image::ImageFormat::Jpeg)
+        .context("Failed to encode JPEG")?;
+
+    Ok(jpeg_data)
 }
 
 #[cfg(test)]
@@ -259,30 +464,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_image_with_valid_extensions() {
-        assert!(is_image("photo.png"));
-        assert!(is_image("photo.PNG"));
-        assert!(is_image("image.jpg"));
-        assert!(is_image("image.JPG"));
-        assert!(is_image("picture.jpeg"));
-        assert!(is_image("animation.gif"));
-        assert!(is_image("modern.webp"));
+    fn test_classify_file_image() {
+        assert_eq!(classify_file("photo.png"), FileType::Image);
+        assert_eq!(classify_file("photo.PNG"), FileType::Image);
+        assert_eq!(classify_file("image.jpg"), FileType::Image);
+        assert_eq!(classify_file("image.JPG"), FileType::Image);
+        assert_eq!(classify_file("picture.jpeg"), FileType::Image);
+        assert_eq!(classify_file("animation.gif"), FileType::Image);
+        assert_eq!(classify_file("modern.webp"), FileType::Image);
     }
 
     #[test]
-    fn test_is_image_rejects_similar_names() {
+    fn test_classify_file_heic() {
+        assert_eq!(classify_file("photo.heic"), FileType::Heic);
+        assert_eq!(classify_file("photo.HEIC"), FileType::Heic);
+        assert_eq!(classify_file("image.heif"), FileType::Heic);
+        assert_eq!(classify_file("image.HEIF"), FileType::Heic);
+    }
+
+    #[test]
+    fn test_classify_file_other() {
+        assert_eq!(classify_file("document.pdf"), FileType::Other);
+        assert_eq!(classify_file("archive.zip"), FileType::Other);
+        assert_eq!(classify_file("script.js"), FileType::Other);
+        assert_eq!(classify_file("noextension"), FileType::Other);
+    }
+
+    #[test]
+    fn test_classify_file_rejects_similar_names() {
         // ドットなしの拡張子文字列で終わるファイル名は画像として判定されない
-        assert!(!is_image("somepng"));
-        assert!(!is_image("filejpg"));
-        assert!(!is_image("imagejpeg"));
+        assert_eq!(classify_file("somepng"), FileType::Other);
+        assert_eq!(classify_file("filejpg"), FileType::Other);
+        assert_eq!(classify_file("imageheic"), FileType::Other);
     }
 
     #[test]
-    fn test_is_image_with_non_image_files() {
-        assert!(!is_image("document.pdf"));
-        assert!(!is_image("archive.zip"));
-        assert!(!is_image("script.js"));
-        assert!(!is_image("noextension"));
+    #[cfg(feature = "heic-support")]
+    fn test_replace_extension() {
+        assert_eq!(replace_extension("photo.heic", "jpg"), "photo.jpg");
+        assert_eq!(replace_extension("image.HEIC", "jpg"), "image.jpg");
+        assert_eq!(replace_extension("my.photo.heic", "jpg"), "my.photo.jpg");
+        assert_eq!(replace_extension("noextension", "jpg"), "noextension.jpg");
     }
 
     #[test]
