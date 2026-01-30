@@ -296,12 +296,24 @@ impl<'a> MessageSyncer<'a> {
     async fn upload_file_with_id(&self, page_id: &str, attachment: &Attachment) -> Result<String> {
         let (data, content_type) = self.download_attachment(attachment).await?;
 
+        tracing::debug!(
+            filename = %attachment.filename,
+            content_type = %content_type,
+            size = data.len(),
+            "Uploading file to Notion"
+        );
+
         // Notion にアップロード
         let file_upload_id = self
             .notion
             .upload_file(&attachment.filename, &content_type, data)
             .await
-            .context("Failed to upload file to Notion")?;
+            .with_context(|| {
+                format!(
+                    "Failed to upload file to Notion: filename={}, content_type={}",
+                    attachment.filename, content_type
+                )
+            })?;
 
         // ファイルブロックを追加して ID を返す
         self.notion
@@ -363,12 +375,21 @@ impl<'a> MessageSyncer<'a> {
             anyhow::bail!("Failed to download file: status = {}", response.status());
         }
 
-        let content_type = response
+        let header_content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("application/octet-stream")
             .to_string();
+
+        // Discord が返す Content-Type が汎用的な場合、ファイル名の拡張子から推定する
+        let content_type = if header_content_type == "application/octet-stream"
+            || header_content_type.is_empty()
+        {
+            guess_content_type(&attachment.filename).unwrap_or(header_content_type)
+        } else {
+            header_content_type
+        };
 
         let data = response
             .bytes()
@@ -378,6 +399,37 @@ impl<'a> MessageSyncer<'a> {
 
         Ok((data, content_type))
     }
+}
+
+/// ファイル名の拡張子から Content-Type を推定する。
+fn guess_content_type(filename: &str) -> Option<String> {
+    let lower = filename.to_lowercase();
+    let content_type = if lower.ends_with(".heic") {
+        "image/heic"
+    } else if lower.ends_with(".heif") {
+        "image/heif"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if lower.ends_with(".mp4") {
+        "video/mp4"
+    } else if lower.ends_with(".mov") {
+        "video/quicktime"
+    } else if lower.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if lower.ends_with(".wav") {
+        "audio/wav"
+    } else {
+        return None;
+    };
+    Some(content_type.to_string())
 }
 
 /// ファイルの種類。
@@ -496,6 +548,36 @@ mod tests {
         assert_eq!(classify_file("somepng"), FileType::Other);
         assert_eq!(classify_file("filejpg"), FileType::Other);
         assert_eq!(classify_file("imageheic"), FileType::Other);
+    }
+
+    #[test]
+    fn test_guess_content_type() {
+        assert_eq!(
+            guess_content_type("photo.heic"),
+            Some("image/heic".to_string())
+        );
+        assert_eq!(
+            guess_content_type("photo.HEIC"),
+            Some("image/heic".to_string())
+        );
+        assert_eq!(
+            guess_content_type("image.heif"),
+            Some("image/heif".to_string())
+        );
+        assert_eq!(
+            guess_content_type("photo.png"),
+            Some("image/png".to_string())
+        );
+        assert_eq!(
+            guess_content_type("photo.jpg"),
+            Some("image/jpeg".to_string())
+        );
+        assert_eq!(
+            guess_content_type("doc.pdf"),
+            Some("application/pdf".to_string())
+        );
+        assert_eq!(guess_content_type("archive.zip"), None);
+        assert_eq!(guess_content_type("noextension"), None);
     }
 
     #[test]
