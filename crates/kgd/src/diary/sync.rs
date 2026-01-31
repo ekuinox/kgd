@@ -1,9 +1,7 @@
 //! Discord メッセージを Notion に同期する機能を提供する。
 
 use anyhow::{Context as _, Result};
-use handlebars::Handlebars;
 use regex::Regex;
-use serde::Serialize;
 use serenity::model::channel::{Attachment, Message};
 
 use super::url_parser;
@@ -17,17 +15,6 @@ pub struct SyncResult {
     pub block_count: usize,
 }
 
-/// テンプレートに渡すコンテキスト。
-#[derive(Serialize)]
-struct TemplateContext<'a> {
-    /// メッセージ本文
-    content: &'a str,
-    /// 投稿者名
-    author: &'a str,
-    /// 投稿日時（ISO 8601 形式）
-    timestamp: String,
-}
-
 /// メッセージを Notion に同期するためのシンクロナイザー。
 pub struct MessageSyncer<'a> {
     /// Notion クライアント
@@ -36,8 +23,6 @@ pub struct MessageSyncer<'a> {
     store: &'a DiaryStore,
     /// HTTP クライアント（画像ダウンロード用）
     http_client: reqwest::Client,
-    /// メッセージフォーマット用テンプレート
-    template: Handlebars<'a>,
     /// ブックマーク化する URL パターン（コンパイル済み正規表現）
     bookmark_patterns: Vec<Regex>,
 }
@@ -48,47 +33,20 @@ impl<'a> MessageSyncer<'a> {
     /// # Arguments
     /// * `notion` - Notion クライアント
     /// * `store` - 日報ストア
-    /// * `message_template` - メッセージフォーマット用 Handlebars テンプレート
     /// * `bookmark_url_patterns` - ブックマークブロック化する URL パターン（正規表現文字列）
     pub fn new(
         notion: &'a NotionClient,
         store: &'a DiaryStore,
-        message_template: &str,
         bookmark_url_patterns: &[String],
     ) -> Self {
-        let mut template = Handlebars::new();
-        // テンプレートのパースに失敗した場合はデフォルトテンプレートを使用
-        if template
-            .register_template_string("message", message_template)
-            .is_err()
-        {
-            template
-                .register_template_string("message", "{{content}}")
-                .expect("Default template should be valid");
-        }
-
         let bookmark_patterns = url_parser::compile_patterns(bookmark_url_patterns);
 
         Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
-            template,
             bookmark_patterns,
         }
-    }
-
-    /// メッセージ内容をテンプレートでフォーマットする。
-    fn format_message(&self, message: &Message) -> String {
-        let context = TemplateContext {
-            content: &message.content,
-            author: &message.author.name,
-            timestamp: message.timestamp.to_rfc3339().unwrap_or_default(),
-        };
-
-        self.template
-            .render("message", &context)
-            .unwrap_or_else(|_| message.content.clone())
     }
 
     /// メッセージを Notion ページに同期する。
@@ -122,9 +80,8 @@ impl<'a> MessageSyncer<'a> {
 
         // テキストブロック（URL をインラインリンク化 + ブックマークブロック生成）
         if has_content {
-            let formatted_content = self.format_message(message);
             let (rich_text, bookmark_urls) = url_parser::build_rich_text_and_bookmarks(
-                &formatted_content,
+                &message.content,
                 &self.bookmark_patterns,
             );
 
@@ -186,9 +143,8 @@ impl<'a> MessageSyncer<'a> {
         }
 
         // テキストブロックのみ更新（URL をインラインリンク化）
-        let formatted_content = self.format_message(message);
         let (rich_text, _bookmark_urls) =
-            url_parser::build_rich_text_and_bookmarks(&formatted_content, &self.bookmark_patterns);
+            url_parser::build_rich_text_and_bookmarks(&message.content, &self.bookmark_patterns);
         for block in blocks.iter().filter(|b| b.block_type == "text") {
             self.notion
                 .update_text_block(&block.block_id, rich_text.clone())
@@ -554,76 +510,5 @@ mod tests {
         assert_eq!(replace_extension("image.HEIC", "jpg"), "image.jpg");
         assert_eq!(replace_extension("my.photo.heic", "jpg"), "my.photo.jpg");
         assert_eq!(replace_extension("noextension", "jpg"), "noextension.jpg");
-    }
-
-    #[test]
-    fn test_template_default() {
-        let mut template = Handlebars::new();
-        template
-            .register_template_string("message", "{{content}}")
-            .unwrap();
-
-        let context = TemplateContext {
-            content: "Hello, world!",
-            author: "testuser",
-            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
-        };
-
-        let result = template.render("message", &context).unwrap();
-        assert_eq!(result, "Hello, world!");
-    }
-
-    #[test]
-    fn test_template_with_author() {
-        let mut template = Handlebars::new();
-        template
-            .register_template_string("message", "{{author}}: {{content}}")
-            .unwrap();
-
-        let context = TemplateContext {
-            content: "Hello, world!",
-            author: "testuser",
-            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
-        };
-
-        let result = template.render("message", &context).unwrap();
-        assert_eq!(result, "testuser: Hello, world!");
-    }
-
-    #[test]
-    fn test_template_with_timestamp() {
-        let mut template = Handlebars::new();
-        template
-            .register_template_string("message", "[{{timestamp}}] {{content}}")
-            .unwrap();
-
-        let context = TemplateContext {
-            content: "Hello, world!",
-            author: "testuser",
-            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
-        };
-
-        let result = template.render("message", &context).unwrap();
-        assert_eq!(result, "[2024-01-01T12:00:00+00:00] Hello, world!");
-    }
-
-    #[test]
-    fn test_template_with_all_variables() {
-        let mut template = Handlebars::new();
-        template
-            .register_template_string("message", "[{{timestamp}}] {{author}}: {{content}}")
-            .unwrap();
-
-        let context = TemplateContext {
-            content: "Hello, world!",
-            author: "testuser",
-            timestamp: "2024-01-01T12:00:00+00:00".to_string(),
-        };
-
-        let result = template.render("message", &context).unwrap();
-        assert_eq!(
-            result,
-            "[2024-01-01T12:00:00+00:00] testuser: Hello, world!"
-        );
     }
 }
