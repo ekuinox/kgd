@@ -72,11 +72,19 @@ forum_channel_id = 123456789012345678
 # Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 # timezone = "Asia/Tokyo"
 
-# URL patterns to render as Notion bookmark blocks (regex)
-# URLs matching any of these patterns will be rendered as clickable links in text
-# AND additionally as separate bookmark blocks.
-# All other URLs will be rendered as inline links only.
-# bookmark_url_patterns = [
-#     "https://github\\.com/.*",
-#     "https://www\\.notion\\.so/.*"
-# ]
+# URL conversion rules
+# URLs matching a pattern will be converted to the specified Notion block types.
+# Supported block types: bookmark, embed, mention, link_preview
+# URLs not matching any rule will be rendered as inline links.
+#
+# [[diary.url_rules]]
+# pattern = "https://youtube\\.com/watch.*"
+# convert_to = ["bookmark", "embed"]
+#
+# [[diary.url_rules]]
+# pattern = "https://github\\.com/.*"
+# convert_to = ["mention"]
+#
+# [[diary.url_rules]]
+# pattern = "https://twitter\\.com/.*"
+# convert_to = ["link_preview"]

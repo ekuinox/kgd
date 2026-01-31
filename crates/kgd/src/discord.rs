@@ -147,7 +147,7 @@ impl EventHandler for Handler {
         let syncer = MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
-            &self.config.diary.bookmark_url_patterns,
+            &self.config.diary.url_rules,
         );
         match syncer.sync_message(&page_id, &message).await {
             Ok(result) if result.synced => {
@@ -217,7 +217,7 @@ impl EventHandler for Handler {
         let syncer = MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
-            &self.config.diary.bookmark_url_patterns,
+            &self.config.diary.url_rules,
         );
         match syncer.update_message(&message).await {
             Ok(true) => {
@@ -263,7 +263,7 @@ impl EventHandler for Handler {
         let syncer = MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
-            &self.config.diary.bookmark_url_patterns,
+            &self.config.diary.url_rules,
         );
         match syncer.delete_message(deleted_message_id.get()).await {
             Ok(true) => {

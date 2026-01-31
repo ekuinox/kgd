@@ -1,8 +1,9 @@
 //! Discord メッセージを Notion に同期する機能を提供する。
 
 use anyhow::{Context as _, Result};
-use regex::Regex;
 use serenity::model::channel::{Attachment, Message};
+
+use crate::config::UrlRuleConfig;
 
 use super::url_parser;
 use super::{DiaryStore, MessageBlock, NotionClient};
@@ -23,8 +24,8 @@ pub struct MessageSyncer<'a> {
     store: &'a DiaryStore,
     /// HTTP クライアント（画像ダウンロード用）
     http_client: reqwest::Client,
-    /// ブックマーク化する URL パターン（コンパイル済み正規表現）
-    bookmark_patterns: Vec<Regex>,
+    /// URL 変換ルール（コンパイル済み）
+    url_rules: Vec<url_parser::UrlRule>,
 }
 
 impl<'a> MessageSyncer<'a> {
@@ -33,19 +34,19 @@ impl<'a> MessageSyncer<'a> {
     /// # Arguments
     /// * `notion` - Notion クライアント
     /// * `store` - 日報ストア
-    /// * `bookmark_url_patterns` - ブックマークブロック化する URL パターン（正規表現文字列）
+    /// * `url_rule_configs` - URL 変換ルール設定
     pub fn new(
         notion: &'a NotionClient,
         store: &'a DiaryStore,
-        bookmark_url_patterns: &[String],
+        url_rule_configs: &[UrlRuleConfig],
     ) -> Self {
-        let bookmark_patterns = url_parser::compile_patterns(bookmark_url_patterns);
+        let url_rules = url_parser::compile_url_rules(url_rule_configs);
 
         Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
-            bookmark_patterns,
+            url_rules,
         }
     }
 
@@ -78,34 +79,25 @@ impl<'a> MessageSyncer<'a> {
                 .await?;
         }
 
-        // テキストブロック（URL をインラインリンク化 + ブックマークブロック生成）
+        // テキストブロック（URL をリンク化 + ルールに基づく追加ブロック生成）
         if has_content {
-            let (rich_text, bookmark_urls) = url_parser::build_rich_text_and_bookmarks(
-                &message.content,
-                &self.bookmark_patterns,
-            );
+            let result =
+                url_parser::build_rich_text_and_url_blocks(&message.content, &self.url_rules);
 
-            if !rich_text.is_empty() {
+            if !result.rich_text.is_empty() {
                 children.push(serde_json::json!({
                     "object": "block",
                     "type": "paragraph",
                     "paragraph": {
-                        "rich_text": rich_text
+                        "rich_text": result.rich_text
                     }
                 }));
                 block_meta.push("text".to_string());
             }
 
-            for url in &bookmark_urls {
-                children.push(serde_json::json!({
-                    "object": "block",
-                    "type": "bookmark",
-                    "bookmark": {
-                        "url": url,
-                        "caption": []
-                    }
-                }));
-                block_meta.push("bookmark".to_string());
+            for (block_json, block_type) in result.extra_blocks {
+                children.push(block_json);
+                block_meta.push(block_type);
             }
         }
 
@@ -142,12 +134,11 @@ impl<'a> MessageSyncer<'a> {
             return Ok(false);
         }
 
-        // テキストブロックのみ更新（URL をインラインリンク化）
-        let (rich_text, _bookmark_urls) =
-            url_parser::build_rich_text_and_bookmarks(&message.content, &self.bookmark_patterns);
+        // テキストブロックのみ更新（URL をリンク化）
+        let result = url_parser::build_rich_text_and_url_blocks(&message.content, &self.url_rules);
         for block in blocks.iter().filter(|b| b.block_type == "text") {
             self.notion
-                .update_text_block(&block.block_id, rich_text.clone())
+                .update_text_block(&block.block_id, result.rich_text.clone())
                 .await?;
         }
 

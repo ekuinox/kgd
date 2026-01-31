@@ -2,60 +2,83 @@
 
 use regex::Regex;
 
-/// テキストセグメントの種類。
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TextSegment {
-    /// 通常のテキスト
-    Plain(String),
-    /// URL
-    Url(String),
-}
+use crate::config::UrlRuleConfig;
 
-/// URL の表示方法。
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum UrlRendering {
-    /// Notion ブックマークブロックとして表示
+/// URL から生成するブロックの種類。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlBlockType {
+    /// Notion ブックマークブロック
     Bookmark,
-    /// rich_text のインラインリンクとして表示
-    InlineLink,
+    /// Notion 埋め込みブロック
+    Embed,
+    /// rich_text 内のメンション（link_mention）
+    Mention,
+    /// Notion リンクプレビューブロック
+    LinkPreview,
 }
 
-/// パターン文字列のスライスからコンパイル済み正規表現のベクタを作成する。
+/// コンパイル済み URL 変換ルール。
+pub struct UrlRule {
+    /// マッチする URL パターン
+    pattern: Regex,
+    /// 生成するブロックタイプのリスト
+    block_types: Vec<UrlBlockType>,
+}
+
+/// URL 解析結果。
+pub struct UrlParseResult {
+    /// paragraph ブロックの rich_text に使用する JSON 配列
+    pub rich_text: Vec<serde_json::Value>,
+    /// テキストの後に追加するブロック JSON 配列と block_type 文字列のペア
+    pub extra_blocks: Vec<(serde_json::Value, String)>,
+}
+
+/// 設定からコンパイル済み URL ルールを作成する。
 ///
-/// 無効なパターンは警告をログに出力してスキップする。
-pub fn compile_patterns(patterns: &[String]) -> Vec<Regex> {
-    patterns
+/// 無効なパターンや不明なブロックタイプは警告をログに出力してスキップする。
+pub fn compile_url_rules(rules: &[UrlRuleConfig]) -> Vec<UrlRule> {
+    rules
         .iter()
-        .filter_map(|p| {
-            Regex::new(p)
-                .map_err(|e| {
-                    tracing::warn!(pattern = %p, error = %e, "Invalid bookmark URL pattern, skipping");
-                })
-                .ok()
+        .filter_map(|rule| {
+            let pattern = match Regex::new(&rule.pattern) {
+                Ok(re) => re,
+                Err(e) => {
+                    tracing::warn!(pattern = %rule.pattern, error = %e, "Invalid URL pattern, skipping rule");
+                    return None;
+                }
+            };
+
+            let block_types: Vec<UrlBlockType> = rule
+                .convert_to
+                .iter()
+                .filter_map(|s| parse_block_type(s))
+                .collect();
+
+            if block_types.is_empty() {
+                tracing::warn!(pattern = %rule.pattern, "No valid block types in convert_to, skipping rule");
+                return None;
+            }
+
+            Some(UrlRule {
+                pattern,
+                block_types,
+            })
         })
         .collect()
 }
 
-/// テキストからセグメントを解析し、Notion paragraph 用の rich_text JSON 配列と
-/// ブックマークとして別ブロック化する URL のリストを返す。
-///
-/// # Returns
-/// `(rich_text_array, bookmark_urls)` のタプル。
-/// - `rich_text_array`: paragraph ブロックの rich_text に使用する JSON 配列
-/// - `bookmark_urls`: ブックマークブロックとして追加する URL のリスト
-pub fn build_rich_text_and_bookmarks(
-    text: &str,
-    bookmark_patterns: &[Regex],
-) -> (Vec<serde_json::Value>, Vec<String>) {
+/// テキストからセグメントを解析し、Notion 用の rich_text JSON 配列と
+/// 追加ブロックを生成する。
+pub fn build_rich_text_and_url_blocks(text: &str, rules: &[UrlRule]) -> UrlParseResult {
     let segments = parse_segments(text);
-    let mut rich_text_items: Vec<serde_json::Value> = Vec::new();
-    let mut bookmark_urls: Vec<String> = Vec::new();
+    let mut rich_text: Vec<serde_json::Value> = Vec::new();
+    let mut extra_blocks: Vec<(serde_json::Value, String)> = Vec::new();
 
     for segment in segments {
         match segment {
             TextSegment::Plain(s) => {
                 if !s.is_empty() {
-                    rich_text_items.push(serde_json::json!({
+                    rich_text.push(serde_json::json!({
                         "type": "text",
                         "text": {
                             "content": s
@@ -64,27 +87,60 @@ pub fn build_rich_text_and_bookmarks(
                 }
             }
             TextSegment::Url(url) => {
-                match classify_url(&url, bookmark_patterns) {
-                    UrlRendering::Bookmark => {
-                        bookmark_urls.push(url.clone());
+                let matched_types = classify_url(&url, rules);
+
+                if matched_types.is_empty() {
+                    // ルールにマッチしない URL はインラインリンク
+                    rich_text.push(inline_link_json(&url));
+                } else {
+                    let has_mention = matched_types.contains(&UrlBlockType::Mention);
+
+                    // rich_text 要素: mention があれば mention、なければインラインリンク
+                    if has_mention {
+                        rich_text.push(mention_json(&url));
+                    } else {
+                        rich_text.push(inline_link_json(&url));
                     }
-                    UrlRendering::InlineLink => {}
-                }
-                // URL は常にインラインリンクとしてテキストに含める
-                rich_text_items.push(serde_json::json!({
-                    "type": "text",
-                    "text": {
-                        "content": url,
-                        "link": {
-                            "url": url
+
+                    // 追加ブロック生成
+                    for block_type in &matched_types {
+                        match block_type {
+                            UrlBlockType::Bookmark => {
+                                extra_blocks
+                                    .push((bookmark_block_json(&url), "bookmark".to_string()));
+                            }
+                            UrlBlockType::Embed => {
+                                extra_blocks.push((embed_block_json(&url), "embed".to_string()));
+                            }
+                            UrlBlockType::LinkPreview => {
+                                extra_blocks.push((
+                                    link_preview_block_json(&url),
+                                    "link_preview".to_string(),
+                                ));
+                            }
+                            UrlBlockType::Mention => {
+                                // mention は rich_text 内で処理済み
+                            }
                         }
                     }
-                }));
+                }
             }
         }
     }
 
-    (rich_text_items, bookmark_urls)
+    UrlParseResult {
+        rich_text,
+        extra_blocks,
+    }
+}
+
+/// テキストセグメントの種類。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TextSegment {
+    /// 通常のテキスト
+    Plain(String),
+    /// URL
+    Url(String),
 }
 
 /// テキストを URL とプレーンテキストのセグメントに分割する。
@@ -109,14 +165,88 @@ fn parse_segments(text: &str) -> Vec<TextSegment> {
     segments
 }
 
-/// URL がブックマークパターンに一致するかを判定する。
-fn classify_url(url: &str, bookmark_patterns: &[Regex]) -> UrlRendering {
-    for pattern in bookmark_patterns {
-        if pattern.is_match(url) {
-            return UrlRendering::Bookmark;
+/// URL にマッチするルールのブロックタイプ一覧を返す。最初にマッチしたルールのみ適用。
+fn classify_url(url: &str, rules: &[UrlRule]) -> Vec<UrlBlockType> {
+    for rule in rules {
+        if rule.pattern.is_match(url) {
+            return rule.block_types.clone();
         }
     }
-    UrlRendering::InlineLink
+    vec![]
+}
+
+/// ブロックタイプ文字列をパースする。
+fn parse_block_type(s: &str) -> Option<UrlBlockType> {
+    match s {
+        "bookmark" => Some(UrlBlockType::Bookmark),
+        "embed" => Some(UrlBlockType::Embed),
+        "mention" => Some(UrlBlockType::Mention),
+        "link_preview" => Some(UrlBlockType::LinkPreview),
+        _ => {
+            tracing::warn!(block_type = %s, "Unknown block type in convert_to, skipping");
+            None
+        }
+    }
+}
+
+/// インラインリンクの rich_text JSON を生成する。
+fn inline_link_json(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "text",
+        "text": {
+            "content": url,
+            "link": {
+                "url": url
+            }
+        }
+    })
+}
+
+/// メンションの rich_text JSON を生成する。
+fn mention_json(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "mention",
+        "mention": {
+            "type": "link_mention",
+            "link_mention": {
+                "href": url
+            }
+        }
+    })
+}
+
+/// ブックマークブロック JSON を生成する。
+fn bookmark_block_json(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "bookmark",
+        "bookmark": {
+            "url": url,
+            "caption": []
+        }
+    })
+}
+
+/// 埋め込みブロック JSON を生成する。
+fn embed_block_json(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "embed",
+        "embed": {
+            "url": url
+        }
+    })
+}
+
+/// リンクプレビューブロック JSON を生成する。
+fn link_preview_block_json(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "link_preview",
+        "link_preview": {
+            "url": url
+        }
+    })
 }
 
 #[cfg(test)]
@@ -183,109 +313,233 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_url_no_patterns() {
+    fn test_classify_url_no_rules() {
+        assert!(classify_url("https://example.com", &[]).is_empty());
+    }
+
+    #[test]
+    fn test_classify_url_matching_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::Bookmark],
+        }];
         assert_eq!(
-            classify_url("https://example.com", &[]),
-            UrlRendering::InlineLink
+            classify_url("https://github.com/ekuinox/kgd", &rules),
+            vec![UrlBlockType::Bookmark]
         );
     }
 
     #[test]
-    fn test_classify_url_matching_pattern() {
-        let patterns = vec![Regex::new(r"https://github\.com/.*").unwrap()];
-        assert_eq!(
-            classify_url("https://github.com/ekuinox/kgd", &patterns),
-            UrlRendering::Bookmark
-        );
+    fn test_classify_url_non_matching_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::Bookmark],
+        }];
+        assert!(classify_url("https://example.com", &rules).is_empty());
     }
 
     #[test]
-    fn test_classify_url_non_matching_pattern() {
-        let patterns = vec![Regex::new(r"https://github\.com/.*").unwrap()];
-        assert_eq!(
-            classify_url("https://example.com", &patterns),
-            UrlRendering::InlineLink
-        );
-    }
-
-    #[test]
-    fn test_build_rich_text_no_urls() {
-        let (rich_text, bookmarks) = build_rich_text_and_bookmarks("plain text", &[]);
-        assert_eq!(rich_text.len(), 1);
-        assert_eq!(rich_text[0]["text"]["content"], "plain text");
-        assert!(rich_text[0]["text"]["link"].is_null());
-        assert!(bookmarks.is_empty());
-    }
-
-    #[test]
-    fn test_build_rich_text_with_inline_url() {
-        let (rich_text, bookmarks) =
-            build_rich_text_and_bookmarks("see https://example.com here", &[]);
-        assert_eq!(rich_text.len(), 3);
-        assert_eq!(rich_text[0]["text"]["content"], "see ");
-        assert_eq!(rich_text[1]["text"]["content"], "https://example.com");
-        assert_eq!(rich_text[1]["text"]["link"]["url"], "https://example.com");
-        assert_eq!(rich_text[2]["text"]["content"], " here");
-        assert!(bookmarks.is_empty());
-    }
-
-    #[test]
-    fn test_build_rich_text_with_bookmark_url() {
-        let patterns = vec![Regex::new(r"https://github\.com/.*").unwrap()];
-        let (rich_text, bookmarks) =
-            build_rich_text_and_bookmarks("check https://github.com/ekuinox/kgd", &patterns);
-        assert_eq!(rich_text.len(), 2);
-        assert_eq!(rich_text[0]["text"]["content"], "check ");
-        assert_eq!(
-            rich_text[1]["text"]["content"],
-            "https://github.com/ekuinox/kgd"
-        );
-        assert_eq!(
-            rich_text[1]["text"]["link"]["url"],
-            "https://github.com/ekuinox/kgd"
-        );
-        assert_eq!(bookmarks, vec!["https://github.com/ekuinox/kgd"]);
-    }
-
-    #[test]
-    fn test_build_rich_text_mixed_urls() {
-        let patterns = vec![Regex::new(r"https://github\.com/.*").unwrap()];
-        let (rich_text, bookmarks) = build_rich_text_and_bookmarks(
-            "see https://example.com and https://github.com/ekuinox/kgd",
-            &patterns,
-        );
-        assert_eq!(rich_text.len(), 4);
-        assert_eq!(rich_text[0]["text"]["content"], "see ");
-        assert_eq!(rich_text[1]["text"]["content"], "https://example.com");
-        assert_eq!(rich_text[2]["text"]["content"], " and ");
-        assert_eq!(
-            rich_text[3]["text"]["content"],
-            "https://github.com/ekuinox/kgd"
-        );
-        assert_eq!(bookmarks.len(), 1);
-        assert_eq!(bookmarks[0], "https://github.com/ekuinox/kgd");
-    }
-
-    #[test]
-    fn test_compile_patterns_valid() {
-        let patterns = vec!["https://github\\.com/.*".to_string()];
-        let compiled = compile_patterns(&patterns);
-        assert_eq!(compiled.len(), 1);
-    }
-
-    #[test]
-    fn test_compile_patterns_invalid_skipped() {
-        let patterns = vec![
-            "https://github\\.com/.*".to_string(),
-            "[invalid".to_string(),
+    fn test_classify_url_first_match_wins() {
+        let rules = vec![
+            UrlRule {
+                pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+                block_types: vec![UrlBlockType::Mention],
+            },
+            UrlRule {
+                pattern: Regex::new(r"https://.*").unwrap(),
+                block_types: vec![UrlBlockType::Bookmark],
+            },
         ];
-        let compiled = compile_patterns(&patterns);
-        assert_eq!(compiled.len(), 1);
+        assert_eq!(
+            classify_url("https://github.com/ekuinox/kgd", &rules),
+            vec![UrlBlockType::Mention]
+        );
     }
 
     #[test]
-    fn test_compile_patterns_empty() {
-        let compiled = compile_patterns(&[]);
+    fn test_build_no_urls() {
+        let result = build_rich_text_and_url_blocks("plain text", &[]);
+        assert_eq!(result.rich_text.len(), 1);
+        assert_eq!(result.rich_text[0]["text"]["content"], "plain text");
+        assert!(result.rich_text[0]["text"]["link"].is_null());
+        assert!(result.extra_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_build_inline_link_no_rules() {
+        let result = build_rich_text_and_url_blocks("see https://example.com here", &[]);
+        assert_eq!(result.rich_text.len(), 3);
+        assert_eq!(
+            result.rich_text[1]["text"]["content"],
+            "https://example.com"
+        );
+        assert_eq!(
+            result.rich_text[1]["text"]["link"]["url"],
+            "https://example.com"
+        );
+        assert!(result.extra_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_build_bookmark_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::Bookmark],
+        }];
+        let result = build_rich_text_and_url_blocks("check https://github.com/ekuinox/kgd", &rules);
+        assert_eq!(result.rich_text.len(), 2);
+        // URL はインラインリンクとして含まれる（mention ではないため）
+        assert_eq!(
+            result.rich_text[1]["text"]["link"]["url"],
+            "https://github.com/ekuinox/kgd"
+        );
+        assert_eq!(result.extra_blocks.len(), 1);
+        assert_eq!(result.extra_blocks[0].1, "bookmark");
+        assert_eq!(
+            result.extra_blocks[0].0["bookmark"]["url"],
+            "https://github.com/ekuinox/kgd"
+        );
+    }
+
+    #[test]
+    fn test_build_mention_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::Mention],
+        }];
+        let result = build_rich_text_and_url_blocks("see https://github.com/ekuinox/kgd", &rules);
+        assert_eq!(result.rich_text.len(), 2);
+        // mention として含まれる
+        assert_eq!(result.rich_text[1]["type"], "mention");
+        assert_eq!(
+            result.rich_text[1]["mention"]["link_mention"]["href"],
+            "https://github.com/ekuinox/kgd"
+        );
+        assert!(result.extra_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_build_embed_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://youtube\.com/watch.*").unwrap(),
+            block_types: vec![UrlBlockType::Embed],
+        }];
+        let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &rules);
+        assert_eq!(result.extra_blocks.len(), 1);
+        assert_eq!(result.extra_blocks[0].1, "embed");
+        assert_eq!(
+            result.extra_blocks[0].0["embed"]["url"],
+            "https://youtube.com/watch?v=abc"
+        );
+    }
+
+    #[test]
+    fn test_build_link_preview_rule() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://twitter\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::LinkPreview],
+        }];
+        let result = build_rich_text_and_url_blocks("https://twitter.com/user/status/123", &rules);
+        assert_eq!(result.extra_blocks.len(), 1);
+        assert_eq!(result.extra_blocks[0].1, "link_preview");
+        assert_eq!(
+            result.extra_blocks[0].0["link_preview"]["url"],
+            "https://twitter.com/user/status/123"
+        );
+    }
+
+    #[test]
+    fn test_build_multiple_block_types() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://youtube\.com/watch.*").unwrap(),
+            block_types: vec![UrlBlockType::Bookmark, UrlBlockType::Embed],
+        }];
+        let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &rules);
+        assert_eq!(result.extra_blocks.len(), 2);
+        assert_eq!(result.extra_blocks[0].1, "bookmark");
+        assert_eq!(result.extra_blocks[1].1, "embed");
+    }
+
+    #[test]
+    fn test_build_mixed_urls() {
+        let rules = vec![UrlRule {
+            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            block_types: vec![UrlBlockType::Mention],
+        }];
+        let result = build_rich_text_and_url_blocks(
+            "see https://example.com and https://github.com/ekuinox/kgd",
+            &rules,
+        );
+        assert_eq!(result.rich_text.len(), 4);
+        // example.com はインラインリンク
+        assert_eq!(result.rich_text[1]["type"], "text");
+        assert_eq!(
+            result.rich_text[1]["text"]["link"]["url"],
+            "https://example.com"
+        );
+        // github.com は mention
+        assert_eq!(result.rich_text[3]["type"], "mention");
+        assert!(result.extra_blocks.is_empty());
+    }
+
+    #[test]
+    fn test_compile_url_rules_valid() {
+        let rules = vec![UrlRuleConfig {
+            pattern: r"https://github\.com/.*".to_string(),
+            convert_to: vec!["bookmark".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Bookmark]);
+    }
+
+    #[test]
+    fn test_compile_url_rules_invalid_pattern() {
+        let rules = vec![UrlRuleConfig {
+            pattern: "[invalid".to_string(),
+            convert_to: vec!["bookmark".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
         assert!(compiled.is_empty());
+    }
+
+    #[test]
+    fn test_compile_url_rules_unknown_block_type() {
+        let rules = vec![UrlRuleConfig {
+            pattern: r"https://example\.com/.*".to_string(),
+            convert_to: vec!["unknown_type".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
+        // 有効なブロックタイプがないのでルールごとスキップ
+        assert!(compiled.is_empty());
+    }
+
+    #[test]
+    fn test_compile_url_rules_partial_valid_block_types() {
+        let rules = vec![UrlRuleConfig {
+            pattern: r"https://example\.com/.*".to_string(),
+            convert_to: vec!["bookmark".to_string(), "invalid".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Bookmark]);
+    }
+
+    #[test]
+    fn test_compile_url_rules_empty() {
+        let compiled = compile_url_rules(&[]);
+        assert!(compiled.is_empty());
+    }
+
+    #[test]
+    fn test_parse_block_type_all_variants() {
+        assert_eq!(parse_block_type("bookmark"), Some(UrlBlockType::Bookmark));
+        assert_eq!(parse_block_type("embed"), Some(UrlBlockType::Embed));
+        assert_eq!(parse_block_type("mention"), Some(UrlBlockType::Mention));
+        assert_eq!(
+            parse_block_type("link_preview"),
+            Some(UrlBlockType::LinkPreview)
+        );
+        assert_eq!(parse_block_type("unknown"), None);
     }
 }

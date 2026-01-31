@@ -134,10 +134,19 @@ pub struct DiaryConfig {
     #[serde(default = "default_timezone")]
     #[serde_as(as = "DisplayFromStr")]
     pub timezone: Tz,
-    /// ブックマークブロックとして表示する URL パターン（正規表現）
-    /// マッチした URL はテキスト内でリンク化されるだけでなく、別途ブックマークブロックとしても追加される
+    /// URL 変換ルール
+    /// パターンにマッチした URL を指定したブロックタイプに変換する
     #[serde(default)]
-    pub bookmark_url_patterns: Vec<String>,
+    pub url_rules: Vec<UrlRuleConfig>,
+}
+
+/// URL 変換ルール設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UrlRuleConfig {
+    /// マッチする URL パターン（正規表現）
+    pub pattern: String,
+    /// 生成するブロックタイプのリスト（bookmark, embed, mention, link_preview）
+    pub convert_to: Vec<String>,
 }
 
 /// Notion タグ設定。
@@ -203,7 +212,7 @@ mod tests {
                 forum_channel_id: 123456789012345678,
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
-                bookmark_url_patterns: vec![],
+                url_rules: vec![],
             },
         };
 
