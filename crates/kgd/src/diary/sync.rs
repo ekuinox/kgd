@@ -83,22 +83,12 @@ impl<'a> MessageSyncer<'a> {
         }
 
         // テキストブロック（URL をリンク化 + ルールに基づく追加ブロック生成）
+        // 出現順に paragraph / bookmark / embed ブロックが並ぶ
         if has_content {
             let result =
                 url_parser::build_rich_text_and_url_blocks(&message.content, &self.url_rules);
 
-            if !result.rich_text.is_empty() {
-                children.push(serde_json::json!({
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": result.rich_text
-                    }
-                }));
-                block_meta.push("text".to_string());
-            }
-
-            for (block_json, block_type) in result.extra_blocks {
+            for (block_json, block_type) in result.blocks {
                 children.push(block_json);
                 block_meta.push(block_type);
             }
@@ -139,9 +129,19 @@ impl<'a> MessageSyncer<'a> {
 
         // テキストブロックのみ更新（URL をリンク化）
         let result = url_parser::build_rich_text_and_url_blocks(&message.content, &self.url_rules);
-        for block in blocks.iter().filter(|b| b.block_type == "text") {
+        let text_rich_texts: Vec<Vec<serde_json::Value>> = result
+            .blocks
+            .iter()
+            .filter(|(_, block_type)| block_type == "text")
+            .filter_map(|(block_json, _)| block_json["paragraph"]["rich_text"].as_array().cloned())
+            .collect();
+
+        let text_blocks: Vec<&MessageBlock> =
+            blocks.iter().filter(|b| b.block_type == "text").collect();
+
+        for (block, rich_text) in text_blocks.iter().zip(text_rich_texts.iter()) {
             self.notion
-                .update_text_block(&block.block_id, result.rich_text.clone())
+                .update_text_block(&block.block_id, rich_text.clone())
                 .await?;
         }
 

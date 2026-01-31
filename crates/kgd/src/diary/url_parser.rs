@@ -52,12 +52,10 @@ pub struct CompiledUrlRules {
     default_types: Vec<UrlBlockType>,
 }
 
-/// URL 解析結果。
+/// URL 解析結果のブロック。出現順に並ぶ。
 pub struct UrlParseResult {
-    /// paragraph ブロックの rich_text に使用する JSON 配列
-    pub rich_text: Vec<serde_json::Value>,
-    /// テキストの後に追加するブロック JSON 配列と block_type 文字列のペア
-    pub extra_blocks: Vec<(serde_json::Value, String)>,
+    /// 出現順の Notion ブロック JSON と block_type 文字列のペア
+    pub blocks: Vec<(serde_json::Value, String)>,
 }
 
 /// 設定からコンパイル済み URL ルールを作成する。
@@ -111,18 +109,20 @@ pub fn compile_url_rules(
     }
 }
 
-/// テキストからセグメントを解析し、Notion 用の rich_text JSON 配列と
-/// 追加ブロックを生成する。
+/// テキストからセグメントを解析し、出現順に Notion ブロックを生成する。
+///
+/// テキストやインラインリンクは paragraph ブロックにまとめ、
+/// bookmark/embed が出現する位置で paragraph を分割して順序を保持する。
 pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -> UrlParseResult {
     let segments = parse_segments(text);
-    let mut rich_text: Vec<serde_json::Value> = Vec::new();
-    let mut extra_blocks: Vec<(serde_json::Value, String)> = Vec::new();
+    let mut blocks: Vec<(serde_json::Value, String)> = Vec::new();
+    let mut pending_rich_text: Vec<serde_json::Value> = Vec::new();
 
     for segment in segments {
         match segment {
             TextSegment::Plain(s) => {
                 if !s.is_empty() {
-                    rich_text.push(serde_json::json!({
+                    pending_rich_text.push(serde_json::json!({
                         "type": "text",
                         "text": {
                             "content": s
@@ -133,32 +133,65 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
             TextSegment::Url(url) => {
                 let block_types = classify_url(&url, compiled);
 
+                // インラインリンクは pending_rich_text に追加
+                let has_link = block_types.contains(&UrlBlockType::Link);
+                if has_link {
+                    pending_rich_text.push(inline_link_json(&url));
+                }
+
+                // bookmark/embed の前に溜まった rich_text を paragraph として flush
+                let has_standalone = block_types
+                    .iter()
+                    .any(|t| matches!(t, UrlBlockType::Bookmark | UrlBlockType::Embed));
+                if has_standalone {
+                    flush_paragraph(&mut pending_rich_text, &mut blocks);
+                }
+
                 for block_type in &block_types {
                     match block_type {
-                        UrlBlockType::Link => {
-                            rich_text.push(inline_link_json(&url));
-                        }
+                        UrlBlockType::Link => {} // 上で処理済み
                         UrlBlockType::Bookmark => {
-                            extra_blocks.push((bookmark_block_json(&url), "bookmark".to_string()));
+                            blocks.push((bookmark_block_json(&url), "bookmark".to_string()));
                         }
                         UrlBlockType::Embed => {
-                            extra_blocks.push((embed_block_json(&url), "embed".to_string()));
+                            blocks.push((embed_block_json(&url), "embed".to_string()));
                         }
                     }
                 }
 
                 // いずれの変換も行われない場合のみプレーンテキストとして URL を表示
                 if block_types.is_empty() {
-                    rich_text.push(plain_text_json(&url));
+                    pending_rich_text.push(plain_text_json(&url));
                 }
             }
         }
     }
 
-    UrlParseResult {
-        rich_text,
-        extra_blocks,
+    // 残りの rich_text を paragraph として追加
+    flush_paragraph(&mut pending_rich_text, &mut blocks);
+
+    UrlParseResult { blocks }
+}
+
+/// 溜まった rich_text 要素を paragraph ブロックとして blocks に追加し、クリアする。
+fn flush_paragraph(
+    pending_rich_text: &mut Vec<serde_json::Value>,
+    blocks: &mut Vec<(serde_json::Value, String)>,
+) {
+    if pending_rich_text.is_empty() {
+        return;
     }
+    let rich_text: Vec<serde_json::Value> = std::mem::take(pending_rich_text);
+    blocks.push((
+        serde_json::json!({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": rich_text
+            }
+        }),
+        "text".to_string(),
+    ));
 }
 
 /// テキストセグメントの種類。
@@ -437,40 +470,44 @@ mod tests {
     fn test_build_no_urls() {
         let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
         let result = build_rich_text_and_url_blocks("plain text", &compiled);
-        assert_eq!(result.rich_text.len(), 1);
-        assert_eq!(result.rich_text[0]["text"]["content"], "plain text");
-        assert!(result.rich_text[0]["text"]["link"].is_null());
-        assert!(result.extra_blocks.is_empty());
+        assert_eq!(result.blocks.len(), 1);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 1);
+        assert_eq!(rich_text[0]["text"]["content"], "plain text");
+        assert!(rich_text[0]["text"]["link"].is_null());
     }
 
     #[test]
     fn test_build_inline_link_default() {
         let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
         let result = build_rich_text_and_url_blocks("see https://example.com here", &compiled);
-        assert_eq!(result.rich_text.len(), 3);
-        assert_eq!(
-            result.rich_text[1]["text"]["content"],
-            "https://example.com"
-        );
-        assert_eq!(
-            result.rich_text[1]["text"]["link"]["url"],
-            "https://example.com"
-        );
-        assert!(result.extra_blocks.is_empty());
+        // すべてインラインなので paragraph 1 つ
+        assert_eq!(result.blocks.len(), 1);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 3);
+        assert_eq!(rich_text[1]["text"]["content"], "https://example.com");
+        assert_eq!(rich_text[1]["text"]["link"]["url"], "https://example.com");
     }
 
     #[test]
     fn test_build_url_no_default_renders_plain_text() {
         let compiled = compiled_with_rules(vec![]);
         let result = build_rich_text_and_url_blocks("see https://example.com here", &compiled);
-        assert_eq!(result.rich_text.len(), 3);
+        assert_eq!(result.blocks.len(), 1);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 3);
         // URL はプレーンテキストとして表示（リンクなし）
-        assert_eq!(
-            result.rich_text[1]["text"]["content"],
-            "https://example.com"
-        );
-        assert!(result.rich_text[1]["text"]["link"].is_null());
-        assert!(result.extra_blocks.is_empty());
+        assert_eq!(rich_text[1]["text"]["content"], "https://example.com");
+        assert!(rich_text[1]["text"]["link"].is_null());
     }
 
     #[test]
@@ -484,13 +521,17 @@ mod tests {
         );
         let result =
             build_rich_text_and_url_blocks("check https://github.com/ekuinox/kgd", &compiled);
-        // bookmark に変換されるため、URL はプレーンテキストとして残らない
-        assert_eq!(result.rich_text.len(), 1);
-        assert_eq!(result.rich_text[0]["text"]["content"], "check ");
-        assert_eq!(result.extra_blocks.len(), 1);
-        assert_eq!(result.extra_blocks[0].1, "bookmark");
+        // "check " → paragraph, URL → bookmark の順
+        assert_eq!(result.blocks.len(), 2);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 1);
+        assert_eq!(rich_text[0]["text"]["content"], "check ");
+        assert_eq!(result.blocks[1].1, "bookmark");
         assert_eq!(
-            result.extra_blocks[0].0["bookmark"]["url"],
+            result.blocks[1].0["bookmark"]["url"],
             "https://github.com/ekuinox/kgd"
         );
     }
@@ -506,14 +547,18 @@ mod tests {
         );
         let result =
             build_rich_text_and_url_blocks("check https://github.com/ekuinox/kgd", &compiled);
-        assert_eq!(result.rich_text.len(), 2);
-        // link が含まれているのでインラインリンク
+        // "check " + inline link → paragraph, bookmark の順
+        assert_eq!(result.blocks.len(), 2);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 2);
         assert_eq!(
-            result.rich_text[1]["text"]["link"]["url"],
+            rich_text[1]["text"]["link"]["url"],
             "https://github.com/ekuinox/kgd"
         );
-        assert_eq!(result.extra_blocks.len(), 1);
-        assert_eq!(result.extra_blocks[0].1, "bookmark");
+        assert_eq!(result.blocks[1].1, "bookmark");
     }
 
     #[test]
@@ -523,12 +568,11 @@ mod tests {
             block_types: vec![UrlBlockType::Embed],
         }]);
         let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &compiled);
-        // embed に変換されるため、URL はプレーンテキストとして残らない
-        assert!(result.rich_text.is_empty());
-        assert_eq!(result.extra_blocks.len(), 1);
-        assert_eq!(result.extra_blocks[0].1, "embed");
+        // embed のみ、paragraph なし
+        assert_eq!(result.blocks.len(), 1);
+        assert_eq!(result.blocks[0].1, "embed");
         assert_eq!(
-            result.extra_blocks[0].0["embed"]["url"],
+            result.blocks[0].0["embed"]["url"],
             "https://youtube.com/watch?v=abc"
         );
     }
@@ -544,14 +588,18 @@ mod tests {
             ],
         }]);
         let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &compiled);
-        assert_eq!(result.rich_text.len(), 1);
+        // inline link → paragraph が flush され、bookmark, embed が続く
+        assert_eq!(result.blocks.len(), 3);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
         assert_eq!(
-            result.rich_text[0]["text"]["link"]["url"],
+            rich_text[0]["text"]["link"]["url"],
             "https://youtube.com/watch?v=abc"
         );
-        assert_eq!(result.extra_blocks.len(), 2);
-        assert_eq!(result.extra_blocks[0].1, "bookmark");
-        assert_eq!(result.extra_blocks[1].1, "embed");
+        assert_eq!(result.blocks[1].1, "bookmark");
+        assert_eq!(result.blocks[2].1, "embed");
     }
 
     #[test]
@@ -567,16 +615,47 @@ mod tests {
             "see https://example.com and https://github.com/ekuinox/kgd",
             &compiled,
         );
-        // example.com はデフォルトでインラインリンク、github.com は bookmark に変換されテキストなし
-        assert_eq!(result.rich_text.len(), 3);
-        assert_eq!(result.rich_text[0]["text"]["content"], "see ");
-        assert_eq!(
-            result.rich_text[1]["text"]["link"]["url"],
-            "https://example.com"
+        // "see " + inline link(example.com) + " and " → paragraph, bookmark(github.com)
+        assert_eq!(result.blocks.len(), 2);
+        assert_eq!(result.blocks[0].1, "text");
+        let rich_text = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rich_text.len(), 3);
+        assert_eq!(rich_text[0]["text"]["content"], "see ");
+        assert_eq!(rich_text[1]["text"]["link"]["url"], "https://example.com");
+        assert_eq!(rich_text[2]["text"]["content"], " and ");
+        assert_eq!(result.blocks[1].1, "bookmark");
+    }
+
+    #[test]
+    fn test_build_order_text_bookmark_text() {
+        let compiled = compiled_with_default(
+            vec![UrlRule {
+                matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
+                block_types: vec![UrlBlockType::Bookmark],
+            }],
+            vec![UrlBlockType::Link],
         );
-        assert_eq!(result.rich_text[2]["text"]["content"], " and ");
-        assert_eq!(result.extra_blocks.len(), 1);
-        assert_eq!(result.extra_blocks[0].1, "bookmark");
+        let result =
+            build_rich_text_and_url_blocks("before https://github.com/foo after", &compiled);
+        // "before " → paragraph, bookmark, " after" → paragraph
+        assert_eq!(result.blocks.len(), 3);
+        assert_eq!(result.blocks[0].1, "text");
+        let rt0 = result.blocks[0].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rt0[0]["text"]["content"], "before ");
+        assert_eq!(result.blocks[1].1, "bookmark");
+        assert_eq!(
+            result.blocks[1].0["bookmark"]["url"],
+            "https://github.com/foo"
+        );
+        assert_eq!(result.blocks[2].1, "text");
+        let rt2 = result.blocks[2].0["paragraph"]["rich_text"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rt2[0]["text"]["content"], " after");
     }
 
     #[test]
