@@ -74,7 +74,7 @@ forum_channel_id = 123456789012345678
 
 # URL conversion rules
 # URLs matching a pattern will be converted to the specified Notion block types.
-# Supported block types: bookmark, embed, mention, link_preview
+# Supported block types: bookmark, embed
 # URLs not matching any rule will be rendered as inline links.
 #
 # Pattern types:
@@ -88,8 +88,4 @@ forum_channel_id = 123456789012345678
 #
 # [[diary.url_rules]]
 # pattern = { prefix = "https://github.com/" }
-# convert_to = ["mention"]
-#
-# [[diary.url_rules]]
-# pattern = { regex = "https://twitter\\.com/.+/status/\\d+" }
-# convert_to = ["link_preview"]
+# convert_to = ["bookmark"]

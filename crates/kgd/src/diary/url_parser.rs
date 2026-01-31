@@ -11,10 +11,6 @@ pub enum UrlBlockType {
     Bookmark,
     /// Notion 埋め込みブロック
     Embed,
-    /// rich_text 内のメンション（link_mention）
-    Mention,
-    /// Notion リンクプレビューブロック
-    LinkPreview,
 }
 
 /// URL マッチング方法。
@@ -114,38 +110,17 @@ pub fn build_rich_text_and_url_blocks(text: &str, rules: &[UrlRule]) -> UrlParse
             TextSegment::Url(url) => {
                 let matched_types = classify_url(&url, rules);
 
-                if matched_types.is_empty() {
-                    // ルールにマッチしない URL はインラインリンク
-                    rich_text.push(inline_link_json(&url));
-                } else {
-                    let has_mention = matched_types.contains(&UrlBlockType::Mention);
+                // URL は常にインラインリンクとして rich_text に含める
+                rich_text.push(inline_link_json(&url));
 
-                    // rich_text 要素: mention があれば mention、なければインラインリンク
-                    if has_mention {
-                        rich_text.push(mention_json(&url));
-                    } else {
-                        rich_text.push(inline_link_json(&url));
-                    }
-
-                    // 追加ブロック生成
-                    for block_type in &matched_types {
-                        match block_type {
-                            UrlBlockType::Bookmark => {
-                                extra_blocks
-                                    .push((bookmark_block_json(&url), "bookmark".to_string()));
-                            }
-                            UrlBlockType::Embed => {
-                                extra_blocks.push((embed_block_json(&url), "embed".to_string()));
-                            }
-                            UrlBlockType::LinkPreview => {
-                                extra_blocks.push((
-                                    link_preview_block_json(&url),
-                                    "link_preview".to_string(),
-                                ));
-                            }
-                            UrlBlockType::Mention => {
-                                // mention は rich_text 内で処理済み
-                            }
+                // ルールにマッチした場合は追加ブロックを生成
+                for block_type in &matched_types {
+                    match block_type {
+                        UrlBlockType::Bookmark => {
+                            extra_blocks.push((bookmark_block_json(&url), "bookmark".to_string()));
+                        }
+                        UrlBlockType::Embed => {
+                            extra_blocks.push((embed_block_json(&url), "embed".to_string()));
                         }
                     }
                 }
@@ -205,8 +180,6 @@ fn parse_block_type(s: &str) -> Option<UrlBlockType> {
     match s {
         "bookmark" => Some(UrlBlockType::Bookmark),
         "embed" => Some(UrlBlockType::Embed),
-        "mention" => Some(UrlBlockType::Mention),
-        "link_preview" => Some(UrlBlockType::LinkPreview),
         _ => {
             tracing::warn!(block_type = %s, "Unknown block type in convert_to, skipping");
             None
@@ -222,19 +195,6 @@ fn inline_link_json(url: &str) -> serde_json::Value {
             "content": url,
             "link": {
                 "url": url
-            }
-        }
-    })
-}
-
-/// メンションの rich_text JSON を生成する。
-fn mention_json(url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "type": "mention",
-        "mention": {
-            "type": "link_mention",
-            "link_mention": {
-                "href": url
             }
         }
     })
@@ -258,17 +218,6 @@ fn embed_block_json(url: &str) -> serde_json::Value {
         "object": "block",
         "type": "embed",
         "embed": {
-            "url": url
-        }
-    })
-}
-
-/// リンクプレビューブロック JSON を生成する。
-fn link_preview_block_json(url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "object": "block",
-        "type": "link_preview",
-        "link_preview": {
             "url": url
         }
     })
@@ -368,7 +317,7 @@ mod tests {
         let rules = vec![
             UrlRule {
                 matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
-                block_types: vec![UrlBlockType::Mention],
+                block_types: vec![UrlBlockType::Embed],
             },
             UrlRule {
                 matcher: UrlMatcher::Regex(Regex::new(r"https://.*").unwrap()),
@@ -377,7 +326,7 @@ mod tests {
         ];
         assert_eq!(
             classify_url("https://github.com/ekuinox/kgd", &rules),
-            vec![UrlBlockType::Mention]
+            vec![UrlBlockType::Embed]
         );
     }
 
@@ -398,11 +347,11 @@ mod tests {
     fn test_classify_url_prefix_matching() {
         let rules = vec![UrlRule {
             matcher: UrlMatcher::Prefix("https://github.com/".to_string()),
-            block_types: vec![UrlBlockType::Mention],
+            block_types: vec![UrlBlockType::Bookmark],
         }];
         assert_eq!(
             classify_url("https://github.com/ekuinox/kgd", &rules),
-            vec![UrlBlockType::Mention]
+            vec![UrlBlockType::Bookmark]
         );
         assert!(classify_url("https://example.com", &rules).is_empty());
     }
@@ -453,23 +402,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_mention_rule() {
-        let rules = vec![UrlRule {
-            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
-            block_types: vec![UrlBlockType::Mention],
-        }];
-        let result = build_rich_text_and_url_blocks("see https://github.com/ekuinox/kgd", &rules);
-        assert_eq!(result.rich_text.len(), 2);
-        // mention として含まれる
-        assert_eq!(result.rich_text[1]["type"], "mention");
-        assert_eq!(
-            result.rich_text[1]["mention"]["link_mention"]["href"],
-            "https://github.com/ekuinox/kgd"
-        );
-        assert!(result.extra_blocks.is_empty());
-    }
-
-    #[test]
     fn test_build_embed_rule() {
         let rules = vec![UrlRule {
             matcher: UrlMatcher::Regex(Regex::new(r"https://youtube\.com/watch.*").unwrap()),
@@ -481,21 +413,6 @@ mod tests {
         assert_eq!(
             result.extra_blocks[0].0["embed"]["url"],
             "https://youtube.com/watch?v=abc"
-        );
-    }
-
-    #[test]
-    fn test_build_link_preview_rule() {
-        let rules = vec![UrlRule {
-            matcher: UrlMatcher::Regex(Regex::new(r"https://twitter\.com/.*").unwrap()),
-            block_types: vec![UrlBlockType::LinkPreview],
-        }];
-        let result = build_rich_text_and_url_blocks("https://twitter.com/user/status/123", &rules);
-        assert_eq!(result.extra_blocks.len(), 1);
-        assert_eq!(result.extra_blocks[0].1, "link_preview");
-        assert_eq!(
-            result.extra_blocks[0].0["link_preview"]["url"],
-            "https://twitter.com/user/status/123"
         );
     }
 
@@ -515,7 +432,7 @@ mod tests {
     fn test_build_mixed_urls() {
         let rules = vec![UrlRule {
             matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
-            block_types: vec![UrlBlockType::Mention],
+            block_types: vec![UrlBlockType::Bookmark],
         }];
         let result = build_rich_text_and_url_blocks(
             "see https://example.com and https://github.com/ekuinox/kgd",
@@ -528,9 +445,14 @@ mod tests {
             result.rich_text[1]["text"]["link"]["url"],
             "https://example.com"
         );
-        // github.com は mention
-        assert_eq!(result.rich_text[3]["type"], "mention");
-        assert!(result.extra_blocks.is_empty());
+        // github.com もインラインリンク + bookmark ブロック
+        assert_eq!(result.rich_text[3]["type"], "text");
+        assert_eq!(
+            result.rich_text[3]["text"]["link"]["url"],
+            "https://github.com/ekuinox/kgd"
+        );
+        assert_eq!(result.extra_blocks.len(), 1);
+        assert_eq!(result.extra_blocks[0].1, "bookmark");
     }
 
     #[test]
@@ -569,11 +491,11 @@ mod tests {
     fn test_compile_url_rules_prefix() {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Prefix("https://github.com/".to_string()),
-            convert_to: vec!["mention".to_string()],
+            convert_to: vec!["bookmark".to_string()],
         }];
         let compiled = compile_url_rules(&rules);
         assert_eq!(compiled.len(), 1);
-        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Mention]);
+        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Bookmark]);
     }
 
     #[test]
@@ -629,11 +551,8 @@ mod tests {
     fn test_parse_block_type_all_variants() {
         assert_eq!(parse_block_type("bookmark"), Some(UrlBlockType::Bookmark));
         assert_eq!(parse_block_type("embed"), Some(UrlBlockType::Embed));
-        assert_eq!(parse_block_type("mention"), Some(UrlBlockType::Mention));
-        assert_eq!(
-            parse_block_type("link_preview"),
-            Some(UrlBlockType::LinkPreview)
-        );
+        assert_eq!(parse_block_type("mention"), None);
+        assert_eq!(parse_block_type("link_preview"), None);
         assert_eq!(parse_block_type("unknown"), None);
     }
 }
