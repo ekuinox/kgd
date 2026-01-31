@@ -147,8 +147,8 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
                     }
                 }
 
-                // link が含まれていない場合はプレーンテキストとして URL を表示
-                if !block_types.contains(&UrlBlockType::Link) {
+                // いずれの変換も行われない場合のみプレーンテキストとして URL を表示
+                if block_types.is_empty() {
                     rich_text.push(plain_text_json(&url));
                 }
             }
@@ -484,13 +484,9 @@ mod tests {
         );
         let result =
             build_rich_text_and_url_blocks("check https://github.com/ekuinox/kgd", &compiled);
-        assert_eq!(result.rich_text.len(), 2);
-        // link が含まれていないのでプレーンテキスト
-        assert_eq!(
-            result.rich_text[1]["text"]["content"],
-            "https://github.com/ekuinox/kgd"
-        );
-        assert!(result.rich_text[1]["text"]["link"].is_null());
+        // bookmark に変換されるため、URL はプレーンテキストとして残らない
+        assert_eq!(result.rich_text.len(), 1);
+        assert_eq!(result.rich_text[0]["text"]["content"], "check ");
         assert_eq!(result.extra_blocks.len(), 1);
         assert_eq!(result.extra_blocks[0].1, "bookmark");
         assert_eq!(
@@ -527,9 +523,8 @@ mod tests {
             block_types: vec![UrlBlockType::Embed],
         }]);
         let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &compiled);
-        // link がないのでプレーンテキスト
-        assert_eq!(result.rich_text.len(), 1);
-        assert!(result.rich_text[0]["text"]["link"].is_null());
+        // embed に変換されるため、URL はプレーンテキストとして残らない
+        assert!(result.rich_text.is_empty());
         assert_eq!(result.extra_blocks.len(), 1);
         assert_eq!(result.extra_blocks[0].1, "embed");
         assert_eq!(
@@ -572,16 +567,14 @@ mod tests {
             "see https://example.com and https://github.com/ekuinox/kgd",
             &compiled,
         );
-        assert_eq!(result.rich_text.len(), 4);
-        // example.com はデフォルトでインラインリンク
-        assert_eq!(result.rich_text[1]["type"], "text");
+        // example.com はデフォルトでインラインリンク、github.com は bookmark に変換されテキストなし
+        assert_eq!(result.rich_text.len(), 3);
+        assert_eq!(result.rich_text[0]["text"]["content"], "see ");
         assert_eq!(
             result.rich_text[1]["text"]["link"]["url"],
             "https://example.com"
         );
-        // github.com はプレーンテキスト + bookmark ブロック
-        assert_eq!(result.rich_text[3]["type"], "text");
-        assert!(result.rich_text[3]["text"]["link"].is_null());
+        assert_eq!(result.rich_text[2]["text"]["content"], " and ");
         assert_eq!(result.extra_blocks.len(), 1);
         assert_eq!(result.extra_blocks[0].1, "bookmark");
     }
