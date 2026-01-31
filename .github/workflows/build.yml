@@ -90,6 +90,9 @@ jobs:
       - name: Verify version
         run: docker run --rm --platform linux/arm64 ${{ env.IMAGE_NAME }}:test --version
 
+      - name: Verify heif-convert is available
+        run: docker run --rm --platform linux/arm64 --entrypoint heif-convert ${{ env.IMAGE_NAME }}:test --version
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
