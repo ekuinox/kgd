@@ -143,10 +143,22 @@ pub struct DiaryConfig {
 /// URL 変換ルール設定。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct UrlRuleConfig {
-    /// マッチする URL パターン（正規表現）
-    pub pattern: String,
+    /// マッチする URL パターン
+    pub pattern: PatternConfig,
     /// 生成するブロックタイプのリスト（bookmark, embed, mention, link_preview）
     pub convert_to: Vec<String>,
+}
+
+/// URL マッチパターンの種類。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternConfig {
+    /// glob 形式のパターン
+    Glob(String),
+    /// 正規表現パターン
+    Regex(String),
+    /// 前方一致パターン
+    Prefix(String),
 }
 
 /// Notion タグ設定。

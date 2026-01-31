@@ -2,7 +2,7 @@
 
 use regex::Regex;
 
-use crate::config::UrlRuleConfig;
+use crate::config::{PatternConfig, UrlRuleConfig};
 
 /// URL から生成するブロックの種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,10 +17,31 @@ pub enum UrlBlockType {
     LinkPreview,
 }
 
+/// URL マッチング方法。
+enum UrlMatcher {
+    /// glob パターンでマッチ
+    Glob(String),
+    /// 正規表現でマッチ
+    Regex(Regex),
+    /// 前方一致でマッチ
+    Prefix(String),
+}
+
+impl UrlMatcher {
+    /// URL がパターンにマッチするかを判定する。
+    fn is_match(&self, url: &str) -> bool {
+        match self {
+            UrlMatcher::Glob(pattern) => glob_match::glob_match(pattern, url),
+            UrlMatcher::Regex(re) => re.is_match(url),
+            UrlMatcher::Prefix(prefix) => url.starts_with(prefix.as_str()),
+        }
+    }
+}
+
 /// コンパイル済み URL 変換ルール。
 pub struct UrlRule {
     /// マッチする URL パターン
-    pattern: Regex,
+    matcher: UrlMatcher,
     /// 生成するブロックタイプのリスト
     block_types: Vec<UrlBlockType>,
 }
@@ -40,12 +61,16 @@ pub fn compile_url_rules(rules: &[UrlRuleConfig]) -> Vec<UrlRule> {
     rules
         .iter()
         .filter_map(|rule| {
-            let pattern = match Regex::new(&rule.pattern) {
-                Ok(re) => re,
-                Err(e) => {
-                    tracing::warn!(pattern = %rule.pattern, error = %e, "Invalid URL pattern, skipping rule");
-                    return None;
-                }
+            let matcher = match &rule.pattern {
+                PatternConfig::Glob(pattern) => UrlMatcher::Glob(pattern.clone()),
+                PatternConfig::Regex(pattern) => match Regex::new(pattern) {
+                    Ok(re) => UrlMatcher::Regex(re),
+                    Err(e) => {
+                        tracing::warn!(pattern = %pattern, error = %e, "Invalid regex pattern, skipping rule");
+                        return None;
+                    }
+                },
+                PatternConfig::Prefix(prefix) => UrlMatcher::Prefix(prefix.clone()),
             };
 
             let block_types: Vec<UrlBlockType> = rule
@@ -55,12 +80,12 @@ pub fn compile_url_rules(rules: &[UrlRuleConfig]) -> Vec<UrlRule> {
                 .collect();
 
             if block_types.is_empty() {
-                tracing::warn!(pattern = %rule.pattern, "No valid block types in convert_to, skipping rule");
+                tracing::warn!("No valid block types in convert_to, skipping rule");
                 return None;
             }
 
             Some(UrlRule {
-                pattern,
+                matcher,
                 block_types,
             })
         })
@@ -168,7 +193,7 @@ fn parse_segments(text: &str) -> Vec<TextSegment> {
 /// URL にマッチするルールのブロックタイプ一覧を返す。最初にマッチしたルールのみ適用。
 fn classify_url(url: &str, rules: &[UrlRule]) -> Vec<UrlBlockType> {
     for rule in rules {
-        if rule.pattern.is_match(url) {
+        if rule.matcher.is_match(url) {
             return rule.block_types.clone();
         }
     }
@@ -320,7 +345,7 @@ mod tests {
     #[test]
     fn test_classify_url_matching_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::Bookmark],
         }];
         assert_eq!(
@@ -332,7 +357,7 @@ mod tests {
     #[test]
     fn test_classify_url_non_matching_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::Bookmark],
         }];
         assert!(classify_url("https://example.com", &rules).is_empty());
@@ -342,11 +367,11 @@ mod tests {
     fn test_classify_url_first_match_wins() {
         let rules = vec![
             UrlRule {
-                pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+                matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
                 block_types: vec![UrlBlockType::Mention],
             },
             UrlRule {
-                pattern: Regex::new(r"https://.*").unwrap(),
+                matcher: UrlMatcher::Regex(Regex::new(r"https://.*").unwrap()),
                 block_types: vec![UrlBlockType::Bookmark],
             },
         ];
@@ -354,6 +379,32 @@ mod tests {
             classify_url("https://github.com/ekuinox/kgd", &rules),
             vec![UrlBlockType::Mention]
         );
+    }
+
+    #[test]
+    fn test_classify_url_glob_matching() {
+        let rules = vec![UrlRule {
+            matcher: UrlMatcher::Glob("https://github.com/**".to_string()),
+            block_types: vec![UrlBlockType::Bookmark],
+        }];
+        assert_eq!(
+            classify_url("https://github.com/ekuinox/kgd", &rules),
+            vec![UrlBlockType::Bookmark]
+        );
+        assert!(classify_url("https://example.com", &rules).is_empty());
+    }
+
+    #[test]
+    fn test_classify_url_prefix_matching() {
+        let rules = vec![UrlRule {
+            matcher: UrlMatcher::Prefix("https://github.com/".to_string()),
+            block_types: vec![UrlBlockType::Mention],
+        }];
+        assert_eq!(
+            classify_url("https://github.com/ekuinox/kgd", &rules),
+            vec![UrlBlockType::Mention]
+        );
+        assert!(classify_url("https://example.com", &rules).is_empty());
     }
 
     #[test]
@@ -383,7 +434,7 @@ mod tests {
     #[test]
     fn test_build_bookmark_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::Bookmark],
         }];
         let result = build_rich_text_and_url_blocks("check https://github.com/ekuinox/kgd", &rules);
@@ -404,7 +455,7 @@ mod tests {
     #[test]
     fn test_build_mention_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::Mention],
         }];
         let result = build_rich_text_and_url_blocks("see https://github.com/ekuinox/kgd", &rules);
@@ -421,7 +472,7 @@ mod tests {
     #[test]
     fn test_build_embed_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://youtube\.com/watch.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://youtube\.com/watch.*").unwrap()),
             block_types: vec![UrlBlockType::Embed],
         }];
         let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &rules);
@@ -436,7 +487,7 @@ mod tests {
     #[test]
     fn test_build_link_preview_rule() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://twitter\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://twitter\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::LinkPreview],
         }];
         let result = build_rich_text_and_url_blocks("https://twitter.com/user/status/123", &rules);
@@ -451,7 +502,7 @@ mod tests {
     #[test]
     fn test_build_multiple_block_types() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://youtube\.com/watch.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://youtube\.com/watch.*").unwrap()),
             block_types: vec![UrlBlockType::Bookmark, UrlBlockType::Embed],
         }];
         let result = build_rich_text_and_url_blocks("https://youtube.com/watch?v=abc", &rules);
@@ -463,7 +514,7 @@ mod tests {
     #[test]
     fn test_build_mixed_urls() {
         let rules = vec![UrlRule {
-            pattern: Regex::new(r"https://github\.com/.*").unwrap(),
+            matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
             block_types: vec![UrlBlockType::Mention],
         }];
         let result = build_rich_text_and_url_blocks(
@@ -483,9 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_url_rules_valid() {
+    fn test_compile_url_rules_regex_valid() {
         let rules = vec![UrlRuleConfig {
-            pattern: r"https://github\.com/.*".to_string(),
+            pattern: PatternConfig::Regex(r"https://github\.com/.*".to_string()),
             convert_to: vec!["bookmark".to_string()],
         }];
         let compiled = compile_url_rules(&rules);
@@ -494,9 +545,9 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_url_rules_invalid_pattern() {
+    fn test_compile_url_rules_invalid_regex() {
         let rules = vec![UrlRuleConfig {
-            pattern: "[invalid".to_string(),
+            pattern: PatternConfig::Regex("[invalid".to_string()),
             convert_to: vec!["bookmark".to_string()],
         }];
         let compiled = compile_url_rules(&rules);
@@ -504,9 +555,31 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_url_rules_glob() {
+        let rules = vec![UrlRuleConfig {
+            pattern: PatternConfig::Glob("https://github.com/**".to_string()),
+            convert_to: vec!["bookmark".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Bookmark]);
+    }
+
+    #[test]
+    fn test_compile_url_rules_prefix() {
+        let rules = vec![UrlRuleConfig {
+            pattern: PatternConfig::Prefix("https://github.com/".to_string()),
+            convert_to: vec!["mention".to_string()],
+        }];
+        let compiled = compile_url_rules(&rules);
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].block_types, vec![UrlBlockType::Mention]);
+    }
+
+    #[test]
     fn test_compile_url_rules_unknown_block_type() {
         let rules = vec![UrlRuleConfig {
-            pattern: r"https://example\.com/.*".to_string(),
+            pattern: PatternConfig::Regex(r"https://example\.com/.*".to_string()),
             convert_to: vec!["unknown_type".to_string()],
         }];
         let compiled = compile_url_rules(&rules);
@@ -517,7 +590,7 @@ mod tests {
     #[test]
     fn test_compile_url_rules_partial_valid_block_types() {
         let rules = vec![UrlRuleConfig {
-            pattern: r"https://example\.com/.*".to_string(),
+            pattern: PatternConfig::Regex(r"https://example\.com/.*".to_string()),
             convert_to: vec!["bookmark".to_string(), "invalid".to_string()],
         }];
         let compiled = compile_url_rules(&rules);
@@ -529,6 +602,27 @@ mod tests {
     fn test_compile_url_rules_empty() {
         let compiled = compile_url_rules(&[]);
         assert!(compiled.is_empty());
+    }
+
+    #[test]
+    fn test_url_matcher_glob() {
+        let matcher = UrlMatcher::Glob("https://youtube.com/watch?v=*".to_string());
+        assert!(matcher.is_match("https://youtube.com/watch?v=abc123"));
+        assert!(!matcher.is_match("https://youtube.com/playlist?list=abc"));
+    }
+
+    #[test]
+    fn test_url_matcher_prefix() {
+        let matcher = UrlMatcher::Prefix("https://github.com/".to_string());
+        assert!(matcher.is_match("https://github.com/ekuinox/kgd"));
+        assert!(!matcher.is_match("https://gitlab.com/user/repo"));
+    }
+
+    #[test]
+    fn test_url_matcher_regex() {
+        let matcher = UrlMatcher::Regex(Regex::new(r"https://twitter\.com/.+/status/\d+").unwrap());
+        assert!(matcher.is_match("https://twitter.com/user/status/123"));
+        assert!(!matcher.is_match("https://twitter.com/user"));
     }
 
     #[test]

@@ -77,14 +77,19 @@ forum_channel_id = 123456789012345678
 # Supported block types: bookmark, embed, mention, link_preview
 # URLs not matching any rule will be rendered as inline links.
 #
+# Pattern types:
+#   pattern = { regex = "..." }   - Regular expression matching
+#   pattern = { glob = "..." }    - Glob pattern matching (*, **, ?)
+#   pattern = { prefix = "..." }  - Prefix string matching
+#
 # [[diary.url_rules]]
-# pattern = "https://youtube\\.com/watch.*"
+# pattern = { glob = "https://youtube.com/watch*" }
 # convert_to = ["bookmark", "embed"]
 #
 # [[diary.url_rules]]
-# pattern = "https://github\\.com/.*"
+# pattern = { prefix = "https://github.com/" }
 # convert_to = ["mention"]
 #
 # [[diary.url_rules]]
-# pattern = "https://twitter\\.com/.*"
+# pattern = { regex = "https://twitter\\.com/.+/status/\\d+" }
 # convert_to = ["link_preview"]

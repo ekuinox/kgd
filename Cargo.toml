@@ -71,5 +71,8 @@ mime_guess = "2.0"
 # Regular expressions
 regex = "1"
 
+# Glob matching
+glob-match = "0.2"
+
 # Testing
 tempfile = "3.14"
