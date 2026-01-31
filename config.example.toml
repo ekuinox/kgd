@@ -72,13 +72,24 @@ forum_channel_id = 123456789012345678
 # Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 # timezone = "Asia/Tokyo"
 
-# Message template (Handlebars format, default: "{{content}}")
-# Available variables:
-#   - content: Message text
-#   - author: Author's username
-#   - timestamp: Message timestamp (ISO 8601 format)
-# Examples:
-#   message_template = "{{content}}"
-#   message_template = "{{author}}: {{content}}"
-#   message_template = "[{{timestamp}}] {{content}}"
-# message_template = "{{content}}"
+# Default conversion for URLs not matching any rule (default: ["link"])
+# Supported types: link (inline link in text), bookmark, embed
+# default_convert_to = ["link"]
+
+# URL conversion rules
+# URLs matching a pattern will be converted to the specified types.
+# Supported types: link (inline link in text), bookmark, embed
+# URLs not matching any rule will use default_convert_to.
+#
+# Pattern types:
+#   pattern = { regex = "..." }   - Regular expression matching
+#   pattern = { glob = "..." }    - Glob pattern matching (*, **, ?)
+#   pattern = { prefix = "..." }  - Prefix string matching
+#
+# [[diary.url_rules]]
+# pattern = { glob = "https://youtube.com/watch*" }
+# convert_to = ["link", "bookmark"]
+#
+# [[diary.url_rules]]
+# pattern = { prefix = "https://github.com/" }
+# convert_to = ["bookmark"]

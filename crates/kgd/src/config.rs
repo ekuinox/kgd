@@ -134,11 +134,34 @@ pub struct DiaryConfig {
     #[serde(default = "default_timezone")]
     #[serde_as(as = "DisplayFromStr")]
     pub timezone: Tz,
-    /// メッセージ本文のフォーマットテンプレート（Handlebars 形式）
-    /// 使用可能な変数: content (メッセージ本文), author (投稿者名), timestamp (投稿日時)
-    /// デフォルト: "{{content}}" (メッセージ本文をそのまま使用)
-    #[serde(default = "default_message_template")]
-    pub message_template: String,
+    /// URL 変換ルール
+    /// パターンにマッチした URL を指定したブロックタイプに変換する
+    #[serde(default)]
+    pub url_rules: Vec<UrlRuleConfig>,
+    /// どのルールにもマッチしなかった URL に適用するデフォルトの変換（デフォルト: ["link"]）
+    #[serde(default = "default_convert_to")]
+    pub default_convert_to: Vec<String>,
+}
+
+/// URL 変換ルール設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UrlRuleConfig {
+    /// マッチする URL パターン
+    pub pattern: PatternConfig,
+    /// 生成するブロックタイプのリスト（link, bookmark, embed）
+    pub convert_to: Vec<String>,
+}
+
+/// URL マッチパターンの種類。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternConfig {
+    /// glob 形式のパターン
+    Glob(String),
+    /// 正規表現パターン
+    Regex(String),
+    /// 前方一致パターン
+    Prefix(String),
 }
 
 /// Notion タグ設定。
@@ -165,8 +188,8 @@ fn default_timezone() -> Tz {
     chrono_tz::Asia::Tokyo
 }
 
-fn default_message_template() -> String {
-    "{{content}}".to_string()
+fn default_convert_to() -> Vec<String> {
+    vec!["link".to_string()]
 }
 
 #[cfg(test)]
@@ -208,7 +231,8 @@ mod tests {
                 forum_channel_id: 123456789012345678,
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
-                message_template: "{{content}}".to_string(),
+                url_rules: vec![],
+                default_convert_to: vec!["link".to_string()],
             },
         };
 

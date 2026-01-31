@@ -32,10 +32,11 @@ chrono-tz.workspace = true
 notion-client.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
-handlebars.workspace = true
 sqlx.workspace = true
 openssl.workspace = true
 mime_guess.workspace = true
+regex.workspace = true
+glob-match.workspace = true
 tempfile.workspace = true
 
 [build-dependencies]
