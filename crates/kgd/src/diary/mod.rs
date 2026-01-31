@@ -11,6 +11,7 @@ mod url_parser;
 pub use notion::NotionClient;
 pub use store::{DiaryEntry, DiaryStore, MessageBlock};
 pub use sync::MessageSyncer;
+pub use url_parser::compile_url_rules;
 
 use chrono::{DateTime, NaiveTime, Utc};
 use chrono_tz::Tz;

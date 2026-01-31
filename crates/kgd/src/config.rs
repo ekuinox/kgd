@@ -150,6 +150,12 @@ pub struct UrlRuleConfig {
     pub pattern: PatternConfig,
     /// 生成するブロックタイプのリスト（link, bookmark, embed）
     pub convert_to: Vec<String>,
+    /// このパターンにマッチすべき URL の一覧（起動時バリデーション用）
+    #[serde(default)]
+    pub expect_matches: Vec<String>,
+    /// このパターンにマッチすべきでない URL の一覧（起動時バリデーション用）
+    #[serde(default)]
+    pub expect_no_matches: Vec<String>,
 }
 
 /// URL マッチパターンの種類。

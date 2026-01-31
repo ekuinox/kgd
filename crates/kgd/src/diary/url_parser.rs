@@ -1,5 +1,6 @@
 //! メッセージテキスト内の URL を解析し、Notion ブロック構築用のセグメントに分割する。
 
+use anyhow::{Result, bail};
 use regex::Regex;
 
 use crate::config::{PatternConfig, UrlRuleConfig};
@@ -60,53 +61,76 @@ pub struct UrlParseResult {
 
 /// 設定からコンパイル済み URL ルールを作成する。
 ///
-/// 無効なパターンや不明なブロックタイプは警告をログに出力してスキップする。
+/// 各ルールの `expect_matches` / `expect_no_matches` によるバリデーションも行い、
+/// 期待通りでない場合はエラーを返す。
+/// 無効なパターンや不明なブロックタイプはエラーとして返す。
 pub fn compile_url_rules(
     rules: &[UrlRuleConfig],
     default_convert_to: &[String],
-) -> CompiledUrlRules {
-    let rules = rules
-        .iter()
-        .filter_map(|rule| {
-            let matcher = match &rule.pattern {
-                PatternConfig::Glob(pattern) => UrlMatcher::Glob(pattern.clone()),
-                PatternConfig::Regex(pattern) => match Regex::new(pattern) {
-                    Ok(re) => UrlMatcher::Regex(re),
-                    Err(e) => {
-                        tracing::warn!(pattern = %pattern, error = %e, "Invalid regex pattern, skipping rule");
-                        return None;
-                    }
-                },
-                PatternConfig::Prefix(prefix) => UrlMatcher::Prefix(prefix.clone()),
-            };
+) -> Result<CompiledUrlRules> {
+    let mut compiled_rules = Vec::new();
 
-            let block_types: Vec<UrlBlockType> = rule
-                .convert_to
-                .iter()
-                .filter_map(|s| parse_block_type(s))
-                .collect();
-
-            if block_types.is_empty() {
-                tracing::warn!("No valid block types in convert_to, skipping rule");
-                return None;
+    for rule in rules {
+        let matcher = match &rule.pattern {
+            PatternConfig::Glob(pattern) => UrlMatcher::Glob(pattern.clone()),
+            PatternConfig::Regex(pattern) => {
+                let re = Regex::new(pattern)
+                    .map_err(|e| anyhow::anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
+                UrlMatcher::Regex(re)
             }
+            PatternConfig::Prefix(prefix) => UrlMatcher::Prefix(prefix.clone()),
+        };
 
-            Some(UrlRule {
-                matcher,
-                block_types,
-            })
-        })
-        .collect();
+        let block_types: Vec<UrlBlockType> = rule
+            .convert_to
+            .iter()
+            .filter_map(|s| parse_block_type(s))
+            .collect();
+
+        if block_types.is_empty() {
+            bail!(
+                "No valid block types in convert_to for pattern {:?}",
+                rule.pattern
+            );
+        }
+
+        // expect_matches のバリデーション
+        for url in &rule.expect_matches {
+            if !matcher.is_match(url) {
+                bail!(
+                    "URL pattern {:?} expected to match '{}' but did not",
+                    rule.pattern,
+                    url
+                );
+            }
+        }
+
+        // expect_no_matches のバリデーション
+        for url in &rule.expect_no_matches {
+            if matcher.is_match(url) {
+                bail!(
+                    "URL pattern {:?} expected NOT to match '{}' but it did",
+                    rule.pattern,
+                    url
+                );
+            }
+        }
+
+        compiled_rules.push(UrlRule {
+            matcher,
+            block_types,
+        });
+    }
 
     let default_types = default_convert_to
         .iter()
         .filter_map(|s| parse_block_type(s))
         .collect();
 
-    CompiledUrlRules {
-        rules,
+    Ok(CompiledUrlRules {
+        rules: compiled_rules,
         default_types,
-    }
+    })
 }
 
 /// テキストからセグメントを解析し、出現順に Notion ブロックを生成する。
@@ -663,8 +687,10 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Regex(r"https://github\.com/.*".to_string()),
             convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &["link".to_string()]);
+        let compiled = compile_url_rules(&rules, &["link".to_string()]).unwrap();
         assert_eq!(compiled.rules.len(), 1);
         assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
         assert_eq!(compiled.default_types, vec![UrlBlockType::Link]);
@@ -675,9 +701,10 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Regex("[invalid".to_string()),
             convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &[]);
-        assert!(compiled.rules.is_empty());
+        assert!(compile_url_rules(&rules, &[]).is_err());
     }
 
     #[test]
@@ -685,8 +712,10 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Glob("https://github.com/**".to_string()),
             convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &[]);
+        let compiled = compile_url_rules(&rules, &[]).unwrap();
         assert_eq!(compiled.rules.len(), 1);
         assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
     }
@@ -696,8 +725,10 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Prefix("https://github.com/".to_string()),
             convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &[]);
+        let compiled = compile_url_rules(&rules, &[]).unwrap();
         assert_eq!(compiled.rules.len(), 1);
         assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
     }
@@ -707,10 +738,11 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Regex(r"https://example\.com/.*".to_string()),
             convert_to: vec!["unknown_type".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &[]);
-        // 有効なブロックタイプがないのでルールごとスキップ
-        assert!(compiled.rules.is_empty());
+        // 有効なブロックタイプがないのでエラー
+        assert!(compile_url_rules(&rules, &[]).is_err());
     }
 
     #[test]
@@ -718,15 +750,17 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Regex(r"https://example\.com/.*".to_string()),
             convert_to: vec!["bookmark".to_string(), "invalid".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &[]);
+        let compiled = compile_url_rules(&rules, &[]).unwrap();
         assert_eq!(compiled.rules.len(), 1);
         assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
     }
 
     #[test]
     fn test_compile_url_rules_empty() {
-        let compiled = compile_url_rules(&[], &[]);
+        let compiled = compile_url_rules(&[], &[]).unwrap();
         assert!(compiled.rules.is_empty());
     }
 
@@ -735,13 +769,48 @@ mod tests {
         let rules = vec![UrlRuleConfig {
             pattern: PatternConfig::Prefix("https://github.com/".to_string()),
             convert_to: vec!["link".to_string(), "bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec![],
         }];
-        let compiled = compile_url_rules(&rules, &["link".to_string()]);
+        let compiled = compile_url_rules(&rules, &["link".to_string()]).unwrap();
         assert_eq!(compiled.rules.len(), 1);
         assert_eq!(
             compiled.rules[0].block_types,
             vec![UrlBlockType::Link, UrlBlockType::Bookmark]
         );
+    }
+
+    #[test]
+    fn test_compile_url_rules_expect_matches_pass() {
+        let rules = vec![UrlRuleConfig {
+            pattern: PatternConfig::Glob("https://www.youtube.com/watch*".to_string()),
+            convert_to: vec!["embed".to_string(), "bookmark".to_string()],
+            expect_matches: vec!["https://www.youtube.com/watch?v=DFaYoGSCKbs".to_string()],
+            expect_no_matches: vec!["https://www.youtube.com/".to_string()],
+        }];
+        assert!(compile_url_rules(&rules, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_compile_url_rules_expect_matches_fail() {
+        let rules = vec![UrlRuleConfig {
+            pattern: PatternConfig::Prefix("https://github.com/".to_string()),
+            convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec!["https://gitlab.com/user/repo".to_string()],
+            expect_no_matches: vec![],
+        }];
+        assert!(compile_url_rules(&rules, &[]).is_err());
+    }
+
+    #[test]
+    fn test_compile_url_rules_expect_no_matches_fail() {
+        let rules = vec![UrlRuleConfig {
+            pattern: PatternConfig::Prefix("https://github.com/".to_string()),
+            convert_to: vec!["bookmark".to_string()],
+            expect_matches: vec![],
+            expect_no_matches: vec!["https://github.com/ekuinox/kgd".to_string()],
+        }];
+        assert!(compile_url_rules(&rules, &[]).is_err());
     }
 
     #[test]

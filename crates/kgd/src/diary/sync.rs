@@ -39,18 +39,18 @@ impl<'a> MessageSyncer<'a> {
         notion: &'a NotionClient,
         store: &'a DiaryStore,
         diary_config: &DiaryConfig,
-    ) -> Self {
+    ) -> Result<Self> {
         let url_rules = url_parser::compile_url_rules(
             &diary_config.url_rules,
             &diary_config.default_convert_to,
-        );
+        )?;
 
-        Self {
+        Ok(Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
             url_rules,
-        }
+        })
     }
 
     /// メッセージを Notion ページに同期する。

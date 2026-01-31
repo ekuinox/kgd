@@ -20,8 +20,8 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     diary::{
-        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, format_date_in_timezone,
-        today_in_timezone,
+        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, compile_url_rules,
+        format_date_in_timezone, today_in_timezone,
     },
     status::ServerStatus,
     version,
@@ -144,11 +144,17 @@ impl EventHandler for Handler {
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let syncer = MessageSyncer::new(
+        let syncer = match MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
             &self.config.diary,
-        );
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = %e, "Failed to create message syncer");
+                return;
+            }
+        };
         match syncer.sync_message(&page_id, &message).await {
             Ok(result) if result.synced => {
                 info!(
@@ -214,11 +220,17 @@ impl EventHandler for Handler {
         let mut message = message;
         message.content = content;
 
-        let syncer = MessageSyncer::new(
+        let syncer = match MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
             &self.config.diary,
-        );
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = %e, "Failed to create message syncer");
+                return;
+            }
+        };
         match syncer.update_message(&message).await {
             Ok(true) => {
                 info!(
@@ -260,11 +272,17 @@ impl EventHandler for Handler {
         };
 
         // Notion から対応するブロックを削除
-        let syncer = MessageSyncer::new(
+        let syncer = match MessageSyncer::new(
             self.notion_client.as_ref(),
             &self.diary_store,
             &self.config.diary,
-        );
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = %e, "Failed to create message syncer");
+                return;
+            }
+        };
         match syncer.delete_message(deleted_message_id.get()).await {
             Ok(true) => {
                 info!(
@@ -626,6 +644,11 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
     let diary_config = &config.diary;
+
+    // 起動時に URL ルールのバリデーションを行う
+    compile_url_rules(&diary_config.url_rules, &diary_config.default_convert_to)
+        .context("Invalid URL rules in configuration")?;
+
     let diary_store = DiaryStore::connect(&diary_config.database_url)
         .await
         .context("Failed to connect to database")?;
