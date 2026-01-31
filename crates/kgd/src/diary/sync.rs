@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use serenity::model::channel::{Attachment, Message};
 
-use crate::config::UrlRuleConfig;
+use crate::config::DiaryConfig;
 
 use super::url_parser;
 use super::{DiaryStore, MessageBlock, NotionClient};
@@ -25,7 +25,7 @@ pub struct MessageSyncer<'a> {
     /// HTTP クライアント（画像ダウンロード用）
     http_client: reqwest::Client,
     /// URL 変換ルール（コンパイル済み）
-    url_rules: Vec<url_parser::UrlRule>,
+    url_rules: url_parser::CompiledUrlRules,
 }
 
 impl<'a> MessageSyncer<'a> {
@@ -34,13 +34,16 @@ impl<'a> MessageSyncer<'a> {
     /// # Arguments
     /// * `notion` - Notion クライアント
     /// * `store` - 日報ストア
-    /// * `url_rule_configs` - URL 変換ルール設定
+    /// * `diary_config` - 日報設定（URL ルールとデフォルト変換を含む）
     pub fn new(
         notion: &'a NotionClient,
         store: &'a DiaryStore,
-        url_rule_configs: &[UrlRuleConfig],
+        diary_config: &DiaryConfig,
     ) -> Self {
-        let url_rules = url_parser::compile_url_rules(url_rule_configs);
+        let url_rules = url_parser::compile_url_rules(
+            &diary_config.url_rules,
+            &diary_config.default_convert_to,
+        );
 
         Self {
             notion,

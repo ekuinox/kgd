@@ -138,6 +138,9 @@ pub struct DiaryConfig {
     /// パターンにマッチした URL を指定したブロックタイプに変換する
     #[serde(default)]
     pub url_rules: Vec<UrlRuleConfig>,
+    /// どのルールにもマッチしなかった URL に適用するデフォルトの変換（デフォルト: ["link"]）
+    #[serde(default = "default_convert_to")]
+    pub default_convert_to: Vec<String>,
 }
 
 /// URL 変換ルール設定。
@@ -145,7 +148,7 @@ pub struct DiaryConfig {
 pub struct UrlRuleConfig {
     /// マッチする URL パターン
     pub pattern: PatternConfig,
-    /// 生成するブロックタイプのリスト（bookmark, embed, mention, link_preview）
+    /// 生成するブロックタイプのリスト（link, bookmark, embed）
     pub convert_to: Vec<String>,
 }
 
@@ -183,6 +186,10 @@ fn default_sync_reaction() -> String {
 
 fn default_timezone() -> Tz {
     chrono_tz::Asia::Tokyo
+}
+
+fn default_convert_to() -> Vec<String> {
+    vec!["link".to_string()]
 }
 
 #[cfg(test)]
@@ -225,6 +232,7 @@ mod tests {
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
                 url_rules: vec![],
+                default_convert_to: vec!["link".to_string()],
             },
         };
 
