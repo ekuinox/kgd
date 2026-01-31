@@ -71,5 +71,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 # MIME type detection
 mime_guess = "2.0"
 
+# Regular expressions
+regex = "1"
+
 # Testing
 tempfile = "3.14"

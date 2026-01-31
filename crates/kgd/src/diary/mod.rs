@@ -6,6 +6,7 @@
 mod notion;
 mod store;
 mod sync;
+mod url_parser;
 
 pub use notion::NotionClient;
 pub use store::{DiaryEntry, DiaryStore, MessageBlock};

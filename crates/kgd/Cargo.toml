@@ -36,6 +36,7 @@ handlebars.workspace = true
 sqlx.workspace = true
 openssl.workspace = true
 mime_guess.workspace = true
+regex.workspace = true
 tempfile.workspace = true
 
 [build-dependencies]

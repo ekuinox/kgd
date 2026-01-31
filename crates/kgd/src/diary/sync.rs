@@ -2,9 +2,11 @@
 
 use anyhow::{Context as _, Result};
 use handlebars::Handlebars;
+use regex::Regex;
 use serde::Serialize;
 use serenity::model::channel::{Attachment, Message};
 
+use super::url_parser;
 use super::{DiaryStore, MessageBlock, NotionClient};
 
 /// 同期結果の情報。
@@ -36,6 +38,8 @@ pub struct MessageSyncer<'a> {
     http_client: reqwest::Client,
     /// メッセージフォーマット用テンプレート
     template: Handlebars<'a>,
+    /// ブックマーク化する URL パターン（コンパイル済み正規表現）
+    bookmark_patterns: Vec<Regex>,
 }
 
 impl<'a> MessageSyncer<'a> {
@@ -45,7 +49,13 @@ impl<'a> MessageSyncer<'a> {
     /// * `notion` - Notion クライアント
     /// * `store` - 日報ストア
     /// * `message_template` - メッセージフォーマット用 Handlebars テンプレート
-    pub fn new(notion: &'a NotionClient, store: &'a DiaryStore, message_template: &str) -> Self {
+    /// * `bookmark_url_patterns` - ブックマークブロック化する URL パターン（正規表現文字列）
+    pub fn new(
+        notion: &'a NotionClient,
+        store: &'a DiaryStore,
+        message_template: &str,
+        bookmark_url_patterns: &[String],
+    ) -> Self {
         let mut template = Handlebars::new();
         // テンプレートのパースに失敗した場合はデフォルトテンプレートを使用
         if template
@@ -57,11 +67,14 @@ impl<'a> MessageSyncer<'a> {
                 .expect("Default template should be valid");
         }
 
+        let bookmark_patterns = url_parser::compile_patterns(bookmark_url_patterns);
+
         Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
             template,
+            bookmark_patterns,
         }
     }
 
@@ -107,22 +120,36 @@ impl<'a> MessageSyncer<'a> {
                 .await?;
         }
 
-        // テキストブロック
+        // テキストブロック（URL をインラインリンク化 + ブックマークブロック生成）
         if has_content {
             let formatted_content = self.format_message(message);
-            children.push(serde_json::json!({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {
-                            "content": formatted_content
-                        }
-                    }]
-                }
-            }));
-            block_meta.push("text".to_string());
+            let (rich_text, bookmark_urls) = url_parser::build_rich_text_and_bookmarks(
+                &formatted_content,
+                &self.bookmark_patterns,
+            );
+
+            if !rich_text.is_empty() {
+                children.push(serde_json::json!({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": rich_text
+                    }
+                }));
+                block_meta.push("text".to_string());
+            }
+
+            for url in &bookmark_urls {
+                children.push(serde_json::json!({
+                    "object": "block",
+                    "type": "bookmark",
+                    "bookmark": {
+                        "url": url,
+                        "caption": []
+                    }
+                }));
+                block_meta.push("bookmark".to_string());
+            }
         }
 
         if children.is_empty() {
@@ -150,7 +177,7 @@ impl<'a> MessageSyncer<'a> {
 
     /// メッセージが更新されたときに Notion ブロックを更新する。
     ///
-    /// テキストブロックのみ更新可能。画像ブロックは更新されない。
+    /// テキストブロックのみ更新可能。画像・ブックマークブロックは更新されない。
     pub async fn update_message(&self, message: &Message) -> Result<bool> {
         let blocks = self.store.get_blocks_by_message(message.id.get()).await?;
 
@@ -158,11 +185,13 @@ impl<'a> MessageSyncer<'a> {
             return Ok(false);
         }
 
-        // テキストブロックのみ更新
+        // テキストブロックのみ更新（URL をインラインリンク化）
         let formatted_content = self.format_message(message);
+        let (rich_text, _bookmark_urls) =
+            url_parser::build_rich_text_and_bookmarks(&formatted_content, &self.bookmark_patterns);
         for block in blocks.iter().filter(|b| b.block_type == "text") {
             self.notion
-                .update_text_block(&block.block_id, &formatted_content)
+                .update_text_block(&block.block_id, rich_text.clone())
                 .await?;
         }
 

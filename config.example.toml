@@ -82,3 +82,12 @@ forum_channel_id = 123456789012345678
 #   message_template = "{{author}}: {{content}}"
 #   message_template = "[{{timestamp}}] {{content}}"
 # message_template = "{{content}}"
+
+# URL patterns to render as Notion bookmark blocks (regex)
+# URLs matching any of these patterns will be rendered as clickable links in text
+# AND additionally as separate bookmark blocks.
+# All other URLs will be rendered as inline links only.
+# bookmark_url_patterns = [
+#     "https://github\\.com/.*",
+#     "https://www\\.notion\\.so/.*"
+# ]

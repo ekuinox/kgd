@@ -293,15 +293,14 @@ impl NotionClient {
     }
 
     /// テキストブロックを更新する。
-    pub async fn update_text_block(&self, block_id: &str, text: &str) -> Result<()> {
+    pub async fn update_text_block(
+        &self,
+        block_id: &str,
+        rich_text: Vec<serde_json::Value>,
+    ) -> Result<()> {
         let body = serde_json::json!({
             "paragraph": {
-                "rich_text": [{
-                    "type": "text",
-                    "text": {
-                        "content": text
-                    }
-                }]
+                "rich_text": rich_text
             }
         });
 

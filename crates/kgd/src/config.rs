@@ -139,6 +139,10 @@ pub struct DiaryConfig {
     /// デフォルト: "{{content}}" (メッセージ本文をそのまま使用)
     #[serde(default = "default_message_template")]
     pub message_template: String,
+    /// ブックマークブロックとして表示する URL パターン（正規表現）
+    /// マッチした URL はテキスト内でリンク化されるだけでなく、別途ブックマークブロックとしても追加される
+    #[serde(default)]
+    pub bookmark_url_patterns: Vec<String>,
 }
 
 /// Notion タグ設定。
@@ -209,6 +213,7 @@ mod tests {
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
                 message_template: "{{content}}".to_string(),
+                bookmark_url_patterns: vec![],
             },
         };
 
