@@ -360,33 +360,9 @@ fn file_block_json(file_upload_id: &str, filename: &str) -> serde_json::Value {
 
 /// ファイル名の拡張子から Content-Type を推定する。
 fn guess_content_type(filename: &str) -> Option<String> {
-    let lower = filename.to_lowercase();
-    let content_type = if lower.ends_with(".heic") {
-        "image/heic"
-    } else if lower.ends_with(".heif") {
-        "image/heif"
-    } else if lower.ends_with(".png") {
-        "image/png"
-    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-        "image/jpeg"
-    } else if lower.ends_with(".gif") {
-        "image/gif"
-    } else if lower.ends_with(".webp") {
-        "image/webp"
-    } else if lower.ends_with(".pdf") {
-        "application/pdf"
-    } else if lower.ends_with(".mp4") {
-        "video/mp4"
-    } else if lower.ends_with(".mov") {
-        "video/quicktime"
-    } else if lower.ends_with(".mp3") {
-        "audio/mpeg"
-    } else if lower.ends_with(".wav") {
-        "audio/wav"
-    } else {
-        return None;
-    };
-    Some(content_type.to_string())
+    mime_guess::from_path(filename)
+        .first()
+        .map(|mime| mime.to_string())
 }
 
 /// ファイルの種類。
@@ -532,7 +508,14 @@ mod tests {
             guess_content_type("doc.pdf"),
             Some("application/pdf".to_string())
         );
-        assert_eq!(guess_content_type("archive.zip"), None);
+        assert_eq!(
+            guess_content_type("archive.zip"),
+            Some("application/zip".to_string())
+        );
+        assert_eq!(
+            guess_content_type("data.gpx"),
+            Some("application/gpx+xml".to_string())
+        );
         assert_eq!(guess_content_type("noextension"), None);
     }
 
