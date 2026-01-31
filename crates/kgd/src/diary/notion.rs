@@ -252,73 +252,17 @@ impl NotionClient {
         Ok(file_upload_id)
     }
 
-    /// ページにテキストブロックを追加し、作成されたブロック ID を返す。
-    pub async fn append_text_block_with_id(&self, page_id: &str, text: &str) -> Result<String> {
-        let body = serde_json::json!({
-            "children": [{
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{
-                        "type": "text",
-                        "text": {
-                            "content": text
-                        }
-                    }]
-                }
-            }]
-        });
-
-        let response = self
-            .http_client
-            .patch(format!(
-                "https://api.notion.com/v1/blocks/{}/children",
-                page_id
-            ))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to append text block")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to append text block: {} - {}", status, body);
-        }
-
-        let result: AppendBlockChildrenResponse = response
-            .json()
-            .await
-            .context("Failed to parse append block response")?;
-
-        result
-            .results
-            .first()
-            .map(|b| b.id.clone())
-            .context("No block returned from append")
-    }
-
-    /// ページにアップロード済みファイルの画像ブロックを追加し、作成されたブロック ID を返す。
-    pub async fn append_uploaded_image_block_with_id(
+    /// 複数のブロックを一括でページに追加し、作成されたブロック ID のリストを返す。
+    pub async fn append_blocks(
         &self,
         page_id: &str,
-        file_upload_id: &str,
-    ) -> Result<String> {
-        let body = serde_json::json!({
-            "children": [{
-                "object": "block",
-                "type": "image",
-                "image": {
-                    "type": "file_upload",
-                    "file_upload": {
-                        "id": file_upload_id
-                    }
-                }
-            }]
-        });
+        children: Vec<serde_json::Value>,
+    ) -> Result<Vec<String>> {
+        if children.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let body = serde_json::json!({ "children": children });
 
         let response = self
             .http_client
@@ -332,12 +276,12 @@ impl NotionClient {
             .json(&body)
             .send()
             .await
-            .context("Failed to append image block")?;
+            .context("Failed to append blocks")?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Failed to append image block: {} - {}", status, body);
+            bail!("Failed to append blocks: {} - {}", status, body);
         }
 
         let result: AppendBlockChildrenResponse = response
@@ -345,64 +289,7 @@ impl NotionClient {
             .await
             .context("Failed to parse append block response")?;
 
-        result
-            .results
-            .first()
-            .map(|b| b.id.clone())
-            .context("No block returned from append")
-    }
-
-    /// ページにアップロード済みのファイルブロックを追加し、作成されたブロック ID を返す。
-    pub async fn append_uploaded_file_block_with_id(
-        &self,
-        page_id: &str,
-        file_upload_id: &str,
-        filename: &str,
-    ) -> Result<String> {
-        let body = serde_json::json!({
-            "children": [{
-                "object": "block",
-                "type": "file",
-                "file": {
-                    "type": "file_upload",
-                    "file_upload": {
-                        "id": file_upload_id
-                    },
-                    "name": filename
-                }
-            }]
-        });
-
-        let response = self
-            .http_client
-            .patch(format!(
-                "https://api.notion.com/v1/blocks/{}/children",
-                page_id
-            ))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to append file block")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to append file block: {} - {}", status, body);
-        }
-
-        let result: AppendBlockChildrenResponse = response
-            .json()
-            .await
-            .context("Failed to parse append block response")?;
-
-        result
-            .results
-            .first()
-            .map(|b| b.id.clone())
-            .context("No block returned from append")
+        Ok(result.results.into_iter().map(|b| b.id).collect())
     }
 
     /// テキストブロックを更新する。

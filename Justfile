@@ -2,10 +2,6 @@
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-# heic-support feature は Linux 向け（libheif の embedded ビルドが必要）
-# Windows ではデフォルト feature を無効化してビルドする
-cargo_features := if os() == "windows" { "--no-default-features" } else { "" }
-
 # Default recipe (show available commands)
 default:
     @just --list
@@ -22,12 +18,12 @@ fmt:
 # Check code with cargo check
 check:
     @echo "Running cargo check..."
-    cargo check --all-targets {{ cargo_features }}
+    cargo check --all-targets
 
 # Run clippy linter
 clippy:
     @echo "Running cargo clippy..."
-    cargo clippy --all-targets {{ cargo_features }} -- -D warnings
+    cargo clippy --all-targets -- -D warnings
 
 # Run cargo-deny checks (advisories, licenses, bans, sources)
 deny:
@@ -42,7 +38,7 @@ machete:
 # Run tests
 test:
     @echo "Running tests..."
-    cargo test --all {{ cargo_features }}
+    cargo test --all
 
 # Build release binary
 build:

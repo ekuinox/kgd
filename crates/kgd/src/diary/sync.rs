@@ -80,6 +80,9 @@ impl<'a> MessageSyncer<'a> {
 
     /// メッセージを Notion ページに同期する。
     ///
+    /// テキストと添付ファイルのブロックを1回の API 呼び出しでまとめて追加することで、
+    /// ブロック間に不要な空行が入るのを防ぐ。
+    ///
     /// # Returns
     /// 同期結果（同期されたかどうかと作成されたブロック情報）
     pub async fn sync_message(&self, page_id: &str, message: &Message) -> Result<SyncResult> {
@@ -93,42 +96,55 @@ impl<'a> MessageSyncer<'a> {
             });
         }
 
-        let mut block_count = 0;
-        let mut block_order = 0;
+        // ブロック JSON とメタ情報（block_type）を収集する
+        // 順序: 添付ファイル（画像埋め込み → ファイルリンク） → テキスト
+        let mut children: Vec<serde_json::Value> = Vec::new();
+        let mut block_meta: Vec<String> = Vec::new(); // 各ブロックの種別
 
-        // テキストコンテンツを同期
-        if has_content {
-            let formatted_content = self.format_message(message);
-            let block_id = self
-                .notion
-                .append_text_block_with_id(page_id, &formatted_content)
+        // 添付ファイル: ファイルをアップロードしてブロック JSON を収集
+        for attachment in &message.attachments {
+            self.prepare_attachment_blocks(attachment, &mut children, &mut block_meta)
                 .await?;
-
-            // DB にブロック情報を保存
-            let message_block = MessageBlock {
-                message_id: message.id.get(),
-                block_id,
-                block_type: "text".to_string(),
-                block_order,
-            };
-            self.store.insert_message_block(&message_block).await?;
-
-            block_count += 1;
-            block_order += 1;
         }
 
-        // 添付ファイルを同期
-        for attachment in &message.attachments {
-            let synced = self
-                .sync_attachment_with_tracking(page_id, message.id.get(), attachment, block_order)
+        // テキストブロック
+        if has_content {
+            let formatted_content = self.format_message(message);
+            children.push(serde_json::json!({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{
+                        "type": "text",
+                        "text": {
+                            "content": formatted_content
+                        }
+                    }]
+                }
+            }));
+            block_meta.push("text".to_string());
+        }
+
+        if children.is_empty() {
+            return Ok(SyncResult {
+                synced: false,
+                block_count: 0,
+            });
+        }
+
+        // 全ブロックを一括で追加
+        let block_ids = self.notion.append_blocks(page_id, children).await?;
+
+        // DB にブロック情報を保存
+        for (i, (block_id, block_type)) in block_ids.into_iter().zip(block_meta.iter()).enumerate()
+        {
+            self.store_message_block(message.id.get(), block_id, block_type, i as i32)
                 .await?;
-            block_count += synced;
-            block_order += synced as i32;
         }
 
         Ok(SyncResult {
             synced: true,
-            block_count,
+            block_count: block_meta.len(),
         })
     }
 
@@ -172,88 +188,88 @@ impl<'a> MessageSyncer<'a> {
         Ok(true)
     }
 
-    /// 添付ファイルを Notion に同期し、ブロック情報を追跡する。
+    /// 添付ファイルをアップロードし、対応するブロック JSON とメタ情報を収集する。
     ///
-    /// 同期されたブロック数を返す（HEIC の場合は JPG 変換版と元ファイルで 2 つ）。
-    async fn sync_attachment_with_tracking(
+    /// HEIC の場合は JPG 変換版（画像ブロック）と元ファイル（ファイルブロック）の 2 つを追加する。
+    async fn prepare_attachment_blocks(
         &self,
-        page_id: &str,
-        message_id: u64,
         attachment: &Attachment,
-        block_order: i32,
-    ) -> Result<usize> {
+        children: &mut Vec<serde_json::Value>,
+        block_meta: &mut Vec<String>,
+    ) -> Result<()> {
         let file_type = classify_file(&attachment.filename);
 
         match file_type {
             FileType::Image => {
-                let id = self.upload_image_with_id(page_id, attachment).await?;
-                self.store_message_block(message_id, id, "image", block_order)
-                    .await?;
-                Ok(1)
+                let (data, content_type) = self.download_attachment(attachment).await?;
+                let file_upload_id = self
+                    .notion
+                    .upload_file(&attachment.filename, &content_type, data)
+                    .await
+                    .context("Failed to upload image to Notion")?;
+                children.push(image_block_json(&file_upload_id));
+                block_meta.push("image".to_string());
             }
             FileType::Heic => {
-                self.sync_heic_attachment(page_id, message_id, attachment, block_order)
+                let (data, content_type) = self.download_attachment(attachment).await?;
+
+                // HEIC を JPEG に変換してアップロード
+                match convert_heic_to_jpeg(&data) {
+                    Ok(jpeg_data) => {
+                        let jpeg_filename = replace_extension(&attachment.filename, "jpg");
+                        let jpeg_upload_id = self
+                            .notion
+                            .upload_file(&jpeg_filename, "image/jpeg", jpeg_data)
+                            .await
+                            .context("Failed to upload converted JPEG to Notion")?;
+                        children.push(image_block_json(&jpeg_upload_id));
+                        block_meta.push("image".to_string());
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to convert HEIC to JPEG, skipping conversion");
+                    }
+                }
+
+                // 元の HEIC ファイルもアップロード
+                let file_upload_id = self
+                    .notion
+                    .upload_file(&attachment.filename, &content_type, data)
                     .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to upload file to Notion: filename={}, content_type={}",
+                            attachment.filename, content_type
+                        )
+                    })?;
+                children.push(file_block_json(&file_upload_id, &attachment.filename));
+                block_meta.push("file".to_string());
             }
             FileType::Other => {
-                // その他のファイルはファイルブロックとしてアップロード
-                let id = self.upload_file_with_id(page_id, attachment).await?;
-                self.store_message_block(message_id, id, "file", block_order)
-                    .await?;
-                Ok(1)
+                let (data, content_type) = self.download_attachment(attachment).await?;
+
+                tracing::debug!(
+                    filename = %attachment.filename,
+                    content_type = %content_type,
+                    size = data.len(),
+                    "Uploading file to Notion"
+                );
+
+                let file_upload_id = self
+                    .notion
+                    .upload_file(&attachment.filename, &content_type, data)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to upload file to Notion: filename={}, content_type={}",
+                            attachment.filename, content_type
+                        )
+                    })?;
+                children.push(file_block_json(&file_upload_id, &attachment.filename));
+                block_meta.push("file".to_string());
             }
         }
-    }
 
-    /// HEIC ファイルを同期する。
-    ///
-    /// heic-support feature が有効な場合は JPG に変換してアップロードし、元の HEIC もアップロードする。
-    /// 無効な場合は HEIC ファイルをそのままアップロードする。
-    #[cfg(feature = "heic-support")]
-    async fn sync_heic_attachment(
-        &self,
-        page_id: &str,
-        message_id: u64,
-        attachment: &Attachment,
-        block_order: i32,
-    ) -> Result<usize> {
-        let mut block_count = 0;
-
-        // JPG に変換してアップロード
-        if let Some(id) = self
-            .upload_heic_as_jpeg_with_id(page_id, attachment)
-            .await?
-        {
-            self.store_message_block(message_id, id, "image", block_order + block_count as i32)
-                .await?;
-            block_count += 1;
-        }
-
-        // 元の HEIC ファイルもアップロード
-        let id = self.upload_file_with_id(page_id, attachment).await?;
-        self.store_message_block(message_id, id, "file", block_order + block_count as i32)
-            .await?;
-        block_count += 1;
-
-        Ok(block_count)
-    }
-
-    /// HEIC ファイルを同期する（heic-support feature が無効な場合）。
-    ///
-    /// HEIC ファイルをそのままファイルブロックとしてアップロードする。
-    #[cfg(not(feature = "heic-support"))]
-    async fn sync_heic_attachment(
-        &self,
-        page_id: &str,
-        message_id: u64,
-        attachment: &Attachment,
-        block_order: i32,
-    ) -> Result<usize> {
-        // HEIC ファイルをそのままアップロード
-        let id = self.upload_file_with_id(page_id, attachment).await?;
-        self.store_message_block(message_id, id, "file", block_order)
-            .await?;
-        Ok(1)
+        Ok(())
     }
 
     /// メッセージブロック情報を DB に保存する。
@@ -272,94 +288,6 @@ impl<'a> MessageSyncer<'a> {
         };
         self.store.insert_message_block(&message_block).await?;
         Ok(())
-    }
-
-    /// 画像をダウンロードしてNotionにアップロードし、ブロック ID を返す。
-    async fn upload_image_with_id(&self, page_id: &str, attachment: &Attachment) -> Result<String> {
-        let (data, content_type) = self.download_attachment(attachment).await?;
-
-        // Notion にアップロード
-        let file_upload_id = self
-            .notion
-            .upload_file(&attachment.filename, &content_type, data)
-            .await
-            .context("Failed to upload image to Notion")?;
-
-        // 画像ブロックを追加して ID を返す
-        self.notion
-            .append_uploaded_image_block_with_id(page_id, &file_upload_id)
-            .await
-            .context("Failed to append uploaded image block")
-    }
-
-    /// ファイルをダウンロードしてNotionにアップロードし、ブロック ID を返す。
-    async fn upload_file_with_id(&self, page_id: &str, attachment: &Attachment) -> Result<String> {
-        let (data, content_type) = self.download_attachment(attachment).await?;
-
-        tracing::debug!(
-            filename = %attachment.filename,
-            content_type = %content_type,
-            size = data.len(),
-            "Uploading file to Notion"
-        );
-
-        // Notion にアップロード
-        let file_upload_id = self
-            .notion
-            .upload_file(&attachment.filename, &content_type, data)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to upload file to Notion: filename={}, content_type={}",
-                    attachment.filename, content_type
-                )
-            })?;
-
-        // ファイルブロックを追加して ID を返す
-        self.notion
-            .append_uploaded_file_block_with_id(page_id, &file_upload_id, &attachment.filename)
-            .await
-            .context("Failed to append uploaded file block")
-    }
-
-    /// HEIC ファイルを JPG に変換してNotionにアップロードし、ブロック ID を返す。
-    ///
-    /// 変換に失敗した場合は None を返す（元ファイルのみアップロードされる）。
-    #[cfg(feature = "heic-support")]
-    async fn upload_heic_as_jpeg_with_id(
-        &self,
-        page_id: &str,
-        attachment: &Attachment,
-    ) -> Result<Option<String>> {
-        let (data, _content_type) = self.download_attachment(attachment).await?;
-
-        // HEIC を JPEG に変換
-        let jpeg_data = match convert_heic_to_jpeg(&data) {
-            Ok(jpeg) => jpeg,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to convert HEIC to JPEG, skipping conversion");
-                return Ok(None);
-            }
-        };
-
-        // JPG ファイル名を生成
-        let jpeg_filename = replace_extension(&attachment.filename, "jpg");
-
-        // Notion にアップロード
-        let file_upload_id = self
-            .notion
-            .upload_file(&jpeg_filename, "image/jpeg", jpeg_data)
-            .await
-            .context("Failed to upload converted JPEG to Notion")?;
-
-        // 画像ブロックを追加して ID を返す
-        let block_id = self
-            .notion
-            .append_uploaded_image_block_with_id(page_id, &file_upload_id)
-            .await
-            .context("Failed to append uploaded image block")?;
-
-        Ok(Some(block_id))
     }
 
     /// Discord から添付ファイルをダウンロードする。
@@ -399,6 +327,35 @@ impl<'a> MessageSyncer<'a> {
 
         Ok((data, content_type))
     }
+}
+
+/// アップロード済み画像の画像ブロック JSON を生成する。
+fn image_block_json(file_upload_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "image",
+        "image": {
+            "type": "file_upload",
+            "file_upload": {
+                "id": file_upload_id
+            }
+        }
+    })
+}
+
+/// アップロード済みファイルのファイルブロック JSON を生成する。
+fn file_block_json(file_upload_id: &str, filename: &str) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "file",
+        "file": {
+            "type": "file_upload",
+            "file_upload": {
+                "id": file_upload_id
+            },
+            "name": filename
+        }
+    })
 }
 
 /// ファイル名の拡張子から Content-Type を推定する。
@@ -461,7 +418,6 @@ fn classify_file(filename: &str) -> FileType {
 }
 
 /// ファイル名の拡張子を置き換える。
-#[cfg(feature = "heic-support")]
 fn replace_extension(filename: &str, new_ext: &str) -> String {
     if let Some(pos) = filename.rfind('.') {
         format!("{}.{}", &filename[..pos], new_ext)
@@ -470,46 +426,44 @@ fn replace_extension(filename: &str, new_ext: &str) -> String {
     }
 }
 
-/// HEIC データを JPEG に変換する。
-#[cfg(feature = "heic-support")]
+/// HEIC データを JPEG に変換する（ImageMagick を使用）。
+///
+/// ImageMagick v7 (`magick`) を優先し、見つからない場合は v6 (`convert`) にフォールバックする。
 fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
-    use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+    use std::io::Write;
+    use std::process::Command;
 
-    let lib_heif = LibHeif::new();
+    // 一時ディレクトリを作成して一時ファイルの衝突を回避
+    let tmp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
+    let input_path = tmp_dir.path().join("input.heic");
+    let output_path = tmp_dir.path().join("output.jpg");
 
-    // HEIC コンテキストを作成
-    let context = HeifContext::read_from_bytes(heic_data).context("Failed to read HEIC data")?;
+    std::fs::File::create(&input_path)
+        .and_then(|mut f| f.write_all(heic_data))
+        .context("Failed to write HEIC data to temp file")?;
 
-    // プライマリ画像を取得
-    let handle = context
-        .primary_image_handle()
-        .context("Failed to get primary image handle")?;
+    // ImageMagick v7 (`magick`) を試し、なければ v6 (`convert`) にフォールバック
+    let output = Command::new("magick")
+        .arg(&input_path)
+        .arg(&output_path)
+        .output()
+        .or_else(|_| {
+            Command::new("convert")
+                .arg(&input_path)
+                .arg(&output_path)
+                .output()
+        })
+        .context("Failed to execute ImageMagick. Is ImageMagick installed?")?;
 
-    // RGB にデコード
-    let image = lib_heif
-        .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgb), None)
-        .context("Failed to decode HEIC image")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("ImageMagick conversion failed: {}", stderr);
+    }
 
-    // 画像データを取得
-    let planes = image.planes();
-    let interleaved = planes.interleaved.context("No interleaved plane found")?;
+    let jpeg_data =
+        std::fs::read(&output_path).context("Failed to read converted JPEG from temp file")?;
 
-    let width = image.width() as u32;
-    let height = image.height() as u32;
-
-    // image クレートで JPEG にエンコード
-    use image::{ImageBuffer, Rgb};
-
-    let img: ImageBuffer<Rgb<u8>, _> =
-        ImageBuffer::from_raw(width, height, interleaved.data.to_vec())
-            .context("Failed to create image buffer")?;
-
-    let mut jpeg_data = Vec::new();
-    let mut cursor = std::io::Cursor::new(&mut jpeg_data);
-
-    img.write_to(&mut cursor, image::ImageFormat::Jpeg)
-        .context("Failed to encode JPEG")?;
-
+    // tmp_dir の drop で一時ファイルは自動削除される
     Ok(jpeg_data)
 }
 
@@ -583,7 +537,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "heic-support")]
     fn test_replace_extension() {
         assert_eq!(replace_extension("photo.heic", "jpg"), "photo.jpg");
         assert_eq!(replace_extension("image.HEIC", "jpg"), "image.jpg");

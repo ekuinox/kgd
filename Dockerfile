@@ -3,6 +3,8 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libcap2-bin \
+    imagemagick \
+    libheif-examples \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -r -s /bin/false kgd
