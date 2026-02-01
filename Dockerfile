@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcap2-bin \
     # ImageMagick runtime dependencies
     libheif1 libde265-0 libaom3 libdav1d6 libx265-199 \
-    libjpeg62-turbo libpng16-16 libtiff6 libwebp7 libsharpyuv0 \
+    libjpeg62-turbo libpng16-16 libtiff6 libwebp7 \
     libfreetype6 liblcms2-2 libxml2 libfontconfig1 \
     libgomp1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
