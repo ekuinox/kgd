@@ -72,6 +72,21 @@ cargo build --release
 cargo run --bin kgd-bot --release
 ```
 
+#### Docker Compose でのローカル開発
+
+```bash
+# ローカルでビルド＆起動
+just compose-local
+
+# バックグラウンドで起動
+just compose-local -d
+
+# 停止
+just compose-local-down
+```
+
+事前に `config.toml` を用意してください（`config.example.toml` を参考に）。
+
 ## 使い方
 
 Botが起動したら、Discordで以下のスラッシュコマンドが使えます:

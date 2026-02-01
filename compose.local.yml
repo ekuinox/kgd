@@ -1,0 +1,11 @@
+# ローカル開発用のオーバーライド
+# 使用方法: docker compose -f compose.yml -f compose.local.yml up --build
+# または: just compose-local
+
+services:
+  kgd:
+    image: kgd:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: local

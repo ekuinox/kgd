@@ -55,6 +55,14 @@ run-release *args:
     @echo "Starting KGD daemon (release mode)..."
     cargo run --bin kgd --release -- {{args}}
 
+# Start local development environment with Docker Compose
+compose-local *args:
+    docker compose -f compose.yml -f compose.local.yml up --build {{args}}
+
+# Stop local development environment
+compose-local-down *args:
+    docker compose -f compose.yml -f compose.local.yml down {{args}}
+
 # Clean build artifacts
 clean:
     @echo "Cleaning build artifacts..."
