@@ -1,55 +1,17 @@
-FROM debian:bookworm-slim AS magick-builder
-
-ARG IMAGEMAGICK_VERSION=7.1.2-13
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git pkg-config autoconf libtool ca-certificates \
-    # HEIC delegate
-    libheif-dev libde265-dev libx265-dev x265 zlib1g-dev \
-    # Core image format delegates
-    libjpeg62-turbo-dev libpng-dev libtiff-dev libwebp-dev \
-    # Other delegates
-    libfreetype6-dev liblcms2-dev libxml2-dev libfontconfig1-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN git clone -b ${IMAGEMAGICK_VERSION} --depth 1 \
-      https://github.com/ImageMagick/ImageMagick.git /tmp/ImageMagick && \
-    cd /tmp/ImageMagick && \
-    ./configure \
-      --with-heic=yes \
-      --with-jpeg=yes \
-      --with-png=yes \
-      --with-tiff=yes \
-      --with-webp=yes \
-      --without-magick-plus-plus \
-      --disable-docs \
-      --disable-static && \
-    make -j$(nproc) && \
-    make install && \
-    ldconfig /usr/local/lib && \
-    rm -rf /tmp/ImageMagick
-
-# HEIC delegate が有効であることを検証
-RUN magick --version && magick --version | grep -q 'heic'
-
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libcap2-bin \
-    # ImageMagick runtime dependencies
-    libheif1 libde265-0 libaom3 libdav1d6 libx265-199 \
-    libjpeg62-turbo libpng16-16 libtiff6 libwebp7 \
-    libfreetype6 liblcms2-2 libxml2 libfontconfig1 \
-    libgomp1 zlib1g \
+    # HEIC→JPEG 変換に heif-convert (libheif-examples) を使用する。
+    # ImageMagick 7 をソースビルドすれば magick コマンドでも HEIC を扱えるが、
+    # CI で QEMU ARM64 エミュレーション上のコンパイルに 40 分以上かかるため断念した。
+    # Docker ビルドキャッシュや事前ビルド済みバイナリの配布で解決できる可能性はある。
+    libheif-examples \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=magick-builder /usr/local/bin/magick /usr/local/bin/magick
-COPY --from=magick-builder /usr/local/lib/ /usr/local/lib/
-COPY --from=magick-builder /usr/local/etc/ImageMagick-7/ /usr/local/etc/ImageMagick-7/
-COPY --from=magick-builder /usr/local/share/ImageMagick-7/ /usr/local/share/ImageMagick-7/
-
-RUN ldconfig /usr/local/lib
+# heif-convert が利用可能であることを検証
+RUN heif-convert --version
 
 RUN useradd -r -s /bin/false kgd
 

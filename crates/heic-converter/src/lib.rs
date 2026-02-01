@@ -1,6 +1,11 @@
 //! HEIC/HEIF 画像を JPEG に変換するライブラリ。
 //!
 //! 外部コマンド (`heif-convert`, `magick`, `convert`) を利用して変換を行う。
+//!
+//! 現在は `heif-convert` (libheif-examples) を主な変換手段としている。
+//! ImageMagick 7 をソースビルドすれば `magick` コマンドでも HEIC を扱えるが、
+//! CI の QEMU ARM64 エミュレーション上でのコンパイルに 40 分以上かかるため断念した。
+//! Docker ビルドキャッシュや事前ビルド済みバイナリの配布で解決できる可能性はある。
 
 use std::path::Path;
 use std::process::{Command, Output};
