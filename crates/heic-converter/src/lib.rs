@@ -1,7 +1,6 @@
 //! HEIC/HEIF 画像を JPEG に変換するライブラリ。
 //!
-//! Unix 環境では libheif-rs を使用して変換を行う。
-//! システムにインストールされた libheif ライブラリが必要。
+//! Unix 環境では libheif-rs (embedded-libheif) を使用して変換を行う。
 //! Windows 環境では変換機能は無効化される。
 
 use anyhow::Result;
