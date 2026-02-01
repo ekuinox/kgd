@@ -50,7 +50,8 @@ ENTRYPOINT ["/app/kgd"]
 # cross-rs でビルド済みのバイナリをホストからコピーする
 FROM runtime-base
 
-COPY target/aarch64-unknown-linux-gnu/release/kgd /app/kgd
+ARG CROSS_TARGET=aarch64-unknown-linux-gnu
+COPY target/${CROSS_TARGET}/release/kgd /app/kgd
 
 RUN setcap cap_net_raw+ep /app/kgd
 
