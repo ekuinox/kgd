@@ -1,0 +1,40 @@
+# ローカル開発用マルチステージビルド
+# 使用方法: docker compose -f compose.yml -f compose.local.yml up --build
+
+# Stage 1: Build
+FROM rust:bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY . .
+
+RUN cargo build --release --bin kgd
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libcap2-bin \
+    libheif-examples \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN heif-convert --version
+
+RUN useradd -r -s /bin/false kgd
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/kgd /app/kgd
+
+RUN setcap cap_net_raw+ep /app/kgd
+
+USER kgd
+
+ENTRYPOINT ["/app/kgd"]
