@@ -16,7 +16,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # notion-client のアップデートを待つ
 # paste クレートはメンテナンス終了だが、proc-macroで実行時に影響なし
 # thiserror / av-scenechange (image -> rav1e) の依存として使用されている
-ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2025-0414"]
+ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0436"]
 
 # Licenses check - checks for allowed licenses
 # コピーレフト（伝搬性のある）ライセンスは許可しない
