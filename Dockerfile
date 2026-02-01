@@ -5,6 +5,7 @@ FROM rust:bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    libheif-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,6 +21,7 @@ FROM debian:bookworm-slim AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libcap2-bin \
+    libheif1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -r -s /bin/false kgd

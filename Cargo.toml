@@ -80,7 +80,7 @@ tempfile = "3.14"
 
 # Image processing
 image = "0.25.9"
-libheif-rs = { version = "2.6.1", features = ["image", "embedded-libheif"] }
+libheif-rs = { version = "2.6.1", features = ["image"] }
 
 # Workspace crates
 heic-converter = { path = "crates/heic-converter" }
