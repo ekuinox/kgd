@@ -1,11 +1,13 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result};
+use chrono::Timelike;
 use serenity::{
     all::{
-        ChannelId, ChannelType, CommandInteraction, CreateCommand, CreateCommandOption,
-        CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
-        CreateMessage, EditThread, GatewayIntents, Http, Message, MessageUpdateEvent, ReactionType,
+        ChannelId, ChannelType, CommandInteraction, ComponentInteraction, CreateActionRow,
+        CreateButton, CreateCommand, CreateCommandOption, CreateEmbed, CreateForumPost,
+        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, EditThread,
+        GatewayIntents, Http, Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -29,6 +31,7 @@ use crate::{
 };
 
 /// Discord イベントを処理するハンドラー。
+#[derive(Clone)]
 pub struct Handler {
     /// アプリケーション設定
     config: Config,
@@ -98,21 +101,40 @@ impl EventHandler for Handler {
         ctx: SerenityContext,
         interaction: serenity::model::application::Interaction,
     ) {
-        if let serenity::model::application::Interaction::Command(command) = interaction
-            && let Err(e) = self.handle_command(&ctx, &command).await
-        {
-            error!(error = ?e, command = %command.data.name, "Command error");
+        match interaction {
+            serenity::model::application::Interaction::Command(command) => {
+                if let Err(e) = self.handle_command(&ctx, &command).await {
+                    error!(error = ?e, command = %command.data.name, "Command error");
 
-            let response = CreateInteractionResponseMessage::new()
-                .content(format!("Error: {}", e))
-                .ephemeral(true);
+                    let response = CreateInteractionResponseMessage::new()
+                        .content(format!("Error: {}", e))
+                        .ephemeral(true);
 
-            if let Err(e) = command
-                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
-                .await
-            {
-                error!(error = %e, "Failed to send error response");
+                    if let Err(e) = command
+                        .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                        .await
+                    {
+                        error!(error = %e, "Failed to send error response");
+                    }
+                }
             }
+            serenity::model::application::Interaction::Component(component) => {
+                if let Err(e) = self.handle_component(&ctx, &component).await {
+                    error!(error = ?e, custom_id = %component.data.custom_id, "Component interaction error");
+
+                    let response = CreateInteractionResponseMessage::new()
+                        .content(format!("Error: {}", e))
+                        .ephemeral(true);
+
+                    if let Err(e) = component
+                        .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                        .await
+                    {
+                        error!(error = %e, "Failed to send error response");
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -602,6 +624,178 @@ impl Handler {
 
         Ok(())
     }
+
+    /// コンポーネント操作を処理する。
+    async fn handle_component(
+        &self,
+        ctx: &SerenityContext,
+        component: &ComponentInteraction,
+    ) -> Result<()> {
+        if component.data.custom_id == "diary_close_and_new" {
+            self.handle_diary_close_and_new(ctx, component).await
+        } else {
+            Ok(())
+        }
+    }
+
+    /// 日報スレッドをクローズして新しいスレッドを作成する。
+    async fn handle_diary_close_and_new(
+        &self,
+        ctx: &SerenityContext,
+        component: &ComponentInteraction,
+    ) -> Result<()> {
+        // 該当スレッドの日報エントリを取得
+        let channel_id = component.channel_id;
+        let Some(_entry) = self.diary_store.get_by_thread(channel_id.get()).await? else {
+            anyhow::bail!("このスレッドは日報スレッドではありません");
+        };
+
+        // 先にレスポンスを返す
+        let response = CreateInteractionResponseMessage::new()
+            .content("日報スレッドをクローズして新しいスレッドを作成しています...")
+            .ephemeral(false);
+
+        component
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        // 現在のスレッドをクローズ
+        let edit = EditThread::new().archived(true).locked(true);
+        channel_id
+            .edit_thread(&ctx.http, edit)
+            .await
+            .context("スレッドのクローズに失敗しました")?;
+
+        info!(
+            thread_id = channel_id.get(),
+            "Diary thread closed by button"
+        );
+
+        // 新しい日報スレッドを作成
+        let timezone = &self.config.diary.timezone;
+        let today = today_in_timezone(timezone);
+        let date_str = format_date_in_timezone(today, timezone);
+
+        // Notion ページを検索
+        let notion_client = self.notion_client.as_ref();
+        let (page_id, page_url) = match notion_client.find_diary_page_by_title(&date_str).await? {
+            Some((page_id, page_url)) => {
+                info!(page_id = %page_id, "Found existing Notion page");
+                (page_id, page_url)
+            }
+            None => {
+                info!(title = %date_str, "Creating new Notion page");
+                notion_client.create_diary_page(&date_str).await?
+            }
+        };
+
+        // Discord スレッドを作成
+        let forum_channel_id = ChannelId::new(self.config.diary.forum_channel_id);
+        let initial_message = CreateMessage::new().content(&page_url);
+        let forum_post = CreateForumPost::new(date_str, initial_message);
+        let thread = forum_channel_id
+            .create_forum_post(&ctx.http, forum_post)
+            .await
+            .context("Failed to create forum post")?;
+
+        info!(
+            thread_id = thread.id.get(),
+            page_id = %page_id,
+            "Created new diary thread"
+        );
+
+        // データベースに保存
+        let new_entry = DiaryEntry {
+            thread_id: thread.id.get(),
+            page_id: page_id.clone(),
+            page_url: page_url.clone(),
+            date: today,
+            created_at: chrono::Utc::now(),
+        };
+        self.diary_store.insert(&new_entry).await?;
+
+        // 新しいスレッドにメンションを送信
+        let mention_message = CreateMessage::new().content(format!(
+            "新しい日報スレッドを作成しました: <#{}>",
+            thread.id.get()
+        ));
+        channel_id
+            .send_message(&ctx.http, mention_message)
+            .await
+            .context("Failed to send mention message")?;
+
+        Ok(())
+    }
+
+    /// 自動クローズのチェックを行い、必要ならボタン付きメッセージを送信する。
+    pub async fn check_auto_close(&self, http: &Http) -> Result<()> {
+        if !self.config.diary.auto_close_enabled {
+            return Ok(());
+        }
+
+        let timezone = &self.config.diary.timezone;
+        let now = chrono::Utc::now().with_timezone(timezone);
+        let today = today_in_timezone(timezone);
+
+        // 指定された時刻以降かチェック
+        if now.hour() < self.config.diary.auto_close_hour {
+            return Ok(());
+        }
+
+        // すべてのエントリを取得
+        let entries = self.diary_store.get_all_entries().await?;
+
+        for entry in entries {
+            // 日付が今日より前かチェック
+            if entry.date >= today {
+                continue;
+            }
+
+            // スレッドがまだアクティブかチェック
+            let thread_id = ChannelId::new(entry.thread_id);
+            let Ok(channel) = thread_id.to_channel(http).await else {
+                continue;
+            };
+            let Some(thread) = channel.guild() else {
+                continue;
+            };
+
+            // アーカイブされている、またはロックされている場合はスキップ
+            if thread
+                .thread_metadata
+                .is_some_and(|m| m.archived || m.locked)
+            {
+                continue;
+            }
+
+            // ボタン付きメッセージを送信
+            self.send_auto_close_button(http, thread_id).await?;
+
+            info!(thread_id = entry.thread_id, "Sent auto-close button");
+        }
+
+        Ok(())
+    }
+
+    /// 自動クローズのボタン付きメッセージを送信する。
+    async fn send_auto_close_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
+        let button = CreateButton::new("diary_close_and_new")
+            .label("クローズして新しい日報を作成")
+            .style(serenity::all::ButtonStyle::Primary);
+
+        let action_row = CreateActionRow::Buttons(vec![button]);
+
+        let message = CreateMessage::new()
+            .content("日付が変わりました。このスレッドをクローズして新しい日報を作成しますか？")
+            .components(vec![action_row]);
+
+        thread_id
+            .send_message(http, message)
+            .await
+            .context("Failed to send auto-close button message")?;
+
+        Ok(())
+    }
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
@@ -669,7 +863,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     };
 
     let mut client = Client::builder(&config.discord.token, intents)
-        .event_handler(handler)
+        .event_handler(handler.clone())
         .await
         .context("Failed to create Discord client")?;
 
@@ -685,6 +879,20 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
 
     tokio::spawn(run_status_receiver(notifier, status_rx));
 
+    // 自動クローズタスクを起動
+    if config.diary.auto_close_enabled {
+        let auto_close_handler = handler.clone();
+        let auto_close_http = client.http.clone();
+        let auto_close_interval = config.diary.auto_close_interval;
+        tokio::spawn(async move {
+            run_auto_close_checker(auto_close_handler, auto_close_http, auto_close_interval).await;
+        });
+        info!(
+            interval = ?auto_close_interval,
+            "Auto-close checker started"
+        );
+    }
+
     info!("Starting bot");
     client.start().await.context("Discord client error")?;
 
@@ -695,5 +903,18 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
 async fn run_status_receiver(notifier: StatusNotifier, mut rx: mpsc::Receiver<Vec<ServerStatus>>) {
     while let Some(statuses) = rx.recv().await {
         notifier.send(&statuses).await;
+    }
+}
+
+/// 自動クローズのチェックを定期的に実行する。
+async fn run_auto_close_checker(handler: Handler, http: Arc<Http>, interval: Duration) {
+    let mut interval_timer = tokio::time::interval(interval);
+
+    loop {
+        interval_timer.tick().await;
+
+        if let Err(e) = handler.check_auto_close(&http).await {
+            error!(error = %e, "Auto-close check failed");
+        }
     }
 }

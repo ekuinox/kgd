@@ -141,6 +141,15 @@ pub struct DiaryConfig {
     /// どのルールにもマッチしなかった URL に適用するデフォルトの変換（デフォルト: ["link"]）
     #[serde(default = "default_convert_to")]
     pub default_convert_to: Vec<String>,
+    /// 自動クローズ機能を有効にするか（デフォルト: false）
+    #[serde(default)]
+    pub auto_close_enabled: bool,
+    /// 自動クローズの確認メッセージを送信する時刻（時）（デフォルト: 8）
+    #[serde(default = "default_auto_close_hour")]
+    pub auto_close_hour: u32,
+    /// 自動クローズのチェック間隔（デフォルト: 1時間）
+    #[serde(default = "default_auto_close_interval", with = "humantime_serde")]
+    pub auto_close_interval: Duration,
 }
 
 /// URL 変換ルール設定。
@@ -198,6 +207,14 @@ fn default_convert_to() -> Vec<String> {
     vec!["link".to_string()]
 }
 
+fn default_auto_close_hour() -> u32 {
+    8
+}
+
+fn default_auto_close_interval() -> Duration {
+    Duration::from_secs(3600) // 1 hour
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +256,9 @@ mod tests {
                 timezone: chrono_tz::Asia::Tokyo,
                 url_rules: vec![],
                 default_convert_to: vec!["link".to_string()],
+                auto_close_enabled: false,
+                auto_close_hour: 8,
+                auto_close_interval: Duration::from_secs(3600),
             },
         };
 

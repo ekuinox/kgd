@@ -165,4 +165,18 @@ impl DiaryStore {
 
         Ok(())
     }
+
+    /// すべての日報エントリを取得する。
+    pub async fn get_all_entries(&self) -> Result<Vec<DiaryEntry>> {
+        sqlx::query_as(
+            r#"
+            SELECT thread_id, page_id, page_url, date, created_at
+            FROM diary_entries
+            ORDER BY date DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch all diary entries")
+    }
 }
