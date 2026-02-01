@@ -193,7 +193,7 @@ impl<'a> MessageSyncer<'a> {
                 let (data, content_type) = self.download_attachment(attachment).await?;
 
                 // HEIC を JPEG に変換してアップロード
-                match convert_heic_to_jpeg(&data) {
+                match heic_converter::convert_heic_to_jpeg(&data) {
                     Ok(jpeg_data) => {
                         let jpeg_filename = replace_extension(&attachment.filename, "jpg");
                         let jpeg_upload_id = self
@@ -379,47 +379,6 @@ fn replace_extension(filename: &str, new_ext: &str) -> String {
     } else {
         format!("{}.{}", filename, new_ext)
     }
-}
-
-/// HEIC データを JPEG に変換する（ImageMagick を使用）。
-///
-/// ImageMagick v7 (`magick`) を優先し、見つからない場合は v6 (`convert`) にフォールバックする。
-fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
-    use std::io::Write;
-    use std::process::Command;
-
-    // 一時ディレクトリを作成して一時ファイルの衝突を回避
-    let tmp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
-    let input_path = tmp_dir.path().join("input.heic");
-    let output_path = tmp_dir.path().join("output.jpg");
-
-    std::fs::File::create(&input_path)
-        .and_then(|mut f| f.write_all(heic_data))
-        .context("Failed to write HEIC data to temp file")?;
-
-    // ImageMagick v7 (`magick`) を試し、なければ v6 (`convert`) にフォールバック
-    let output = Command::new("magick")
-        .arg(&input_path)
-        .arg(&output_path)
-        .output()
-        .or_else(|_| {
-            Command::new("convert")
-                .arg(&input_path)
-                .arg(&output_path)
-                .output()
-        })
-        .context("Failed to execute ImageMagick. Is ImageMagick installed?")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("ImageMagick conversion failed: {}", stderr);
-    }
-
-    let jpeg_data =
-        std::fs::read(&output_path).context("Failed to read converted JPEG from temp file")?;
-
-    // tmp_dir の drop で一時ファイルは自動削除される
-    Ok(jpeg_data)
 }
 
 #[cfg(test)]
