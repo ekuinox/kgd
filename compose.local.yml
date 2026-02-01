@@ -7,4 +7,5 @@ services:
     image: kgd:local
     build:
       context: .
-      dockerfile: Dockerfile.local
+      dockerfile: Dockerfile
+      target: local
