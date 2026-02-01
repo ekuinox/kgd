@@ -29,7 +29,8 @@ RUN git clone -b ${IMAGEMAGICK_VERSION} --depth 1 \
     ldconfig /usr/local/lib && \
     rm -rf /tmp/ImageMagick
 
-RUN magick -list format | grep HEIC
+# HEIC delegate が有効であることを検証
+RUN magick --version && magick --version | grep -q 'heic'
 
 FROM debian:bookworm-slim
 
