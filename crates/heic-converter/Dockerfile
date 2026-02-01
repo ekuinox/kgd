@@ -4,7 +4,7 @@ ARG IMAGEMAGICK_VERSION=7.1.2-13
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git pkg-config autoconf libtool ca-certificates \
-    libheif-dev libde265-dev \
+    libheif-dev libde265-dev libx265-dev x265 zlib1g-dev \
     libjpeg62-turbo-dev libpng-dev libtiff-dev libwebp-dev \
     libfreetype6-dev liblcms2-dev libxml2-dev libfontconfig1-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -31,10 +31,10 @@ RUN magick -list format | grep HEIC
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libheif1 libde265-0 libaom3 libdav1d6 libx265-199 \
+    libheif1 libheif-plugin-x265 libde265-0 libaom3 libdav1d6 libx265-199 \
     libjpeg62-turbo libpng16-16 libtiff6 libwebp7 libsharpyuv0 \
     libfreetype6 liblcms2-2 libxml2 libfontconfig1 \
-    libgomp1 \
+    libgomp1 zlib1g \
     # heif-enc is needed to generate test HEIC files
     libheif-examples \
     && rm -rf /var/lib/apt/lists/*
