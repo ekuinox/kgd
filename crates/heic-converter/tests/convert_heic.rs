@@ -1,14 +1,9 @@
 //! HEIC から JPEG への変換テスト
 //!
 //! iPhone で撮影された実際の HEIC 画像を使用して変換をテストする。
-//!
-//! 注意: embedded-libheif はコーデックプラグインを含まないため、
-//! このテストは実際の HEIC 画像のデコードには対応していません。
-//! 実環境ではシステムの libheif を使用することを推奨します。
 
 #[cfg(unix)]
 #[test]
-#[ignore] // embedded-libheif にはコーデックプラグインが含まれないため無視
 fn test_convert_real_heic_to_jpeg() {
     use std::io::Write;
 

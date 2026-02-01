@@ -1,9 +1,9 @@
-# Ubuntu 22.04ベースでC++17をサポート
+# Ubuntu 22.04ベースでC++17とコーデックライブラリをサポート
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# クロスコンパイル用ツールチェーンとRustのインストール
+# クロスコンパイル用ツールチェーン、コーデックライブラリのインストール
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -14,6 +14,14 @@ RUN apt-get update && \
     cmake \
     pkg-config \
     libssl-dev \
+    # HEVCコーデック (libde265, x265)
+    libde265-dev \
+    libx265-dev \
+    # AV1コーデック
+    libaom-dev \
+    libdav1d-dev \
+    # その他のライブラリ
+    libsharpyuv-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
