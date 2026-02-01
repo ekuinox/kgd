@@ -76,6 +76,18 @@ forum_channel_id = 123456789012345678
 # Supported types: link (inline link in text), bookmark, embed
 # default_convert_to = ["link"]
 
+# Auto-close feature for diary threads (default: disabled)
+# When enabled, the bot will send a button message to old diary threads
+# auto_close_enabled = false
+
+# Hour of the day (0-23) when auto-close button should be sent (default: 8)
+# The button will only be sent after this hour in the configured timezone
+# auto_close_hour = 8
+
+# Interval for checking threads that need auto-close (default: 1h)
+# Format: "30s", "5m", "1h", "2h", etc.
+# auto_close_interval = "1h"
+
 # URL conversion rules
 # URLs matching a pattern will be converted to the specified types.
 # Supported types: link (inline link in text), bookmark, embed
