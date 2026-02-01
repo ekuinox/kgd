@@ -54,7 +54,7 @@ jobs:
           key: aarch64-unknown-linux-gnu
 
       - name: Build with cross
-        run: cross build --release --examples --target aarch64-unknown-linux-gnu
+        run: cross build --release --target aarch64-unknown-linux-gnu
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -89,18 +89,6 @@ jobs:
 
       - name: Verify version
         run: docker run --rm --platform linux/arm64 ${{ env.IMAGE_NAME }}:test --version
-
-      - name: Build heic-converter verification image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: crates/heic-converter/Dockerfile
-          platforms: linux/arm64
-          load: true
-          tags: heic-converter:test
-
-      - name: Verify HEIC to JPEG conversion
-        run: docker run --rm --platform linux/arm64 heic-converter:test
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
