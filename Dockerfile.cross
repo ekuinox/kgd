@@ -1,5 +1,5 @@
-# Ubuntu 22.04ベースでC++17とコーデックライブラリをサポート
-FROM ubuntu:22.04
+# Ubuntu 24.04ベースでC++17とコーデックライブラリをサポート
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
