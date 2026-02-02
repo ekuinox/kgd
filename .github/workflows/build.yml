@@ -25,7 +25,8 @@ jobs:
             libx265-dev \
             libaom-dev \
             libdav1d-dev \
-            libsharpyuv-dev
+            libsharpyuv-dev \
+            libnuma-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
