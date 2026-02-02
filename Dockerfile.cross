@@ -1,5 +1,5 @@
-# Ubuntu 24.04ベースでC++17とコーデックライブラリをサポート
-FROM ubuntu:24.04
+# Ubuntu 22.04ベースでC++17とコーデックライブラリをサポート
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -20,8 +20,9 @@ RUN apt-get update && \
     # AV1コーデック
     libaom-dev \
     libdav1d-dev \
-    # その他のライブラリ
-    libsharpyuv-dev \
+    # その他のライブラリ (Ubuntu 22.04 では libsharpyuv-dev は libwebp-dev に含まれる)
+    libwebp-dev \
+    libnuma-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
