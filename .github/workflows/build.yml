@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deny:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,11 +25,8 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Run cargo-deny
-        run: just deny
-
-      - name: Run cargo-machete
-        run: just machete
+      - name: check source
+        run: just ci
 
   build:
     runs-on: ubuntu-latest
