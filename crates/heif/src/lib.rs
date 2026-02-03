@@ -78,6 +78,33 @@ pub fn heif_to_jpeg<P: AsRef<Path>, Q: AsRef<Path>>(
     Ok(())
 }
 
+/// Convert HEIC/HEIF data to JPEG bytes.
+///
+/// # Arguments
+/// * `heic_data` - HEIC/HEIF file data as bytes
+///
+/// # Returns
+/// JPEG image data as bytes.
+///
+/// # Example
+/// ```no_run
+/// use heif::convert_heic_to_jpeg;
+///
+/// let heic_data = std::fs::read("input.heic").unwrap();
+/// let jpeg_data = convert_heic_to_jpeg(&heic_data).unwrap();
+/// std::fs::write("output.jpg", jpeg_data).unwrap();
+/// ```
+pub fn convert_heic_to_jpeg(heic_data: &[u8]) -> Result<Vec<u8>> {
+    use std::io::Cursor;
+
+    let image = read_heif_to_dynamic_image(heic_data)?;
+    let mut jpeg_data = Cursor::new(Vec::new());
+    image
+        .write_to(&mut jpeg_data, image::ImageFormat::Jpeg)
+        .map_err(HeifError::SaveImage)?;
+    Ok(jpeg_data.into_inner())
+}
+
 unsafe fn decode_heif_bytes_inner(bytes: &[u8]) -> Result<DynamicImage> {
     // Create context
     let ctx = unsafe { heif_context_alloc() };

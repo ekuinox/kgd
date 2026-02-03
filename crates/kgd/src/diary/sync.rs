@@ -193,7 +193,7 @@ impl<'a> MessageSyncer<'a> {
                 let (data, content_type) = self.download_attachment(attachment).await?;
 
                 // HEIC を JPEG に変換してアップロード
-                match heic_converter::convert_heic_to_jpeg(&data) {
+                match heif::convert_heic_to_jpeg(&data) {
                     Ok(jpeg_data) => {
                         let jpeg_filename = replace_extension(&attachment.filename, "jpg");
                         let jpeg_upload_id = self
