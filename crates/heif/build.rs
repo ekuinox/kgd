@@ -21,10 +21,28 @@ fn main() {
         config.generator("Ninja");
     }
 
+    config
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("WITH_PLUGIN_LOADING", "OFF")
+        .define("WITH_LIBDE265", "ON")
+        .define("WITH_JPEG_ENCODER", "ON")
+        .define("WITH_JPEG_DECODER", "ON");
+
     let dst = config.build();
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=static=heif");
+
+    // C++ standard library
+    println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    // libheif dependencies (system libraries)
+    println!("cargo:rustc-link-lib=dylib=de265");
+    println!("cargo:rustc-link-lib=dylib=x265");
+    println!("cargo:rustc-link-lib=dylib=aom");
+    println!("cargo:rustc-link-lib=dylib=sharpyuv");
+    println!("cargo:rustc-link-lib=dylib=z");
+    println!("cargo:rustc-link-lib=dylib=jpeg");
 
     let header_path = dst.join("include/libheif/heif.h");
 
