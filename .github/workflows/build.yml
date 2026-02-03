@@ -15,9 +15,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            ninja-build \
+            libclang-dev \
+            libde265-dev \
+            libx265-dev \
+            libaom-dev \
+            libwebp-dev \
+            zlib1g-dev \
+            libjpeg-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-deny and cargo-machete
         run: cargo install cargo-deny cargo-machete
@@ -36,6 +55,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
