@@ -1,5 +1,5 @@
 [package]
-name = "heif"
+name = "heif-sys"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,10 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-heif-sys = { path = "../heif-sys" }
-image = "0.25"
-thiserror = "2"
 
-[[example]]
-name = "heif_to_jpg"
-path = "examples/heif_to_jpg.rs"
+[build-dependencies]
+cmake = "0.1"
+bindgen = "0.71"

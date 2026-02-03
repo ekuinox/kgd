@@ -1,3 +1,3 @@
-[submodule "crates/heif/libheif"]
-	path = crates/heif/libheif
+[submodule "crates/heif-sys/libheif"]
+	path = crates/heif-sys/libheif
 	url = https://github.com/strukturag/libheif.git
