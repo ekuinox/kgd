@@ -68,10 +68,7 @@ pub fn read_heif_to_dynamic_image(bytes: &[u8]) -> Result<DynamicImage> {
 ///
 /// heif_to_jpeg("input.heic", "output.jpg").unwrap();
 /// ```
-pub fn heif_to_jpeg<P: AsRef<Path>, Q: AsRef<Path>>(
-    input_path: P,
-    output_path: Q,
-) -> Result<()> {
+pub fn heif_to_jpeg<P: AsRef<Path>, Q: AsRef<Path>>(input_path: P, output_path: Q) -> Result<()> {
     let bytes = std::fs::read(input_path)?;
     let image = read_heif_to_dynamic_image(&bytes)?;
     image.save(output_path)?;
@@ -176,8 +173,7 @@ unsafe fn decode_heif_bytes_inner(bytes: &[u8]) -> Result<DynamicImage> {
     let mut rgb_data = Vec::with_capacity((width * height * 3) as usize);
     for y in 0..height {
         let row_start = (y as usize) * stride;
-        let row_data =
-            unsafe { slice::from_raw_parts(data.add(row_start), (width * 3) as usize) };
+        let row_data = unsafe { slice::from_raw_parts(data.add(row_start), (width * 3) as usize) };
         rgb_data.extend_from_slice(row_data);
     }
 
