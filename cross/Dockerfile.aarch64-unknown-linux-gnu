@@ -17,7 +17,6 @@ RUN dpkg --add-architecture arm64 && \
         libx265-dev:arm64 \
         libaom-dev:arm64 \
         libwebp-dev:arm64 \
-        libsharpyuv-dev:arm64 \
         zlib1g-dev:arm64 \
         libjpeg-dev:arm64 \
         libnuma-dev:arm64 && \

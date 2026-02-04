@@ -26,7 +26,10 @@ fn main() {
         .define("WITH_PLUGIN_LOADING", "OFF")
         .define("WITH_LIBDE265", "ON")
         .define("WITH_JPEG_ENCODER", "ON")
-        .define("WITH_JPEG_DECODER", "ON");
+        .define("WITH_JPEG_DECODER", "ON")
+        // libsharpyuv は Ubuntu 22.04 の libwebp 1.2 には含まれていないため無効化
+        // (libwebp 1.3+ で追加された)
+        .define("WITH_LIBSHARPYUV", "OFF");
 
     // クロスコンパイル時、CMake がターゲットアーキテクチャのライブラリを見つけられるようにする
     if let Ok(target) = env::var("TARGET")
@@ -66,7 +69,6 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=de265");
     println!("cargo:rustc-link-lib=dylib=x265");
     println!("cargo:rustc-link-lib=dylib=aom");
-    println!("cargo:rustc-link-lib=dylib=sharpyuv");
     println!("cargo:rustc-link-lib=dylib=z");
     println!("cargo:rustc-link-lib=dylib=jpeg");
 

@@ -29,7 +29,6 @@ jobs:
             libx265-dev \
             libaom-dev \
             libwebp-dev \
-            libsharpyuv-dev \
             zlib1g-dev \
             libjpeg-dev \
             libnuma-dev
