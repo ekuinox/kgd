@@ -1,8 +1,14 @@
-use heif::heif_to_jpeg;
-use std::env;
-use std::path::Path;
-
+#[cfg(not(unix))]
 fn main() {
+    panic!("unsupported environment");
+}
+
+#[cfg(unix)]
+fn main() {
+    use std::{env, path::Path};
+
+    use heif::heif_to_jpeg;
+
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: {} <input.heic> [output.jpg]", args[0]);

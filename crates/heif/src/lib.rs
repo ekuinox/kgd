@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use heif_sys::*;
 use image::{DynamicImage, ImageBuffer, Rgb};
 use std::path::Path;
