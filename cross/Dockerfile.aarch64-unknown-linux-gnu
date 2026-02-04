@@ -24,3 +24,13 @@ RUN dpkg --add-architecture arm64 && \
 
 # GCC 11 をデフォルトに設定
 ENV CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++-11
+
+# pkg-config がクロスコンパイル用ライブラリを見つけられるようにする
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_SYSROOT_DIR=/
+
+# CMake がクロスコンパイル用ライブラリを見つけられるようにする
+ENV CMAKE_PREFIX_PATH=/usr/lib/aarch64-linux-gnu
+ENV CMAKE_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu
+ENV CMAKE_INCLUDE_PATH=/usr/include/aarch64-linux-gnu
