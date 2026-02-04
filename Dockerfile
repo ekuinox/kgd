@@ -1,6 +1,25 @@
-# ローカル開発用ビルドステージ
-# docker build --target local で使用する
-FROM rust:bookworm AS builder
+# ========================================
+# Stage 1: Chef base (install cargo-chef)
+# ========================================
+FROM rust:bookworm AS chef
+
+RUN cargo install cargo-chef
+
+WORKDIR /app
+
+# ========================================
+# Stage 2: Planner (generate recipe.json)
+# ========================================
+FROM chef AS planner
+
+COPY . .
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ========================================
+# Stage 3: Builder (build dependencies and app)
+# ========================================
+FROM chef AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -17,15 +36,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Copy recipe and build dependencies only (cached layer)
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
+# Copy source code and build application
 COPY . .
-
 RUN cargo build --release --bin kgd
 
-# ローカル開発用ランタイムベース
-# builder ステージ (rust:bookworm/Debian 12) と libjpeg のバージョンを合わせるため Debian を使用
-FROM debian:bookworm-slim AS runtime-base-local
+# ========================================
+# Stage 4: Runtime base
+# ========================================
+FROM debian:bookworm-slim AS runtime-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -43,29 +65,10 @@ RUN useradd -r -s /bin/false kgd
 
 WORKDIR /app
 
-# CI/本番用ランタイムベース
-# cross-rs のビルド環境 (Ubuntu 22.04) と libjpeg のバージョンを合わせるため Ubuntu を使用
-FROM ubuntu:22.04 AS runtime-base-ci
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libcap2-bin \
-    # libheif の実行時依存ライブラリ
-    libde265-0 \
-    libx265-199 \
-    libaom3 \
-    libwebp7 \
-    zlib1g \
-    libjpeg-turbo8 \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN useradd -r -s /bin/false kgd
-
-WORKDIR /app
-
-# ローカル開発用 (--target local)
-# builder ステージでビルドしたバイナリを使用する
-FROM runtime-base-local AS local
+# ========================================
+# Stage 5: Local development target (--target local)
+# ========================================
+FROM runtime-base AS local
 
 COPY --from=builder /app/target/release/kgd /app/kgd
 
@@ -75,12 +78,12 @@ USER kgd
 
 ENTRYPOINT ["/app/kgd"]
 
-# CI/本番用 (デフォルトターゲット)
-# cross-rs でビルド済みのバイナリをホストからコピーする
-FROM runtime-base-ci
+# ========================================
+# Stage 6: CI target (--target ci)
+# ========================================
+FROM runtime-base AS ci
 
-ARG CROSS_TARGET=aarch64-unknown-linux-gnu
-COPY target/${CROSS_TARGET}/release/kgd /app/kgd
+COPY --from=builder /app/target/release/kgd /app/kgd
 
 RUN setcap cap_net_raw+ep /app/kgd
 
