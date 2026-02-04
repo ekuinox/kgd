@@ -28,6 +28,31 @@ fn main() {
         .define("WITH_JPEG_ENCODER", "ON")
         .define("WITH_JPEG_DECODER", "ON");
 
+    // クロスコンパイル時、CMake がターゲットアーキテクチャのライブラリを見つけられるようにする
+    if let Ok(target) = env::var("TARGET") {
+        if target.contains("aarch64") && target.contains("linux") {
+            // pkg-config がターゲットアーキテクチャのライブラリを見つけられるようにする
+            config.env("PKG_CONFIG_PATH", "/usr/lib/aarch64-linux-gnu/pkgconfig");
+            config.env("PKG_CONFIG_LIBDIR", "/usr/lib/aarch64-linux-gnu/pkgconfig");
+            config.env("PKG_CONFIG_SYSROOT_DIR", "/");
+
+            // 依存ライブラリのパスを明示的に指定
+            let lib_dir = "/usr/lib/aarch64-linux-gnu";
+            let include_dir = "/usr/include";
+
+            config.define("LIBDE265_INCLUDE_DIR", include_dir);
+            config.define("LIBDE265_LIBRARY", format!("{}/libde265.so", lib_dir));
+            config.define("X265_INCLUDE_DIR", include_dir);
+            config.define("X265_LIBRARY", format!("{}/libx265.so", lib_dir));
+            config.define("AOM_INCLUDE_DIR", include_dir);
+            config.define("AOM_LIBRARY", format!("{}/libaom.so", lib_dir));
+            config.define("JPEG_INCLUDE_DIR", include_dir);
+            config.define("JPEG_LIBRARY", format!("{}/libjpeg.so", lib_dir));
+            config.define("ZLIB_INCLUDE_DIR", include_dir);
+            config.define("ZLIB_LIBRARY", format!("{}/libz.so", lib_dir));
+        }
+    }
+
     let dst = config.build();
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
