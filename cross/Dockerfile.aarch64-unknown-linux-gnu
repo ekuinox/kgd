@@ -1,7 +1,9 @@
 FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main
 
-# Ubuntu 22.04 の apt sources を追加して GCC 11+ を取得
-RUN sed -i 's/focal/jammy/g' /etc/apt/sources.list
+# Ubuntu 22.04 (jammy) の ports リポジトリを追加
+# cross-rs のベースイメージは Ubuntu 20.04 だが、GCC 11+ が必要
+RUN echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe" >> /etc/apt/sources.list && \
+    echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe" >> /etc/apt/sources.list
 
 # libheif v1.21.2 は C++20 を要求するため GCC 11+ が必要
 RUN dpkg --add-architecture arm64 && \
