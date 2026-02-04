@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use heif::read_heif_to_dynamic_image;
 
 const SAMPLE_HEIC: &[u8] = include_bytes!("sample1.heic");

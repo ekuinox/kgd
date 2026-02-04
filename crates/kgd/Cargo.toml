@@ -7,10 +7,6 @@ authors.workspace = true
 license.workspace = true
 publish = false
 
-[[bin]]
-name = "kgd"
-path = "src/main.rs"
-
 [dependencies]
 serenity.workspace = true
 tokio.workspace = true
@@ -40,7 +36,7 @@ regex.workspace = true
 glob-match.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-heif = { path = "../heif" }
+heif.path = "../heif"
 
 [build-dependencies]
 vergen-gitcl.workspace = true
