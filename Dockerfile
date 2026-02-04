@@ -24,7 +24,8 @@ COPY . .
 RUN cargo build --release --bin kgd
 
 # 共通ランタイムベース
-FROM debian:bookworm-slim AS runtime-base
+# cross-rs のビルド環境 (Ubuntu 22.04) と libjpeg のバージョンを合わせるため Ubuntu を使用
+FROM ubuntu:22.04 AS runtime-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -35,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libaom3 \
     libwebp7 \
     zlib1g \
-    libjpeg62-turbo \
+    libjpeg-turbo8 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -r -s /bin/false kgd
