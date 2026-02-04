@@ -30,7 +30,8 @@ jobs:
             libaom-dev \
             libwebp-dev \
             zlib1g-dev \
-            libjpeg-dev
+            libjpeg-dev \
+            libnuma-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
