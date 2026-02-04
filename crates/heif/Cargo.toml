@@ -12,7 +12,3 @@ thiserror.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 heif-sys.path = "../heif-sys"
-
-[[example]]
-name = "heif_to_jpg"
-path = "examples/heif_to_jpg.rs"
