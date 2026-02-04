@@ -1,0 +1,33 @@
+FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main
+
+# Ubuntu 22.04 (jammy) の ports リポジトリを追加
+# cross-rs のベースイメージは Ubuntu 20.04 だが、GCC 11+ が必要
+RUN echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe" >> /etc/apt/sources.list && \
+    echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe" >> /etc/apt/sources.list
+
+# libheif v1.21.2 は C++20 を要求するため GCC 11+ が必要
+RUN dpkg --add-architecture arm64 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        cmake \
+        ninja-build \
+        libclang-dev \
+        g++-11-aarch64-linux-gnu \
+        libde265-dev:arm64 \
+        libx265-dev:arm64 \
+        libaom-dev:arm64 \
+        libwebp-dev:arm64 \
+        zlib1g-dev:arm64 \
+        libjpeg-turbo8-dev:arm64 \
+        libnuma-dev:arm64 && \
+    rm -rf /var/lib/apt/lists/*
+
+# GCC 11 をデフォルトのクロスコンパイラとして設定
+# cross-rs の toolchain.cmake は CROSS_TOOLCHAIN_PREFIX + "g++" を使う
+RUN update-alternatives --install /usr/bin/aarch64-linux-gnu-g++ aarch64-linux-gnu-g++ /usr/bin/aarch64-linux-gnu-g++-11 100 && \
+    update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-11 100
+
+# pkg-config がクロスコンパイル用ライブラリを見つけられるようにする
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_SYSROOT_DIR=/

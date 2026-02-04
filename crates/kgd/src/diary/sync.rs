@@ -192,8 +192,9 @@ impl<'a> MessageSyncer<'a> {
             FileType::Heic => {
                 let (data, content_type) = self.download_attachment(attachment).await?;
 
-                // HEIC を JPEG に変換してアップロード
-                match heic_converter::convert_heic_to_jpeg(&data) {
+                // HEIC を JPEG に変換してアップロード (Unix のみ)
+                #[cfg(unix)]
+                match heif::convert_heic_to_jpeg(&data) {
                     Ok(jpeg_data) => {
                         let jpeg_filename = replace_extension(&attachment.filename, "jpg");
                         let jpeg_upload_id = self
@@ -208,6 +209,12 @@ impl<'a> MessageSyncer<'a> {
                         tracing::warn!(error = %e, "Failed to convert HEIC to JPEG, skipping conversion");
                     }
                 }
+
+                #[cfg(not(unix))]
+                tracing::warn!(
+                    filename = %attachment.filename,
+                    "HEIC to JPEG conversion is not supported on this platform"
+                );
 
                 // 元の HEIC ファイルもアップロード
                 let file_upload_id = self

@@ -11,13 +11,33 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deny:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            ninja-build \
+            libclang-dev \
+            libde265-dev \
+            libx265-dev \
+            libaom-dev \
+            libwebp-dev \
+            zlib1g-dev \
+            libjpeg-dev \
+            libnuma-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-deny and cargo-machete
         run: cargo install cargo-deny cargo-machete
@@ -25,11 +45,8 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Run cargo-deny
-        run: just deny
-
-      - name: Run cargo-machete
-        run: just machete
+      - name: check source
+        run: just ci
 
   build:
     runs-on: ubuntu-latest
@@ -39,6 +56,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

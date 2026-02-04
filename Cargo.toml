@@ -75,8 +75,9 @@ regex = "1"
 # Glob matching
 glob-match = "0.2"
 
+# Image processing
+image = "0.25"
+
 # Testing
 tempfile = "3.14"
 
-# Workspace crates
-heic-converter = { path = "crates/heic-converter" }

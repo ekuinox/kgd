@@ -1,7 +1,5 @@
 # Rust
 /target
-**/*.rs.bk
-Cargo.lock
 
 # Configuration (contains secrets)
 config.toml
