@@ -8,8 +8,8 @@ license.workspace = true
 
 [dependencies]
 heif-sys = { path = "../heif-sys" }
-image = "0.25"
-thiserror = "2"
+image.workspace = true
+thiserror.workspace = true
 
 [[example]]
 name = "heif_to_jpg"

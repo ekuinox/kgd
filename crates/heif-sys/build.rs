@@ -11,6 +11,9 @@ fn has_ninja() -> bool {
 }
 
 fn main() {
+    // libheif のソースが変更されたときに再ビルドする
+    println!("cargo:rerun-if-changed=libheif");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let build_dir = out_dir.join("build");
 
