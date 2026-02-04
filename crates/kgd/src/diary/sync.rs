@@ -380,6 +380,7 @@ fn classify_file(filename: &str) -> FileType {
 }
 
 /// ファイル名の拡張子を置き換える。
+#[cfg(unix)]
 fn replace_extension(filename: &str, new_ext: &str) -> String {
     if let Some(pos) = filename.rfind('.') {
         format!("{}.{}", &filename[..pos], new_ext)
@@ -464,6 +465,7 @@ mod tests {
         assert_eq!(guess_content_type("noextension"), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_replace_extension() {
         assert_eq!(replace_extension("photo.heic", "jpg"), "photo.jpg");
