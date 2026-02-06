@@ -150,6 +150,12 @@ pub struct DiaryConfig {
     /// 自動クローズのチェック間隔（デフォルト: 1時間）
     #[serde(default = "default_auto_close_interval", with = "humantime_serde")]
     pub auto_close_interval: Duration,
+    /// OGP メタデータ取得を有効にするか（デフォルト: true）
+    #[serde(default = "default_ogp_enabled")]
+    pub ogp_enabled: bool,
+    /// OGP メタデータ取得のタイムアウト（デフォルト: 10秒）
+    #[serde(default = "default_ogp_timeout", with = "humantime_serde")]
+    pub ogp_timeout: Duration,
 }
 
 /// URL 変換ルール設定。
@@ -215,6 +221,14 @@ fn default_auto_close_interval() -> Duration {
     Duration::from_secs(3600) // 1 hour
 }
 
+fn default_ogp_enabled() -> bool {
+    true
+}
+
+fn default_ogp_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +273,8 @@ mod tests {
                 auto_close_enabled: false,
                 auto_close_hour: 8,
                 auto_close_interval: Duration::from_secs(3600),
+                ogp_enabled: true,
+                ogp_timeout: Duration::from_secs(10),
             },
         };
 

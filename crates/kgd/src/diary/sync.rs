@@ -5,6 +5,7 @@ use serenity::model::channel::{Attachment, Message};
 
 use crate::config::DiaryConfig;
 
+use super::ogp::OgpFetcher;
 use super::url_parser;
 use super::{DiaryStore, MessageBlock, NotionClient};
 
@@ -26,6 +27,8 @@ pub struct MessageSyncer<'a> {
     http_client: reqwest::Client,
     /// URL 変換ルール（コンパイル済み）
     url_rules: url_parser::CompiledUrlRules,
+    /// OGP フェッチャー（None の場合は OGP 取得を行わない）
+    ogp_fetcher: Option<OgpFetcher>,
 }
 
 impl<'a> MessageSyncer<'a> {
@@ -45,11 +48,18 @@ impl<'a> MessageSyncer<'a> {
             &diary_config.default_convert_to,
         )?;
 
+        let ogp_fetcher = if diary_config.ogp_enabled {
+            Some(OgpFetcher::new(diary_config.ogp_timeout)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             notion,
             store,
             http_client: reqwest::Client::new(),
             url_rules,
+            ogp_fetcher,
         })
     }
 
@@ -88,7 +98,17 @@ impl<'a> MessageSyncer<'a> {
             let result =
                 url_parser::build_rich_text_and_url_blocks(&message.content, &self.url_rules);
 
-            for (block_json, block_type) in result.blocks {
+            // OGP メタデータを並列取得
+            let ogp_map = self.fetch_ogp_for_bookmarks(&result.bookmark_urls).await;
+
+            for (mut block_json, block_type) in result.blocks {
+                // ブックマークブロックに OGP メタデータを適用
+                if block_type == "bookmark"
+                    && let Some(url) = block_json["bookmark"]["url"].as_str()
+                    && let Some(ogp) = ogp_map.get(url)
+                {
+                    url_parser::apply_ogp_to_bookmark(&mut block_json, ogp);
+                }
                 children.push(block_json);
                 block_meta.push(block_type);
             }
@@ -274,6 +294,22 @@ impl<'a> MessageSyncer<'a> {
         };
         self.store.insert_message_block(&message_block).await?;
         Ok(())
+    }
+
+    /// Bookmark URL の OGP メタデータを並列で取得する。
+    async fn fetch_ogp_for_bookmarks(
+        &self,
+        urls: &[String],
+    ) -> std::collections::HashMap<String, super::ogp::OgpMetadata> {
+        let Some(fetcher) = &self.ogp_fetcher else {
+            return std::collections::HashMap::new();
+        };
+
+        if urls.is_empty() {
+            return std::collections::HashMap::new();
+        }
+
+        fetcher.fetch_many(urls).await
     }
 
     /// Discord から添付ファイルをダウンロードする。

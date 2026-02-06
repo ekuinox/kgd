@@ -34,6 +34,7 @@ openssl.workspace = true
 mime_guess.workspace = true
 regex.workspace = true
 glob-match.workspace = true
+futures.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 heif.path = "../heif"
