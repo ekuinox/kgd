@@ -78,6 +78,9 @@ glob-match = "0.2"
 # Image processing
 image = "0.25"
 
+# Async utilities
+futures = "0.3"
+
 # Testing
 tempfile = "3.14"
 

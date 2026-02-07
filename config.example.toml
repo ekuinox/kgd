@@ -88,6 +88,15 @@ forum_channel_id = 123456789012345678
 # Format: "30s", "5m", "1h", "2h", etc.
 # auto_close_interval = "1h"
 
+# OGP metadata fetching for bookmark blocks (default: enabled)
+# When enabled, the bot will fetch Open Graph metadata (title, description)
+# from bookmarked URLs and add them as captions in Notion.
+# ogp_enabled = true
+
+# Timeout for OGP metadata fetching (default: 10s)
+# Format: "5s", "10s", "30s", etc.
+# ogp_timeout = "10s"
+
 # URL conversion rules
 # URLs matching a pattern will be converted to the specified types.
 # Supported types: link (inline link in text), bookmark, embed

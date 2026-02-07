@@ -5,6 +5,8 @@ use regex::Regex;
 
 use crate::config::{PatternConfig, UrlRuleConfig};
 
+use super::ogp::OgpMetadata;
+
 /// URL から生成する変換の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlBlockType {
@@ -57,6 +59,8 @@ pub struct CompiledUrlRules {
 pub struct UrlParseResult {
     /// 出現順の Notion ブロック JSON と block_type 文字列のペア
     pub blocks: Vec<(serde_json::Value, String)>,
+    /// Bookmark として処理された URL のリスト（OGP 取得対象）
+    pub bookmark_urls: Vec<String>,
 }
 
 /// 設定からコンパイル済み URL ルールを作成する。
@@ -141,6 +145,7 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
     let segments = parse_segments(text);
     let mut blocks: Vec<(serde_json::Value, String)> = Vec::new();
     let mut pending_rich_text: Vec<serde_json::Value> = Vec::new();
+    let mut bookmark_urls: Vec<String> = Vec::new();
 
     for segment in segments {
         match segment {
@@ -175,6 +180,7 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
                     match block_type {
                         UrlBlockType::Link => {} // 上で処理済み
                         UrlBlockType::Bookmark => {
+                            bookmark_urls.push(url.clone());
                             blocks.push((bookmark_block_json(&url), "bookmark".to_string()));
                         }
                         UrlBlockType::Embed => {
@@ -194,7 +200,10 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
     // 残りの rich_text を paragraph として追加
     flush_paragraph(&mut pending_rich_text, &mut blocks);
 
-    UrlParseResult { blocks }
+    UrlParseResult {
+        blocks,
+        bookmark_urls,
+    }
 }
 
 /// 溜まった rich_text 要素を paragraph ブロックとして blocks に追加し、クリアする。
@@ -319,6 +328,52 @@ fn embed_block_json(url: &str) -> serde_json::Value {
             "url": url
         }
     })
+}
+
+/// OGP メタデータをブックマークブロックに適用する。
+///
+/// タイトルと説明をキャプションとして設定する。
+pub fn apply_ogp_to_bookmark(block_json: &mut serde_json::Value, ogp: &OgpMetadata) {
+    let caption = build_bookmark_caption(ogp);
+    if !caption.is_empty() {
+        block_json["bookmark"]["caption"] = serde_json::json!(caption);
+    }
+}
+
+/// OGP メタデータからブックマークキャプションを構築する。
+fn build_bookmark_caption(ogp: &OgpMetadata) -> Vec<serde_json::Value> {
+    let mut parts = Vec::new();
+
+    // タイトルを追加
+    if let Some(title) = &ogp.title {
+        parts.push(title.clone());
+    }
+
+    // 説明を追加（タイトルがある場合は改行で区切る）
+    if let Some(description) = &ogp.description {
+        if !parts.is_empty() {
+            parts.push("\n".to_string());
+        }
+        // 説明が長すぎる場合は切り詰める
+        let truncated = if description.chars().count() > 200 {
+            format!("{}...", description.chars().take(197).collect::<String>())
+        } else {
+            description.clone()
+        };
+        parts.push(truncated);
+    }
+
+    if parts.is_empty() {
+        return vec![];
+    }
+
+    let content = parts.join("");
+    vec![serde_json::json!({
+        "type": "text",
+        "text": {
+            "content": content
+        }
+    })]
 }
 
 #[cfg(test)]
@@ -840,5 +895,161 @@ mod tests {
         assert_eq!(parse_block_type("bookmark"), Some(UrlBlockType::Bookmark));
         assert_eq!(parse_block_type("embed"), Some(UrlBlockType::Embed));
         assert_eq!(parse_block_type("unknown"), None);
+    }
+
+    #[test]
+    fn test_build_bookmark_urls_collected() {
+        let compiled = compiled_with_default(
+            vec![UrlRule {
+                matcher: UrlMatcher::Regex(Regex::new(r"https://github\.com/.*").unwrap()),
+                block_types: vec![UrlBlockType::Bookmark],
+            }],
+            vec![UrlBlockType::Link],
+        );
+        let result = build_rich_text_and_url_blocks(
+            "check https://github.com/foo and https://github.com/bar",
+            &compiled,
+        );
+        assert_eq!(result.bookmark_urls.len(), 2);
+        assert!(
+            result
+                .bookmark_urls
+                .contains(&"https://github.com/foo".to_string())
+        );
+        assert!(
+            result
+                .bookmark_urls
+                .contains(&"https://github.com/bar".to_string())
+        );
+    }
+
+    #[test]
+    fn test_build_bookmark_urls_empty_for_links_only() {
+        let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
+        let result = build_rich_text_and_url_blocks("check https://example.com", &compiled);
+        assert!(result.bookmark_urls.is_empty());
+    }
+
+    #[test]
+    fn test_apply_ogp_to_bookmark_with_title_and_description() {
+        let mut block = serde_json::json!({
+            "object": "block",
+            "type": "bookmark",
+            "bookmark": {
+                "url": "https://example.com",
+                "caption": []
+            }
+        });
+
+        let ogp = OgpMetadata {
+            title: Some("Example Title".to_string()),
+            description: Some("Example Description".to_string()),
+        };
+
+        apply_ogp_to_bookmark(&mut block, &ogp);
+
+        let caption = block["bookmark"]["caption"].as_array().unwrap();
+        assert_eq!(caption.len(), 1);
+        assert_eq!(
+            caption[0]["text"]["content"],
+            "Example Title\nExample Description"
+        );
+    }
+
+    #[test]
+    fn test_apply_ogp_to_bookmark_with_title_only() {
+        let mut block = serde_json::json!({
+            "object": "block",
+            "type": "bookmark",
+            "bookmark": {
+                "url": "https://example.com",
+                "caption": []
+            }
+        });
+
+        let ogp = OgpMetadata {
+            title: Some("Title Only".to_string()),
+            description: None,
+        };
+
+        apply_ogp_to_bookmark(&mut block, &ogp);
+
+        let caption = block["bookmark"]["caption"].as_array().unwrap();
+        assert_eq!(caption.len(), 1);
+        assert_eq!(caption[0]["text"]["content"], "Title Only");
+    }
+
+    #[test]
+    fn test_apply_ogp_to_bookmark_with_description_only() {
+        let mut block = serde_json::json!({
+            "object": "block",
+            "type": "bookmark",
+            "bookmark": {
+                "url": "https://example.com",
+                "caption": []
+            }
+        });
+
+        let ogp = OgpMetadata {
+            title: None,
+            description: Some("Description Only".to_string()),
+        };
+
+        apply_ogp_to_bookmark(&mut block, &ogp);
+
+        let caption = block["bookmark"]["caption"].as_array().unwrap();
+        assert_eq!(caption.len(), 1);
+        assert_eq!(caption[0]["text"]["content"], "Description Only");
+    }
+
+    #[test]
+    fn test_apply_ogp_to_bookmark_empty_metadata() {
+        let mut block = serde_json::json!({
+            "object": "block",
+            "type": "bookmark",
+            "bookmark": {
+                "url": "https://example.com",
+                "caption": []
+            }
+        });
+
+        let ogp = OgpMetadata {
+            title: None,
+            description: None,
+        };
+
+        apply_ogp_to_bookmark(&mut block, &ogp);
+
+        // キャプションは変更されない（空のまま）
+        let caption = block["bookmark"]["caption"].as_array().unwrap();
+        assert!(caption.is_empty());
+    }
+
+    #[test]
+    fn test_apply_ogp_to_bookmark_long_description_truncated() {
+        let mut block = serde_json::json!({
+            "object": "block",
+            "type": "bookmark",
+            "bookmark": {
+                "url": "https://example.com",
+                "caption": []
+            }
+        });
+
+        let long_description = "あ".repeat(250);
+        let ogp = OgpMetadata {
+            title: Some("Title".to_string()),
+            description: Some(long_description),
+        };
+
+        apply_ogp_to_bookmark(&mut block, &ogp);
+
+        let caption = block["bookmark"]["caption"].as_array().unwrap();
+        let content = caption[0]["text"]["content"].as_str().unwrap();
+        // Title + \n + 197文字 + "..."
+        assert!(content.ends_with("..."));
+        // 説明部分は 197 + 3 = 200 文字に切り詰められる
+        let description_part = content.strip_prefix("Title\n").unwrap();
+        assert_eq!(description_part.chars().count(), 200);
     }
 }

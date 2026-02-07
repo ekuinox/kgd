@@ -4,6 +4,7 @@
 //! メッセージの同期とライフサイクル管理を行う。
 
 mod notion;
+mod ogp;
 mod store;
 mod sync;
 mod url_parser;
