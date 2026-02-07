@@ -515,7 +515,9 @@ impl Handler {
 
         // Discord フォーラムにスレッドを作成
         let forum_channel = ChannelId::new(diary_config.forum_channel_id);
-        let initial_message = CreateMessage::new().content(format!("Notion: {}", page_url));
+        let initial_message = CreateMessage::new()
+            .content(format!("Notion: {}", page_url))
+            .components(vec![create_close_and_new_action_row()]);
         let forum_post = CreateForumPost::new(date_str, initial_message);
 
         let thread = forum_channel
@@ -742,52 +744,46 @@ impl Handler {
             return Ok(());
         }
 
-        // すべてのエントリを取得
-        let entries = self.diary_store.get_all_entries().await?;
+        // 最新のエントリのみを取得
+        let Some(entry) = self.diary_store.get_latest_entry().await? else {
+            return Ok(());
+        };
 
-        for entry in entries {
-            // 日付が今日より前かチェック
-            if entry.date >= today {
-                continue;
-            }
-
-            // スレッドがまだアクティブかチェック
-            let thread_id = ChannelId::new(entry.thread_id);
-            let Ok(channel) = thread_id.to_channel(http).await else {
-                continue;
-            };
-            let Some(thread) = channel.guild() else {
-                continue;
-            };
-
-            // アーカイブされている、またはロックされている場合はスキップ
-            if thread
-                .thread_metadata
-                .is_some_and(|m| m.archived || m.locked)
-            {
-                continue;
-            }
-
-            // ボタン付きメッセージを送信
-            self.send_auto_close_button(http, thread_id).await?;
-
-            info!(thread_id = entry.thread_id, "Sent auto-close button");
+        // 日付が今日より前かチェック
+        if entry.date >= today {
+            return Ok(());
         }
+
+        // スレッドがまだアクティブかチェック
+        let thread_id = ChannelId::new(entry.thread_id);
+        let Ok(channel) = thread_id.to_channel(http).await else {
+            return Ok(());
+        };
+        let Some(thread) = channel.guild() else {
+            return Ok(());
+        };
+
+        // アーカイブされている、またはロックされている場合はスキップ
+        if thread
+            .thread_metadata
+            .is_some_and(|m| m.archived || m.locked)
+        {
+            return Ok(());
+        }
+
+        // ボタン付きメッセージを送信
+        self.send_auto_close_button(http, thread_id).await?;
+
+        info!(thread_id = entry.thread_id, "Sent auto-close button");
 
         Ok(())
     }
 
     /// 自動クローズのボタン付きメッセージを送信する。
     async fn send_auto_close_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
-        let button = CreateButton::new("diary_close_and_new")
-            .label("クローズして新しい日報を作成")
-            .style(serenity::all::ButtonStyle::Primary);
-
-        let action_row = CreateActionRow::Buttons(vec![button]);
-
         let message = CreateMessage::new()
             .content("日付が変わりました。このスレッドをクローズして新しい日報を作成しますか？")
-            .components(vec![action_row]);
+            .components(vec![create_close_and_new_action_row()]);
 
         thread_id
             .send_message(http, message)
@@ -796,6 +792,14 @@ impl Handler {
 
         Ok(())
     }
+}
+
+/// クローズ&新規作成ボタンの ActionRow を作成する。
+fn create_close_and_new_action_row() -> CreateActionRow {
+    let button = CreateButton::new("diary_close_and_new")
+        .label("クローズして新しい日報を作成")
+        .style(serenity::all::ButtonStyle::Primary);
+    CreateActionRow::Buttons(vec![button])
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。

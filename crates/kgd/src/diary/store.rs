@@ -166,17 +166,18 @@ impl DiaryStore {
         Ok(())
     }
 
-    /// すべての日報エントリを取得する。
-    pub async fn get_all_entries(&self) -> Result<Vec<DiaryEntry>> {
+    /// 最新の日報エントリを取得する。
+    pub async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>> {
         sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
             ORDER BY date DESC
+            LIMIT 1
             "#,
         )
-        .fetch_all(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch all diary entries")
+        .context("Failed to fetch latest diary entry")
     }
 }
