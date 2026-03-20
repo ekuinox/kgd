@@ -515,9 +515,7 @@ impl Handler {
 
         // Discord フォーラムにスレッドを作成
         let forum_channel = ChannelId::new(diary_config.forum_channel_id);
-        let initial_message = CreateMessage::new()
-            .content(format!("Notion: {}", page_url))
-            .components(vec![create_close_and_new_action_row()]);
+        let initial_message = create_diary_thread_initial_message(&page_url);
         let forum_post = CreateForumPost::new(date_str, initial_message);
 
         let thread = forum_channel
@@ -693,7 +691,7 @@ impl Handler {
 
         // Discord スレッドを作成
         let forum_channel_id = ChannelId::new(self.config.diary.forum_channel_id);
-        let initial_message = CreateMessage::new().content(&page_url);
+        let initial_message = create_diary_thread_initial_message(&page_url);
         let forum_post = CreateForumPost::new(date_str, initial_message);
         let thread = forum_channel_id
             .create_forum_post(&ctx.http, forum_post)
@@ -800,6 +798,13 @@ fn create_close_and_new_action_row() -> CreateActionRow {
         .label("クローズして新しい日報を作成")
         .style(serenity::all::ButtonStyle::Primary);
     CreateActionRow::Buttons(vec![button])
+}
+
+/// 日報スレッドの最初のメッセージを構築する。
+fn create_diary_thread_initial_message(page_url: &str) -> CreateMessage {
+    CreateMessage::new()
+        .content(format!("Notion: {}", page_url))
+        .components(vec![create_close_and_new_action_row()])
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
