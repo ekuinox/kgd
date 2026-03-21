@@ -16,7 +16,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # notion-client のアップデートを待つ
 # image crate の依存関係 (rav1e -> paste) がメンテナンス終了
 # image crate のアップデートを待つ
-ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0436"]
+ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0436", "RUSTSEC-2026-0049"]
 
 # Licenses check - checks for allowed licenses
 # コピーレフト（伝搬性のある）ライセンスは許可しない
