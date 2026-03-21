@@ -4,10 +4,11 @@ use anyhow::{Context as _, Result};
 use chrono::Timelike;
 use serenity::{
     all::{
-        ChannelId, ChannelType, CommandInteraction, ComponentInteraction, CreateActionRow,
-        CreateButton, CreateCommand, CreateCommandOption, CreateEmbed, CreateForumPost,
-        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, EditThread,
-        GatewayIntents, Http, Message, MessageUpdateEvent, ReactionType,
+        ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
+        ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
+        CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
+        CreateMessage, EditThread, GatewayIntents, GetMessages, Http, Message, MessageUpdateEvent,
+        ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -29,6 +30,8 @@ use crate::{
     version,
     wol::send_wol_packet,
 };
+
+const DIARY_CLOSE_AND_NEW_BUTTON_ID: &str = "diary_close_and_new";
 
 /// Discord イベントを処理するハンドラー。
 #[derive(Clone)]
@@ -470,21 +473,55 @@ impl Handler {
         if let Some(entry) = self.diary_store.get_by_date(date).await? {
             let thread_id = ChannelId::new(entry.thread_id);
 
-            // スレッドのロックを解除して再開
-            let edit = EditThread::new().archived(false).locked(false);
-            thread_id
-                .edit_thread(&ctx.http, edit)
-                .await
-                .context("スレッドのロック解除に失敗しました")?;
+            let reopened = match thread_id.join_thread(&ctx.http).await {
+                Ok(()) => {
+                    let edit = EditThread::new().archived(false).locked(false);
+                    match thread_id.edit_thread(&ctx.http, edit).await {
+                        Ok(_) => true,
+                        Err(error) => {
+                            warn!(
+                                error = %error,
+                                thread_id = entry.thread_id,
+                                "Failed to reopen existing diary thread; falling back to link only"
+                            );
+                            false
+                        }
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        thread_id = entry.thread_id,
+                        "Failed to join existing diary thread; falling back to link only"
+                    );
+                    false
+                }
+            };
+
+            if let Err(error) = self.ensure_close_and_new_button(&ctx.http, thread_id).await {
+                warn!(
+                    error = %error,
+                    thread_id = entry.thread_id,
+                    "Failed to ensure close button on existing diary thread"
+                );
+            }
 
             info!(
                 date = %date,
                 thread_id = entry.thread_id,
-                "Diary thread reopened"
+                reopened,
+                "Diary thread already exists for today"
             );
 
             let response = CreateInteractionResponseMessage::new()
-                .content(format!("今日の日報を再開しました: <#{}>", entry.thread_id))
+                .content(if reopened {
+                    format!("今日の日報を再開しました: <#{}>", entry.thread_id)
+                } else {
+                    format!(
+                        "今日の日報は既にありますが、再開はできません: <#{}>",
+                        entry.thread_id
+                    )
+                })
                 .ephemeral(false);
             command
                 .create_response(&ctx.http, CreateInteractionResponse::Message(response))
@@ -515,9 +552,7 @@ impl Handler {
 
         // Discord フォーラムにスレッドを作成
         let forum_channel = ChannelId::new(diary_config.forum_channel_id);
-        let initial_message = CreateMessage::new()
-            .content(format!("Notion: {}", page_url))
-            .components(vec![create_close_and_new_action_row()]);
+        let initial_message = create_diary_thread_initial_message(&page_url);
         let forum_post = CreateForumPost::new(date_str, initial_message);
 
         let thread = forum_channel
@@ -526,6 +561,9 @@ impl Handler {
             .context("フォーラムスレッドの作成に失敗しました")?;
 
         // 紐付け情報を保存
+        self.ensure_close_and_new_button(&ctx.http, thread.id)
+            .await?;
+
         let entry = DiaryEntry {
             thread_id: thread.id.get(),
             page_id,
@@ -646,13 +684,33 @@ impl Handler {
         ctx: &SerenityContext,
         component: &ComponentInteraction,
     ) -> Result<()> {
-        // 該当スレッドの日報エントリを取得
         let channel_id = component.channel_id;
         let Some(_entry) = self.diary_store.get_by_thread(channel_id.get()).await? else {
             anyhow::bail!("このスレッドは日報スレッドではありません");
         };
 
-        // 先にレスポンスを返す
+        let timezone = &self.config.diary.timezone;
+        let today = today_in_timezone(timezone);
+        if let Some(today_entry) = self.diary_store.get_by_date(today).await? {
+            let response = if today_entry.thread_id == channel_id.get() {
+                CreateInteractionResponseMessage::new()
+                    .content("このスレッドが今日の最新の日報です")
+                    .ephemeral(false)
+            } else {
+                CreateInteractionResponseMessage::new()
+                    .content(format!(
+                        "今日の最新の日報はこちらです: <#{}>",
+                        today_entry.thread_id
+                    ))
+                    .ephemeral(false)
+            };
+
+            component
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
         let response = CreateInteractionResponseMessage::new()
             .content("日報スレッドをクローズして新しいスレッドを作成しています...")
             .ephemeral(false);
@@ -661,24 +719,10 @@ impl Handler {
             .create_response(&ctx.http, CreateInteractionResponse::Message(response))
             .await?;
 
-        // 現在のスレッドをクローズ
-        let edit = EditThread::new().archived(true).locked(true);
-        channel_id
-            .edit_thread(&ctx.http, edit)
-            .await
-            .context("スレッドのクローズに失敗しました")?;
-
-        info!(
-            thread_id = channel_id.get(),
-            "Diary thread closed by button"
-        );
-
-        // 新しい日報スレッドを作成
         let timezone = &self.config.diary.timezone;
         let today = today_in_timezone(timezone);
         let date_str = format_date_in_timezone(today, timezone);
 
-        // Notion ページを検索
         let notion_client = self.notion_client.as_ref();
         let (page_id, page_url) = match notion_client.find_diary_page_by_title(&date_str).await? {
             Some((page_id, page_url)) => {
@@ -691,14 +735,16 @@ impl Handler {
             }
         };
 
-        // Discord スレッドを作成
         let forum_channel_id = ChannelId::new(self.config.diary.forum_channel_id);
-        let initial_message = CreateMessage::new().content(&page_url);
+        let initial_message = create_diary_thread_initial_message(&page_url);
         let forum_post = CreateForumPost::new(date_str, initial_message);
         let thread = forum_channel_id
             .create_forum_post(&ctx.http, forum_post)
             .await
             .context("Failed to create forum post")?;
+
+        self.ensure_close_and_new_button(&ctx.http, thread.id)
+            .await?;
 
         info!(
             thread_id = thread.id.get(),
@@ -706,7 +752,6 @@ impl Handler {
             "Created new diary thread"
         );
 
-        // データベースに保存
         let new_entry = DiaryEntry {
             thread_id: thread.id.get(),
             page_id: page_id.clone(),
@@ -716,7 +761,6 @@ impl Handler {
         };
         self.diary_store.insert(&new_entry).await?;
 
-        // 新しいスレッドにメンションを送信
         let mention_message = CreateMessage::new().content(format!(
             "新しい日報スレッドを作成しました: <#{}>",
             thread.id.get()
@@ -725,6 +769,18 @@ impl Handler {
             .send_message(&ctx.http, mention_message)
             .await
             .context("Failed to send mention message")?;
+
+        let edit = EditThread::new().archived(true).locked(true);
+        channel_id
+            .edit_thread(&ctx.http, edit)
+            .await
+            .context("Failed to close thread after sending mention message")?;
+
+        info!(
+            old_thread_id = channel_id.get(),
+            new_thread_id = thread.id.get(),
+            "Diary thread closed by button"
+        );
 
         Ok(())
     }
@@ -792,14 +848,57 @@ impl Handler {
 
         Ok(())
     }
+
+    async fn ensure_close_and_new_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
+        let messages = thread_id
+            .messages(http, GetMessages::new().limit(10))
+            .await
+            .context("Failed to fetch thread messages to inspect close button")?;
+
+        if messages.iter().any(message_has_close_and_new_button) {
+            return Ok(());
+        }
+
+        self.send_auto_close_button(http, thread_id).await?;
+
+        info!(
+            thread_id = thread_id.get(),
+            "Sent fallback close-and-new button message"
+        );
+
+        Ok(())
+    }
 }
 
 /// クローズ&新規作成ボタンの ActionRow を作成する。
 fn create_close_and_new_action_row() -> CreateActionRow {
-    let button = CreateButton::new("diary_close_and_new")
+    let button = CreateButton::new(DIARY_CLOSE_AND_NEW_BUTTON_ID)
         .label("クローズして新しい日報を作成")
         .style(serenity::all::ButtonStyle::Primary);
     CreateActionRow::Buttons(vec![button])
+}
+
+/// 日報スレッドの最初のメッセージを構築する。
+fn create_diary_thread_initial_message(page_url: &str) -> CreateMessage {
+    CreateMessage::new()
+        .content(format!("Notion: {}", page_url))
+        .components(vec![create_close_and_new_action_row()])
+}
+
+fn message_has_close_and_new_button(message: &Message) -> bool {
+    message.components.iter().any(|row| {
+        row.components.iter().any(|component| {
+            matches!(
+                component,
+                ActionRowComponent::Button(button)
+                    if matches!(
+                        &button.data,
+                        ButtonKind::NonLink { custom_id, .. }
+                            if custom_id == DIARY_CLOSE_AND_NEW_BUTTON_ID
+                    )
+            )
+        })
+    })
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
