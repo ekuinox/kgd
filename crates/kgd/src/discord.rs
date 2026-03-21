@@ -4,10 +4,11 @@ use anyhow::{Context as _, Result};
 use chrono::Timelike;
 use serenity::{
     all::{
-        ChannelId, ChannelType, CommandInteraction, ComponentInteraction, CreateActionRow,
-        CreateButton, CreateCommand, CreateCommandOption, CreateEmbed, CreateForumPost,
-        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, EditThread,
-        GatewayIntents, Http, Message, MessageUpdateEvent, ReactionType,
+        ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
+        ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
+        CreateEmbed, CreateForumPost, CreateInteractionResponse,
+        CreateInteractionResponseMessage, CreateMessage, EditThread, GatewayIntents, GetMessages,
+        Http, Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -29,6 +30,8 @@ use crate::{
     version,
     wol::send_wol_packet,
 };
+
+const DIARY_CLOSE_AND_NEW_BUTTON_ID: &str = "diary_close_and_new";
 
 /// Discord イベントを処理するハンドラー。
 #[derive(Clone)]
@@ -477,6 +480,8 @@ impl Handler {
                 .await
                 .context("スレッドのロック解除に失敗しました")?;
 
+            self.ensure_close_and_new_button(&ctx.http, thread_id).await?;
+
             info!(
                 date = %date,
                 thread_id = entry.thread_id,
@@ -524,6 +529,8 @@ impl Handler {
             .context("フォーラムスレッドの作成に失敗しました")?;
 
         // 紐付け情報を保存
+        self.ensure_close_and_new_button(&ctx.http, thread.id).await?;
+
         let entry = DiaryEntry {
             thread_id: thread.id.get(),
             page_id,
@@ -698,6 +705,8 @@ impl Handler {
             .await
             .context("Failed to create forum post")?;
 
+        self.ensure_close_and_new_button(&ctx.http, thread.id).await?;
+
         info!(
             thread_id = thread.id.get(),
             page_id = %page_id,
@@ -790,11 +799,31 @@ impl Handler {
 
         Ok(())
     }
+
+    async fn ensure_close_and_new_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
+        let messages = thread_id
+            .messages(http, GetMessages::new().limit(10))
+            .await
+            .context("Failed to fetch thread messages to inspect close button")?;
+
+        if messages.iter().any(message_has_close_and_new_button) {
+            return Ok(());
+        }
+
+        self.send_auto_close_button(http, thread_id).await?;
+
+        info!(
+            thread_id = thread_id.get(),
+            "Sent fallback close-and-new button message"
+        );
+
+        Ok(())
+    }
 }
 
 /// クローズ&新規作成ボタンの ActionRow を作成する。
 fn create_close_and_new_action_row() -> CreateActionRow {
-    let button = CreateButton::new("diary_close_and_new")
+    let button = CreateButton::new(DIARY_CLOSE_AND_NEW_BUTTON_ID)
         .label("クローズして新しい日報を作成")
         .style(serenity::all::ButtonStyle::Primary);
     CreateActionRow::Buttons(vec![button])
@@ -805,6 +834,22 @@ fn create_diary_thread_initial_message(page_url: &str) -> CreateMessage {
     CreateMessage::new()
         .content(format!("Notion: {}", page_url))
         .components(vec![create_close_and_new_action_row()])
+}
+
+fn message_has_close_and_new_button(message: &Message) -> bool {
+    message.components.iter().any(|row| {
+        row.components.iter().any(|component| {
+            matches!(
+                component,
+                ActionRowComponent::Button(button)
+                    if matches!(
+                        &button.data,
+                        ButtonKind::NonLink { custom_id, .. }
+                            if custom_id == DIARY_CLOSE_AND_NEW_BUTTON_ID
+                    )
+            )
+        })
+    })
 }
 
 /// サーバーステータスをDiscordチャンネルに通知するための構造体。
