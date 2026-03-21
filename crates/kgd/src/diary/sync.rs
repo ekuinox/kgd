@@ -197,6 +197,8 @@ impl<'a> MessageSyncer<'a> {
         block_meta: &mut Vec<String>,
     ) -> Result<()> {
         let file_type = classify_file(&attachment.filename);
+        let mut attachment_children = Vec::new();
+        let mut attachment_block_meta = Vec::new();
 
         match file_type {
             FileType::Image => {
@@ -206,8 +208,8 @@ impl<'a> MessageSyncer<'a> {
                     .upload_file(&attachment.filename, &content_type, data)
                     .await
                     .context("Failed to upload image to Notion")?;
-                children.push(image_block_json(&file_upload_id));
-                block_meta.push("image".to_string());
+                attachment_children.push(image_block_json(&file_upload_id));
+                attachment_block_meta.push("image".to_string());
             }
             FileType::Heic => {
                 let (data, content_type) = self.download_attachment(attachment).await?;
@@ -222,8 +224,8 @@ impl<'a> MessageSyncer<'a> {
                             .upload_file(&jpeg_filename, "image/jpeg", jpeg_data)
                             .await
                             .context("Failed to upload converted JPEG to Notion")?;
-                        children.push(image_block_json(&jpeg_upload_id));
-                        block_meta.push("image".to_string());
+                        attachment_children.push(image_block_json(&jpeg_upload_id));
+                        attachment_block_meta.push("image".to_string());
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to convert HEIC to JPEG, skipping conversion");
@@ -247,8 +249,8 @@ impl<'a> MessageSyncer<'a> {
                             attachment.filename, content_type
                         )
                     })?;
-                children.push(file_block_json(&file_upload_id, &attachment.filename));
-                block_meta.push("file".to_string());
+                attachment_children.push(file_block_json(&file_upload_id, &attachment.filename));
+                attachment_block_meta.push("file".to_string());
             }
             FileType::Other => {
                 let (data, content_type) = self.download_attachment(attachment).await?;
@@ -270,9 +272,20 @@ impl<'a> MessageSyncer<'a> {
                             attachment.filename, content_type
                         )
                     })?;
-                children.push(file_block_json(&file_upload_id, &attachment.filename));
-                block_meta.push("file".to_string());
+                attachment_children.push(file_block_json(&file_upload_id, &attachment.filename));
+                attachment_block_meta.push("file".to_string());
             }
+        }
+
+        if matches!(file_type, FileType::Image | FileType::Heic)
+            && is_spoiler_attachment(&attachment.filename)
+        {
+            let summary = spoiler_summary(attachment.description.as_deref());
+            children.push(toggle_block_json(&summary, attachment_children));
+            block_meta.push("toggle".to_string());
+        } else {
+            children.extend(attachment_children);
+            block_meta.extend(attachment_block_meta);
         }
 
         Ok(())
@@ -381,10 +394,42 @@ fn file_block_json(file_upload_id: &str, filename: &str) -> serde_json::Value {
 }
 
 /// ファイル名の拡張子から Content-Type を推定する。
+fn toggle_block_json(summary: &str, children: Vec<serde_json::Value>) -> serde_json::Value {
+    serde_json::json!({
+        "object": "block",
+        "type": "toggle",
+        "toggle": {
+            "rich_text": [{
+                "type": "text",
+                "text": {
+                    "content": summary
+                }
+            }],
+            "children": children
+        }
+    })
+}
+
 fn guess_content_type(filename: &str) -> Option<String> {
     mime_guess::from_path(filename)
         .first()
         .map(|mime| mime.to_string())
+}
+
+fn is_spoiler_attachment(filename: &str) -> bool {
+    filename.starts_with("SPOILER_")
+}
+
+fn spoiler_summary(description: Option<&str>) -> String {
+    let mut summary = "Spoiler image".to_string();
+    if let Some(description) = description
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+    {
+        summary.push_str("\nALT: ");
+        summary.push_str(description);
+    }
+    summary
 }
 
 /// ファイルの種類。
@@ -499,6 +544,43 @@ mod tests {
             Some("application/gpx+xml".to_string())
         );
         assert_eq!(guess_content_type("noextension"), None);
+    }
+
+    #[test]
+    fn test_is_spoiler_attachment() {
+        assert!(is_spoiler_attachment("SPOILER_photo.png"));
+        assert!(!is_spoiler_attachment("photo.png"));
+        assert!(!is_spoiler_attachment("spoiler_photo.png"));
+    }
+
+    #[test]
+    fn test_spoiler_summary_without_alt() {
+        assert_eq!(spoiler_summary(None), "Spoiler image");
+        assert_eq!(spoiler_summary(Some("   ")), "Spoiler image");
+    }
+
+    #[test]
+    fn test_spoiler_summary_with_alt() {
+        assert_eq!(
+            spoiler_summary(Some("sensitive content")),
+            "Spoiler image\nALT: sensitive content"
+        );
+    }
+
+    #[test]
+    fn test_toggle_block_json_includes_children() {
+        let toggle = toggle_block_json("Spoiler image", vec![image_block_json("upload-id")]);
+
+        assert_eq!(toggle["type"], "toggle");
+        assert_eq!(
+            toggle["toggle"]["rich_text"][0]["text"]["content"],
+            "Spoiler image"
+        );
+        let children = toggle["toggle"]["children"]
+            .as_array()
+            .expect("toggle children should be an array");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0]["type"], "image");
     }
 
     #[cfg(unix)]
