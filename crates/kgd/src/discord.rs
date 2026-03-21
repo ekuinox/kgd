@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result};
-use chrono::Timelike;
+use chrono::{NaiveDate, Timelike};
 use serenity::{
     all::{
         ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
@@ -17,7 +17,7 @@ use serenity::{
     model::id::MessageId,
     prelude::*,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -42,6 +42,8 @@ pub struct Handler {
     diary_store: DiaryStore,
     /// Notion クライアント
     notion_client: Arc<NotionClient>,
+    /// 自動クローズ通知を送信済みの日付（タイムゾーン基準）
+    last_auto_close_notification_date: Arc<Mutex<Option<NaiveDate>>>,
 }
 
 #[async_trait]
@@ -794,10 +796,19 @@ impl Handler {
         let timezone = &self.config.diary.timezone;
         let now = chrono::Utc::now().with_timezone(timezone);
         let today = today_in_timezone(timezone);
+        let today_local = now.date_naive();
 
         // 指定された時刻以降かチェック
         if now.hour() < self.config.diary.auto_close_hour {
             return Ok(());
+        }
+
+        {
+            let last_auto_close_notification_date =
+                self.last_auto_close_notification_date.lock().await;
+            if last_auto_close_notification_date.is_some_and(|date| date == today_local) {
+                return Ok(());
+            }
         }
 
         // 最新のエントリのみを取得
@@ -829,6 +840,7 @@ impl Handler {
 
         // ボタン付きメッセージを送信
         self.send_auto_close_button(http, thread_id).await?;
+        *self.last_auto_close_notification_date.lock().await = Some(today_local);
 
         info!(thread_id = entry.thread_id, "Sent auto-close button");
 
@@ -963,6 +975,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         config: config.clone(),
         diary_store,
         notion_client,
+        last_auto_close_notification_date: Arc::new(Mutex::new(None)),
     };
 
     let mut client = Client::builder(&config.discord.token, intents)
@@ -986,7 +999,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     if config.diary.auto_close_enabled {
         let auto_close_handler = handler.clone();
         let auto_close_http = client.http.clone();
-        let auto_close_interval = config.diary.auto_close_interval;
+        let auto_close_interval = Duration::from_secs(60);
         tokio::spawn(async move {
             run_auto_close_checker(auto_close_handler, auto_close_http, auto_close_interval).await;
         });
