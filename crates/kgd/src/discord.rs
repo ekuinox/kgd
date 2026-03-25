@@ -7,8 +7,8 @@ use serenity::{
         ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
         ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
         CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
-        CreateMessage, EditThread, GatewayIntents, GetMessages, Http, Message, MessageUpdateEvent,
-        ReactionType,
+        CreateMessage, EditInteractionResponse, EditThread, GatewayIntents, GetMessages, Http,
+        Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -32,6 +32,15 @@ use crate::{
 };
 
 const DIARY_CLOSE_AND_NEW_BUTTON_ID: &str = "diary_close_and_new";
+const DIARY_THREAD_SYNC_BATCH_SIZE: u8 = 100;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct DiaryThreadSyncReport {
+    checked_messages: usize,
+    synced_messages: usize,
+    already_synced_messages: usize,
+    skipped_messages: usize,
+}
 
 /// Discord イベントを処理するハンドラー。
 #[derive(Clone)]
@@ -79,6 +88,11 @@ impl EventHandler for Handler {
                     CommandOptionType::SubCommand,
                     "close",
                     "日報スレッドをクローズする",
+                ))
+                .add_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "sync",
+                    "Sync unsynced messages in this diary thread",
                 )),
         );
 
@@ -457,6 +471,7 @@ impl Handler {
         match subcommand.name.as_str() {
             "new" => self.handle_diary_new(ctx, command).await,
             "close" => self.handle_diary_close(ctx, command).await,
+            "sync" => self.handle_diary_sync(ctx, command).await,
             _ => Ok(()),
         }
     }
@@ -668,6 +683,71 @@ impl Handler {
     }
 
     /// コンポーネント操作を処理する。
+    async fn handle_diary_sync(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        let channel = command.channel_id.to_channel(&ctx.http).await?;
+        let Some(guild_channel) = channel.guild() else {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このコマンドはサーバー内の日報スレッドでのみ使用できます")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        };
+
+        if guild_channel.kind != ChannelType::PublicThread {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このコマンドは日報スレッド内で実行してください")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
+        if self
+            .diary_store
+            .get_by_thread(command.channel_id.get())
+            .await?
+            .is_none()
+        {
+            let response = CreateInteractionResponseMessage::new()
+                .content("このスレッドは日報スレッドとして登録されていません")
+                .ephemeral(true);
+            command
+                .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                .await?;
+            return Ok(());
+        }
+
+        command.defer_ephemeral(&ctx.http).await?;
+
+        let report = self
+            .sync_missing_messages_in_thread(&ctx.http, command.channel_id)
+            .await?;
+
+        let result_message = format!(
+            "日報スレッドの未同期メッセージを確認しました。\n確認件数: {}件\n新規同期: {}件\n既に同期済み: {}件\nスキップ: {}件",
+            report.checked_messages,
+            report.synced_messages,
+            report.already_synced_messages,
+            report.skipped_messages
+        );
+
+        command
+            .edit_response(
+                &ctx.http,
+                EditInteractionResponse::new().content(result_message),
+            )
+            .await?;
+
+        Ok(())
+    }
+
     async fn handle_component(
         &self,
         ctx: &SerenityContext,
@@ -859,6 +939,105 @@ impl Handler {
             .context("Failed to send auto-close button message")?;
 
         Ok(())
+    }
+
+    /// 指定した日報スレッドを全走査し、未同期メッセージだけを Notion に再同期する。
+    ///
+    /// 同期対象の期間絞り込みはここで持たず、呼び出し側で決める。
+    async fn sync_missing_messages_in_thread(
+        &self,
+        http: &Http,
+        thread_id: ChannelId,
+    ) -> Result<DiaryThreadSyncReport> {
+        let Some(entry) = self.diary_store.get_by_thread(thread_id.get()).await? else {
+            anyhow::bail!("Diary entry not found for thread {}", thread_id.get());
+        };
+
+        let channel = thread_id
+            .to_channel(http)
+            .await
+            .with_context(|| format!("Failed to fetch thread {}", thread_id.get()))?;
+        let Some(thread) = channel.guild() else {
+            anyhow::bail!("Channel {} is not a guild thread", thread_id.get());
+        };
+        if thread.kind != ChannelType::PublicThread {
+            anyhow::bail!("Channel {} is not a public thread", thread_id.get());
+        }
+
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )?;
+        let mut before = None;
+        let mut pending_messages = Vec::new();
+        let mut report = DiaryThreadSyncReport::default();
+
+        loop {
+            let mut request = GetMessages::new().limit(DIARY_THREAD_SYNC_BATCH_SIZE);
+            if let Some(before_message_id) = before {
+                request = request.before(before_message_id);
+            }
+
+            let messages = thread_id.messages(http, request).await.with_context(|| {
+                format!("Failed to fetch messages for thread {}", thread_id.get())
+            })?;
+            if messages.is_empty() {
+                break;
+            }
+
+            before = messages.last().map(|message| message.id);
+
+            for message in messages {
+                if message.author.bot {
+                    continue;
+                }
+
+                pending_messages.push(message);
+            }
+        }
+
+        pending_messages.reverse();
+        report.checked_messages = pending_messages.len();
+
+        for message in pending_messages {
+            if self
+                .diary_store
+                .has_blocks_by_message(message.id.get())
+                .await?
+            {
+                report.already_synced_messages += 1;
+                continue;
+            }
+
+            let sync_result = syncer
+                .sync_message(&entry.page_id, &message)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to sync missing message {} in thread {}",
+                        message.id.get(),
+                        thread_id.get()
+                    )
+                })?;
+
+            if sync_result.synced {
+                report.synced_messages += 1;
+            } else {
+                report.skipped_messages += 1;
+            }
+        }
+
+        info!(
+            thread_id = thread_id.get(),
+            checked_messages = report.checked_messages,
+            synced_messages = report.synced_messages,
+            already_synced_messages = report.already_synced_messages,
+            skipped_messages = report.skipped_messages,
+            "Checked diary thread for missing message sync"
+        );
+
+        Ok(report)
     }
 
     async fn ensure_close_and_new_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {

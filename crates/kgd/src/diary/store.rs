@@ -166,6 +166,23 @@ impl DiaryStore {
         Ok(())
     }
 
+    /// Message ID に紐づくブロックが存在するかどうかを返す。
+    pub async fn has_blocks_by_message(&self, message_id: u64) -> Result<bool> {
+        sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM diary_message_blocks
+                WHERE message_id = $1
+            )
+            "#,
+        )
+        .bind(message_id as i64)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to check message blocks")
+    }
+
     /// 最新の日報エントリを取得する。
     pub async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>> {
         sqlx::query_as(
