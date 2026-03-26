@@ -166,6 +166,45 @@ impl DiaryStore {
         Ok(())
     }
 
+    /// Message ID に紐づくブロックが存在するかどうかを返す。
+    pub async fn has_blocks_by_message(&self, message_id: u64) -> Result<bool> {
+        sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM diary_message_blocks
+                WHERE message_id = $1
+            )
+            "#,
+        )
+        .bind(message_id as i64)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to check message blocks")
+    }
+
+    /// 指定した日付範囲に含まれる日報エントリを古い順で取得する。
+    pub async fn get_entries_in_date_range(
+        &self,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    ) -> Result<Vec<DiaryEntry>> {
+        // 起動時同期で日単位の対象スレッドをまとめて引くため、両端を含む範囲で取得する。
+        sqlx::query_as(
+            r#"
+            SELECT thread_id, page_id, page_url, date, created_at
+            FROM diary_entries
+            WHERE date >= $1 AND date <= $2
+            ORDER BY date ASC
+            "#,
+        )
+        .bind(start_date)
+        .bind(end_date)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch diary entries in date range")
+    }
+
     /// 最新の日報エントリを取得する。
     pub async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>> {
         sqlx::query_as(
