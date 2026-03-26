@@ -208,19 +208,18 @@ impl EventHandler for Handler {
                 return;
             }
         };
-        match syncer.sync_message(&page_id, &message).await {
-            Ok(result) if result.synced => {
+        match self
+            .sync_message_with_reaction(&ctx.http, &syncer, &page_id, &message)
+            .await
+        {
+            Ok((true, block_count)) => {
                 info!(
                     thread_id = message.channel_id.get(),
                     message_id = message.id.get(),
-                    blocks = result.block_count,
+                    blocks = block_count,
                     "Message synced to Notion"
                 );
                 // 成功したらリアクションを付ける
-                let reaction = ReactionType::Unicode(self.config.diary.sync_reaction.clone());
-                if let Err(e) = message.react(&ctx.http, reaction).await {
-                    error!(error = %e, "Failed to add sync reaction");
-                }
             }
             Ok(_) => {
                 // スキップ (空メッセージなど)
@@ -1070,8 +1069,8 @@ impl Handler {
                 continue;
             }
 
-            let sync_result = syncer
-                .sync_message(&entry.page_id, &message)
+            let (synced, _) = self
+                .sync_message_with_reaction(http, &syncer, &entry.page_id, &message)
                 .await
                 .with_context(|| {
                     format!(
@@ -1081,7 +1080,7 @@ impl Handler {
                     )
                 })?;
 
-            if sync_result.synced {
+            if synced {
                 report.synced_messages += 1;
             } else {
                 report.skipped_messages += 1;
@@ -1098,6 +1097,33 @@ impl Handler {
         );
 
         Ok(report)
+    }
+
+    /// 1 件の日報メッセージを Notion に同期し、成功時は同期済みリアクションを付与する。
+    async fn sync_message_with_reaction(
+        &self,
+        http: &Http,
+        syncer: &MessageSyncer<'_>,
+        page_id: &str,
+        message: &Message,
+    ) -> Result<(bool, usize)> {
+        let result = syncer.sync_message(page_id, message).await?;
+
+        if !result.synced {
+            return Ok((false, result.block_count));
+        }
+
+        self.add_sync_reaction(http, message).await;
+
+        Ok((true, result.block_count))
+    }
+
+    /// 同期済みのメッセージにリアクションを付与する。
+    async fn add_sync_reaction(&self, http: &Http, message: &Message) {
+        let reaction = ReactionType::Unicode(self.config.diary.sync_reaction.clone());
+        if let Err(error) = message.react(http, reaction).await {
+            error!(error = %error, "Failed to add sync reaction");
+        }
     }
 
     async fn ensure_close_and_new_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
