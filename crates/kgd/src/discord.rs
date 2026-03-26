@@ -113,6 +113,18 @@ impl EventHandler for Handler {
                 error!(error = %e, "Failed to register commands");
             }
         }
+
+        // 起動直後に、最近の日報スレッドの取りこぼし同期をバックグラウンドで回収する。
+        let startup_sync_handler = self.clone();
+        let startup_sync_http = ctx.http.clone();
+        tokio::spawn(async move {
+            if let Err(error) = startup_sync_handler
+                .sync_recent_diary_threads(startup_sync_http.as_ref())
+                .await
+            {
+                error!(error = %error, "Startup diary sync failed");
+            }
+        });
     }
 
     async fn interaction_create(
@@ -683,6 +695,7 @@ impl Handler {
     }
 
     /// コンポーネント操作を処理する。
+    /// 現在の日報スレッドを対象に、未同期メッセージの再同期を手動実行する。
     async fn handle_diary_sync(
         &self,
         ctx: &SerenityContext,
@@ -937,6 +950,53 @@ impl Handler {
             .send_message(http, message)
             .await
             .context("Failed to send auto-close button message")?;
+
+        Ok(())
+    }
+
+    /// 起動時に、今日を含めた直近 3 日分の日報スレッドを順番に再同期する。
+    async fn sync_recent_diary_threads(&self, http: &Http) -> Result<()> {
+        let today = today_in_timezone(&self.config.diary.timezone);
+        // 今日を含めて 3 日分だけを起動時同期の対象にする。
+        let start_date = today - chrono::Duration::days(2);
+        let entries = self
+            .diary_store
+            .get_entries_in_date_range(start_date, today)
+            .await?;
+
+        let mut checked_messages = 0usize;
+        let mut synced_messages = 0usize;
+        let mut already_synced_messages = 0usize;
+        let mut skipped_messages = 0usize;
+
+        for entry in entries {
+            let thread_id = ChannelId::new(entry.thread_id);
+            match self.sync_missing_messages_in_thread(http, thread_id).await {
+                Ok(report) => {
+                    checked_messages += report.checked_messages;
+                    synced_messages += report.synced_messages;
+                    already_synced_messages += report.already_synced_messages;
+                    skipped_messages += report.skipped_messages;
+                }
+                Err(error) => {
+                    error!(
+                        error = %error,
+                        thread_id = entry.thread_id,
+                        "Failed to sync recent diary thread on startup"
+                    );
+                }
+            }
+        }
+
+        info!(
+            start_date = %start_date,
+            end_date = %today,
+            checked_messages,
+            synced_messages,
+            already_synced_messages,
+            skipped_messages,
+            "Startup diary sync finished"
+        );
 
         Ok(())
     }
