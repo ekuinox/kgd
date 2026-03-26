@@ -42,6 +42,26 @@ struct DiaryThreadSyncReport {
     skipped_messages: usize,
 }
 
+/// 毎時同期の実行済み時間帯を表す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiaryHourlySyncSlot {
+    /// タイムゾーン基準の日付。
+    date: NaiveDate,
+    /// タイムゾーン基準の時。
+    hour: u32,
+}
+
+impl DiaryHourlySyncSlot {
+    /// 現在時刻から毎時同期の判定に使う時間帯を作る。
+    fn current(timezone: &chrono_tz::Tz) -> Self {
+        let now = chrono::Utc::now().with_timezone(timezone);
+        Self {
+            date: now.date_naive(),
+            hour: now.hour(),
+        }
+    }
+}
+
 /// Discord イベントを処理するハンドラー。
 #[derive(Clone)]
 pub struct Handler {
@@ -53,6 +73,8 @@ pub struct Handler {
     notion_client: Arc<NotionClient>,
     /// 自動クローズ通知を送信済みの日付（タイムゾーン基準）
     last_auto_close_notification_date: Arc<Mutex<Option<NaiveDate>>>,
+    /// 毎時同期を最後に試行した時間帯。
+    last_hourly_sync_slot: Arc<Mutex<Option<DiaryHourlySyncSlot>>>,
 }
 
 #[async_trait]
@@ -113,18 +135,6 @@ impl EventHandler for Handler {
                 error!(error = %e, "Failed to register commands");
             }
         }
-
-        // 起動直後に、最近の日報スレッドの取りこぼし同期をバックグラウンドで回収する。
-        let startup_sync_handler = self.clone();
-        let startup_sync_http = ctx.http.clone();
-        tokio::spawn(async move {
-            if let Err(error) = startup_sync_handler
-                .sync_recent_diary_threads(startup_sync_http.as_ref())
-                .await
-            {
-                error!(error = %error, "Startup diary sync failed");
-            }
-        });
     }
 
     async fn interaction_create(
@@ -939,6 +949,37 @@ impl Handler {
         Ok(())
     }
 
+    /// 毎時の境目で直近 3 日分の日報スレッドを再同期する。
+    ///
+    /// 起動直後は現在の時間帯だけ記録し、次の時間帯に切り替わるまでは同期しない。
+    pub async fn check_hourly_sync(&self, http: &Http) -> Result<()> {
+        let current_slot = DiaryHourlySyncSlot::current(&self.config.diary.timezone);
+
+        {
+            let mut last_hourly_sync_slot = self.last_hourly_sync_slot.lock().await;
+            match *last_hourly_sync_slot {
+                Some(slot) if slot == current_slot => return Ok(()),
+                None => {
+                    // 起動直後は現在の時間帯だけ記録し、次の時間帯から同期を始める。
+                    *last_hourly_sync_slot = Some(current_slot);
+                    return Ok(());
+                }
+                Some(_) => {}
+            }
+        }
+
+        self.sync_recent_diary_threads(http).await?;
+        *self.last_hourly_sync_slot.lock().await = Some(current_slot);
+
+        info!(
+            date = %current_slot.date,
+            hour = current_slot.hour,
+            "Hourly diary sync finished"
+        );
+
+        Ok(())
+    }
+
     /// 自動クローズのボタン付きメッセージを送信する。
     async fn send_auto_close_button(&self, http: &Http, thread_id: ChannelId) -> Result<()> {
         let message = CreateMessage::new()
@@ -953,10 +994,10 @@ impl Handler {
         Ok(())
     }
 
-    /// 起動時に、今日を含めた直近 3 日分の日報スレッドを順番に再同期する。
+    /// 直近 3 日分の日報スレッドを順番に再同期する。
     async fn sync_recent_diary_threads(&self, http: &Http) -> Result<()> {
         let today = today_in_timezone(&self.config.diary.timezone);
-        // 今日を含めて 3 日分だけを起動時同期の対象にする。
+        // 当日を含めた 3 日分だけを定期同期の対象にする。
         let start_date = today - chrono::Duration::days(2);
         let entries = self
             .diary_store
@@ -981,7 +1022,7 @@ impl Handler {
                     error!(
                         error = %error,
                         thread_id = entry.thread_id,
-                        "Failed to sync recent diary thread on startup"
+                        "Failed to sync recent diary thread"
                     );
                 }
             }
@@ -994,7 +1035,7 @@ impl Handler {
             synced_messages,
             already_synced_messages,
             skipped_messages,
-            "Startup diary sync finished"
+            "Recent diary sync finished"
         );
 
         Ok(())
@@ -1241,6 +1282,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         diary_store,
         notion_client,
         last_auto_close_notification_date: Arc::new(Mutex::new(None)),
+        last_hourly_sync_slot: Arc::new(Mutex::new(None)),
     };
 
     let mut client = Client::builder(&config.discord.token, intents)
@@ -1260,19 +1302,14 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
 
     tokio::spawn(run_status_receiver(notifier, status_rx));
 
-    // 自動クローズタスクを起動
-    if config.diary.auto_close_enabled {
-        let auto_close_handler = handler.clone();
-        let auto_close_http = client.http.clone();
-        let auto_close_interval = Duration::from_secs(60);
-        tokio::spawn(async move {
-            run_auto_close_checker(auto_close_handler, auto_close_http, auto_close_interval).await;
-        });
-        info!(
-            interval = ?auto_close_interval,
-            "Auto-close checker started"
-        );
-    }
+    // 日報向けの定期タスクを起動
+    let diary_handler = handler.clone();
+    let diary_http = client.http.clone();
+    let diary_interval = Duration::from_secs(60);
+    tokio::spawn(async move {
+        run_diary_periodic_tasks(diary_handler, diary_http, diary_interval).await;
+    });
+    info!(interval = ?diary_interval, "Diary periodic tasks started");
 
     info!("Starting bot");
     client.start().await.context("Discord client error")?;
@@ -1287,15 +1324,19 @@ async fn run_status_receiver(notifier: StatusNotifier, mut rx: mpsc::Receiver<Ve
     }
 }
 
-/// 自動クローズのチェックを定期的に実行する。
-async fn run_auto_close_checker(handler: Handler, http: Arc<Http>, interval: Duration) {
+/// 日報向けの定期メンテナンスタスクを実行する。
+async fn run_diary_periodic_tasks(handler: Handler, http: Arc<Http>, interval: Duration) {
     let mut interval_timer = tokio::time::interval(interval);
 
     loop {
         interval_timer.tick().await;
 
-        if let Err(e) = handler.check_auto_close(&http).await {
-            error!(error = %e, "Auto-close check failed");
+        if let Err(error) = handler.check_auto_close(&http).await {
+            error!(error = %error, "Auto-close check failed");
+        }
+
+        if let Err(error) = handler.check_hourly_sync(&http).await {
+            error!(error = %error, "Hourly diary sync check failed");
         }
     }
 }
