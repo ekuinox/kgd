@@ -1,11 +1,25 @@
 # ローカル開発用のオーバーライド
 # 使用方法: docker compose -f compose.yml -f compose.local.yml up --build
 # または: just compose-local
+#
+# 本番(compose.yml 単体)と同一ホスト上で同時に動かしても衝突しないよう、
+# project 名・コンテナ名・DB 公開ポートを分離している。
+# kgd は WoL のため network_mode: host を継承するので、DB へは
+# localhost:5433(本番 DB は 5432)で接続する。config.toml の
+# diary.database_url を postgres://kgd:kgd@localhost:5433/kgd に合わせること。
+
+name: kgd-local
 
 services:
   kgd:
     image: kgd:local
+    container_name: kgd-local
     build:
       context: .
       dockerfile: Dockerfile
       target: local
+
+  db:
+    container_name: kgd-db-local
+    ports: !override
+      - "5433:5432"
