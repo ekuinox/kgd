@@ -1,0 +1,41 @@
+# devcontainer 用の compose 定義
+# 本番の compose.yml とは独立。DB はコンテナ内ネットワークでのみ利用し、
+# ホストの 5432(本番 kgd-db)と衝突しないようポート公開しない。
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      # ワークスペースをマウント
+      - ..:/workspaces/kgd:cached
+      # ビルドキャッシュは名前付きボリュームに分離(ホストの target/ と混ざらない)
+      - cargo-registry:/usr/local/cargo/registry
+      - target-cache:/workspaces/kgd/target
+    environment:
+      # sqlx / diary 機能が参照する DB 接続先
+      DATABASE_URL: postgres://kgd:kgd@db:5432/kgd
+    command: sleep infinity
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kgd
+      POSTGRES_PASSWORD: kgd
+      POSTGRES_DB: kgd
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kgd"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cargo-registry:
+  target-cache:
+  pgdata:
