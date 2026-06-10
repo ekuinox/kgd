@@ -127,6 +127,9 @@ pub struct DiaryConfig {
     pub notion_tags: Vec<NotionTagConfig>,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
+    /// 日報の書き込み用チャンネル ID
+    /// このチャンネルへの投稿は最新の日報スレッドへ転記され、Notion ページに同期される
+    pub write_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
     #[serde(default = "default_sync_reaction")]
     pub sync_reaction: String,
@@ -259,6 +262,7 @@ mod tests {
                 notion_title_property: "Name".to_string(),
                 notion_tags: vec![],
                 forum_channel_id: 123456789012345678,
+                write_channel_id: 123456789012345678,
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
                 url_rules: vec![],

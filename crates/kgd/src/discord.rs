@@ -7,14 +7,14 @@ use serenity::{
         ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
         ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
         CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
-        CreateMessage, EditInteractionResponse, EditThread, GatewayIntents, GetMessages, Http,
-        Message, MessageUpdateEvent, ReactionType,
+        CreateMessage, EditInteractionResponse, EditMessage, EditThread, GatewayIntents,
+        GetMessages, Http, Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
     client::Context as SerenityContext,
     model::application::CommandOptionType,
-    model::id::MessageId,
+    model::id::{GuildId, MessageId},
     prelude::*,
 };
 use tokio::sync::{Mutex, mpsc};
@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     diary::{
-        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, compile_url_rules,
+        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, RelayedMessage, compile_url_rules,
         format_date_in_timezone, today_in_timezone,
     },
     status::ServerStatus,
@@ -181,7 +181,17 @@ impl EventHandler for Handler {
 
     async fn message(&self, ctx: SerenityContext, message: Message) {
         // Bot 自身のメッセージは無視
+        // 注意: write_channel 分岐より先に判定すること
+        // （Bot が送る転記メッセージを処理対象にするとループする）
         if message.author.bot {
+            return;
+        }
+
+        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転記する
+        if self.config.diary.write_channel_id == message.channel_id.get() {
+            if let Err(error) = self.handle_write_channel_message(&ctx, &message).await {
+                error!(error = %error, "Failed to handle write channel message");
+            }
             return;
         }
 
@@ -207,11 +217,7 @@ impl EventHandler for Handler {
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -252,6 +258,14 @@ impl EventHandler for Handler {
             return;
         }
 
+        // 書き込み用チャンネルでの編集は Notion ブロックと転記メッセージに反映する
+        if self.config.diary.write_channel_id == event.channel_id.get() {
+            if let Err(error) = self.handle_write_channel_update(&ctx, &event).await {
+                error!(error = %error, "Failed to handle write channel message update");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = event.channel_id.to_channel(&ctx).await else {
             return;
@@ -282,11 +296,7 @@ impl EventHandler for Handler {
         let mut message = message;
         message.content = content;
 
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -317,6 +327,17 @@ impl EventHandler for Handler {
         deleted_message_id: MessageId,
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
+        // 書き込み用チャンネルでの削除は Notion ブロックと転記メッセージを削除する
+        if self.config.diary.write_channel_id == channel_id.get() {
+            if let Err(error) = self
+                .handle_write_channel_delete(&ctx, deleted_message_id)
+                .await
+            {
+                error!(error = %error, "Failed to handle write channel message delete");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = channel_id.to_channel(&ctx).await else {
             return;
@@ -334,11 +355,7 @@ impl EventHandler for Handler {
         };
 
         // Notion から対応するブロックを削除
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -783,15 +800,26 @@ impl Handler {
     }
 
     /// 日報スレッドをクローズして新しいスレッドを作成する。
+    ///
+    /// 書き込み用チャンネルで押された場合は、最新の日報スレッドをクローズ対象とする。
     async fn handle_diary_close_and_new(
         &self,
         ctx: &SerenityContext,
         component: &ComponentInteraction,
     ) -> Result<()> {
         let channel_id = component.channel_id;
-        let Some(_entry) = self.diary_store.get_by_thread(channel_id.get()).await? else {
+        // 書き込み用チャンネル経由の場合は最新の日報スレッドをクローズ対象にし、
+        // 日報スレッド内の場合はそのスレッド自身をクローズ対象にする
+        let in_write_channel = self.config.diary.write_channel_id == channel_id.get();
+        if !in_write_channel
+            && self
+                .diary_store
+                .get_by_thread(channel_id.get())
+                .await?
+                .is_none()
+        {
             anyhow::bail!("このスレッドは日報スレッドではありません");
-        };
+        }
 
         let timezone = &self.config.diary.timezone;
         let today = today_in_timezone(timezone);
@@ -815,6 +843,17 @@ impl Handler {
             return Ok(());
         }
 
+        // クローズ対象のスレッドを決める
+        // （書き込み用チャンネルの場合は最新の日報スレッド、日報スレッドの場合はそのスレッド）
+        let thread_to_close = if in_write_channel {
+            self.diary_store
+                .get_latest_entry()
+                .await?
+                .map(|entry| ChannelId::new(entry.thread_id))
+        } else {
+            Some(channel_id)
+        };
+
         let response = CreateInteractionResponseMessage::new()
             .content("日報スレッドをクローズして新しいスレッドを作成しています...")
             .ephemeral(false);
@@ -823,8 +862,6 @@ impl Handler {
             .create_response(&ctx.http, CreateInteractionResponse::Message(response))
             .await?;
 
-        let timezone = &self.config.diary.timezone;
-        let today = today_in_timezone(timezone);
         let date_str = format_date_in_timezone(today, timezone);
 
         let notion_client = self.notion_client.as_ref();
@@ -874,22 +911,31 @@ impl Handler {
             .await
             .context("Failed to send mention message")?;
 
-        let edit = EditThread::new().archived(true).locked(true);
-        channel_id
-            .edit_thread(&ctx.http, edit)
-            .await
-            .context("Failed to close thread after sending mention message")?;
+        if let Some(thread_to_close) = thread_to_close {
+            let edit = EditThread::new().archived(true).locked(true);
+            if let Err(error) = thread_to_close.edit_thread(&ctx.http, edit).await {
+                // 書き込み用チャンネル経由ではクローズ対象が既にアーカイブ済みのことがあるため、
+                // 失敗は警告に留めて続行する
+                warn!(
+                    error = %error,
+                    thread_id = thread_to_close.get(),
+                    "Failed to close thread after sending mention message"
+                );
+            }
 
-        info!(
-            old_thread_id = channel_id.get(),
-            new_thread_id = thread.id.get(),
-            "Diary thread closed by button"
-        );
+            info!(
+                old_thread_id = thread_to_close.get(),
+                new_thread_id = thread.id.get(),
+                "Diary thread closed by button"
+            );
+        }
 
         Ok(())
     }
 
     /// 自動クローズのチェックを行い、必要ならボタン付きメッセージを送信する。
+    ///
+    /// 前日の日報スレッドに加え、書き込み用チャンネルが設定されていればそちらにも送信する。
     pub async fn check_auto_close(&self, http: &Http) -> Result<()> {
         if !self.config.diary.auto_close_enabled {
             return Ok(());
@@ -900,15 +946,16 @@ impl Handler {
         let today = today_in_timezone(timezone);
         let today_local = now.date_naive();
 
-        // 指定された時刻以降かチェック
-        if now.hour() < self.config.diary.auto_close_hour {
-            return Ok(());
-        }
-
+        // 指定された時刻以降かつ今日まだ通知していないかチェック
         {
             let last_auto_close_notification_date =
                 self.last_auto_close_notification_date.lock().await;
-            if last_auto_close_notification_date.is_some_and(|date| date == today_local) {
+            if !is_auto_close_due(
+                now.hour(),
+                self.config.diary.auto_close_hour,
+                *last_auto_close_notification_date,
+                today_local,
+            ) {
                 return Ok(());
             }
         }
@@ -923,30 +970,39 @@ impl Handler {
             return Ok(());
         }
 
-        // スレッドがまだアクティブかチェック
+        // スレッドがまだアクティブな場合のみスレッドへ送信する
         let thread_id = ChannelId::new(entry.thread_id);
-        let Ok(channel) = thread_id.to_channel(http).await else {
-            return Ok(());
-        };
-        let Some(thread) = channel.guild() else {
-            return Ok(());
-        };
-
-        // アーカイブされている、またはロックされている場合はスキップ
-        if thread
-            .thread_metadata
-            .is_some_and(|m| m.archived || m.locked)
-        {
-            return Ok(());
+        if self.is_thread_active(http, thread_id).await {
+            self.send_auto_close_button(http, thread_id).await?;
+            info!(thread_id = entry.thread_id, "Sent auto-close button");
         }
 
-        // ボタン付きメッセージを送信
-        self.send_auto_close_button(http, thread_id).await?;
+        // 書き込み用チャンネルにも送信する
+        // （スレッドがアーカイブ済みでも、書き込み用からは新しい日報を作成できるようにする）
+        let write_channel_id = self.config.diary.write_channel_id;
+        self.send_write_channel_new_diary_button(http, ChannelId::new(write_channel_id))
+            .await?;
+        info!(
+            channel_id = write_channel_id,
+            "Sent new-diary button to write channel"
+        );
+
         *self.last_auto_close_notification_date.lock().await = Some(today_local);
 
-        info!(thread_id = entry.thread_id, "Sent auto-close button");
-
         Ok(())
+    }
+
+    /// スレッドがアクティブ（アーカイブ・ロックされていない）かどうかを返す。
+    async fn is_thread_active(&self, http: &Http, thread_id: ChannelId) -> bool {
+        let Ok(channel) = thread_id.to_channel(http).await else {
+            return false;
+        };
+        let Some(thread) = channel.guild() else {
+            return false;
+        };
+        !thread
+            .thread_metadata
+            .is_some_and(|m| m.archived || m.locked)
     }
 
     /// 毎時の境目で直近 3 日分の日報スレッドを再同期する。
@@ -990,6 +1046,24 @@ impl Handler {
             .send_message(http, message)
             .await
             .context("Failed to send auto-close button message")?;
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルへ新しい日報作成のボタン付きメッセージを送信する。
+    async fn send_write_channel_new_diary_button(
+        &self,
+        http: &Http,
+        channel_id: ChannelId,
+    ) -> Result<()> {
+        let message = CreateMessage::new()
+            .content("日付が変わりました。前日の日報をクローズして新しい日報を作成しますか？")
+            .components(vec![create_close_and_new_action_row()]);
+
+        channel_id
+            .send_message(http, message)
+            .await
+            .context("Failed to send new-diary button message to write channel")?;
 
         Ok(())
     }
@@ -1064,11 +1138,7 @@ impl Handler {
             anyhow::bail!("Channel {} is not a public thread", thread_id.get());
         }
 
-        let syncer = MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        )?;
+        let syncer = self.message_syncer()?;
         let mut before = None;
         let mut pending_messages = Vec::new();
         let mut report = DiaryThreadSyncReport::default();
@@ -1140,6 +1210,218 @@ impl Handler {
         Ok(report)
     }
 
+    /// 転記先となる最新の日報エントリを取得する。
+    ///
+    /// 今日の日報があればそれを、無ければ最新のエントリを返す。
+    async fn latest_diary_entry_for_relay(&self) -> Result<Option<DiaryEntry>> {
+        let today = today_in_timezone(&self.config.diary.timezone);
+        if let Some(entry) = self.diary_store.get_by_date(today).await? {
+            return Ok(Some(entry));
+        }
+        self.diary_store.get_latest_entry().await
+    }
+
+    /// 書き込み用チャンネルへの投稿を処理する。
+    ///
+    /// メッセージを最新の日報スレッドの Notion ページへ同期し、
+    /// 同期に成功したらスレッドへ転記して対応を記録する。
+    /// 同期がスキップされた場合（空メッセージなど）は転記も行わない。
+    async fn handle_write_channel_message(
+        &self,
+        ctx: &SerenityContext,
+        message: &Message,
+    ) -> Result<()> {
+        let Some(entry) = self.latest_diary_entry_for_relay().await? else {
+            warn!(
+                message_id = message.id.get(),
+                "No diary entry found to relay write channel message"
+            );
+            return Ok(());
+        };
+
+        let syncer = self.message_syncer()?;
+        let result = syncer.sync_message(&entry.page_id, message).await?;
+        if !result.synced {
+            // 同期対象がない場合は転記もしない
+            return Ok(());
+        }
+        info!(
+            thread_id = entry.thread_id,
+            message_id = message.id.get(),
+            blocks = result.block_count,
+            "Write channel message synced to Notion"
+        );
+
+        // 転記に失敗した場合は Notion ブロックを巻き戻して整合を保つ
+        // （対応レコードが無いまま Notion にブロックが残ると、後続の編集・削除が追従できないため）
+        let content = build_relay_content(message, message.guild_id);
+        let relayed = match ChannelId::new(entry.thread_id)
+            .send_message(&ctx.http, CreateMessage::new().content(content))
+            .await
+        {
+            Ok(relayed) => relayed,
+            Err(error) => {
+                if let Err(rollback_error) = syncer.delete_message(message.id.get()).await {
+                    error!(
+                        error = %rollback_error,
+                        message_id = message.id.get(),
+                        "Failed to roll back Notion blocks after relay failure"
+                    );
+                }
+                return Err(error).context("Failed to relay message to diary thread");
+            }
+        };
+
+        self.diary_store
+            .upsert_relayed_message(&RelayedMessage {
+                source_message_id: message.id.get(),
+                thread_id: entry.thread_id,
+                relayed_message_id: relayed.id.get(),
+            })
+            .await?;
+
+        // すべて成功したらリアクションを付ける
+        self.add_sync_reaction(&ctx.http, message).await;
+
+        info!(
+            thread_id = entry.thread_id,
+            message_id = message.id.get(),
+            relayed_message_id = relayed.id.get(),
+            "Write channel message relayed to diary thread"
+        );
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルでのメッセージ編集を処理する。
+    ///
+    /// Notion 側のブロックを作り直し、スレッドの転記メッセージをその場で編集する
+    /// （スレッド内の時系列を保つため、削除や再投稿はしない）。
+    async fn handle_write_channel_update(
+        &self,
+        ctx: &SerenityContext,
+        event: &MessageUpdateEvent,
+    ) -> Result<()> {
+        // コンテンツがない場合は無視
+        // （埋め込み展開などユーザー編集以外の更新イベントを除外する）
+        if event.content.is_none() {
+            return Ok(());
+        }
+
+        // この機能経由で転記済みのメッセージのみ対象
+        let Some(relayed) = self.diary_store.get_relayed_message(event.id.get()).await? else {
+            return Ok(());
+        };
+
+        // 転記先スレッドの日報エントリ（Notion ページ）を取得
+        let Some(entry) = self.diary_store.get_by_thread(relayed.thread_id).await? else {
+            warn!(
+                thread_id = relayed.thread_id,
+                "Diary entry not found for relayed message"
+            );
+            return Ok(());
+        };
+
+        // 編集後の内容を取得
+        let message = event
+            .channel_id
+            .message(&ctx.http, event.id)
+            .await
+            .context("Failed to fetch updated write channel message")?;
+
+        let syncer = self.message_syncer()?;
+
+        // Notion 側は旧ブロックを削除して作り直す
+        // （添付や URL 変換によるブロック構成の変化に追従するため）
+        syncer.delete_message(event.id.get()).await?;
+        let result = syncer.sync_message(&entry.page_id, &message).await?;
+
+        if !result.synced {
+            // 編集後の内容が同期対象でなくなった場合は転記メッセージと対応を削除する
+            self.delete_relayed(&ctx.http, &relayed).await?;
+            return Ok(());
+        }
+
+        // 転記メッセージをその場で編集する
+        // （REST で取得したメッセージは guild_id を持たないためイベント側から渡す）
+        let content = build_relay_content(&message, event.guild_id);
+        ChannelId::new(relayed.thread_id)
+            .edit_message(
+                &ctx.http,
+                MessageId::new(relayed.relayed_message_id),
+                EditMessage::new().content(content),
+            )
+            .await
+            .context("Failed to edit relayed message")?;
+
+        info!(
+            thread_id = relayed.thread_id,
+            message_id = event.id.get(),
+            relayed_message_id = relayed.relayed_message_id,
+            "Write channel message updated and relayed message edited"
+        );
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルでのメッセージ削除を処理する。
+    ///
+    /// Notion 側のブロックとスレッドの転記メッセージを削除する。
+    async fn handle_write_channel_delete(
+        &self,
+        ctx: &SerenityContext,
+        deleted_message_id: MessageId,
+    ) -> Result<()> {
+        // この機能経由で転記済みのメッセージのみ対象
+        let Some(relayed) = self
+            .diary_store
+            .get_relayed_message(deleted_message_id.get())
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let syncer = self.message_syncer()?;
+        if let Err(error) = syncer.delete_message(deleted_message_id.get()).await {
+            error!(error = %error, "Failed to delete write channel message from Notion");
+        }
+
+        self.delete_relayed(&ctx.http, &relayed).await?;
+
+        info!(
+            thread_id = relayed.thread_id,
+            message_id = deleted_message_id.get(),
+            "Write channel message deleted"
+        );
+
+        Ok(())
+    }
+
+    /// スレッドの転記メッセージと対応レコードを削除する。
+    ///
+    /// 転記メッセージの削除失敗（手動で削除済みなど）は警告に留めて続行する。
+    async fn delete_relayed(&self, http: &Http, relayed: &RelayedMessage) -> Result<()> {
+        if let Err(error) = ChannelId::new(relayed.thread_id)
+            .delete_message(http, MessageId::new(relayed.relayed_message_id))
+            .await
+        {
+            warn!(error = %error, "Failed to delete relayed message");
+        }
+
+        self.diary_store
+            .delete_relayed_message(relayed.source_message_id)
+            .await
+    }
+
+    /// 設定済みの構成で MessageSyncer を作成する。
+    fn message_syncer(&self) -> Result<MessageSyncer<'_>> {
+        MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )
+    }
+
     /// 1 件の日報メッセージを Notion に同期し、成功時は同期済みリアクションを付与する。
     async fn sync_message_with_reaction(
         &self,
@@ -1186,6 +1468,67 @@ impl Handler {
 
         Ok(())
     }
+}
+
+/// Discord メッセージ本文の最大文字数。
+const DISCORD_MESSAGE_CONTENT_LIMIT: usize = 2000;
+
+/// 転記メッセージの本文を組み立てる。
+///
+/// 元メッセージの本文に添付ファイルの URL と元メッセージへのリンクを付け加える。
+fn build_relay_content(message: &Message, guild_id: Option<GuildId>) -> String {
+    let source_link = message.id.link(message.channel_id, guild_id);
+    let attachment_urls: Vec<&str> = message
+        .attachments
+        .iter()
+        .map(|attachment| attachment.url.as_str())
+        .collect();
+    assemble_relay_content(&message.content, &attachment_urls, &source_link)
+}
+
+/// 転記メッセージの本文を本文・添付 URL・元メッセージリンクから組み立てる。
+///
+/// 全体が Discord の文字数上限を超える場合は本文側を切り詰める。
+fn assemble_relay_content(content: &str, attachment_urls: &[&str], source_link: &str) -> String {
+    let footer = format!("-# 元のメッセージ: {source_link}");
+
+    let build = |content: &str| {
+        let mut sections = Vec::new();
+        if !content.is_empty() {
+            sections.push(content);
+        }
+        sections.extend(attachment_urls.iter().copied());
+        sections.push(&footer);
+        sections.join("\n")
+    };
+
+    let assembled = build(content);
+    let total = assembled.chars().count();
+    if total <= DISCORD_MESSAGE_CONTENT_LIMIT {
+        return assembled;
+    }
+
+    // 上限超過分と省略記号の分だけ本文を切り詰める
+    let overflow = total - DISCORD_MESSAGE_CONTENT_LIMIT;
+    let keep = content.chars().count().saturating_sub(overflow + 1);
+    let truncated: String = content.chars().take(keep).chain(['…']).collect();
+
+    // 本文以外（添付 URL とフッタ）だけで上限を超える場合に備え、
+    // 最終的に全体を上限で丸めて送信失敗を防ぐ
+    build(&truncated)
+        .chars()
+        .take(DISCORD_MESSAGE_CONTENT_LIMIT)
+        .collect()
+}
+
+/// 自動クローズの通知時刻に達していて、今日まだ通知していないかを判定する。
+fn is_auto_close_due(
+    now_hour: u32,
+    auto_close_hour: u32,
+    last_notified: Option<NaiveDate>,
+    today: NaiveDate,
+) -> bool {
+    now_hour >= auto_close_hour && last_notified.is_none_or(|date| date != today)
 }
 
 /// クローズ&新規作成ボタンの ActionRow を作成する。
@@ -1338,5 +1681,96 @@ async fn run_diary_periodic_tasks(handler: Handler, http: Arc<Http>, interval: D
         if let Err(error) = handler.check_hourly_sync(&http).await {
             error!(error = %error, "Hourly diary sync check failed");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relay_content_contains_content_and_source_link() {
+        let content =
+            assemble_relay_content("今日の作業ログ", &[], "https://discord.com/channels/1/2/3");
+
+        assert_eq!(
+            content,
+            "今日の作業ログ\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
+
+    #[test]
+    fn relay_content_includes_attachment_urls() {
+        let urls = [
+            "https://cdn.example.com/a.png",
+            "https://cdn.example.com/b.png",
+        ];
+        let content = assemble_relay_content("写真", &urls, "https://discord.com/channels/1/2/3");
+
+        assert_eq!(
+            content,
+            "写真\nhttps://cdn.example.com/a.png\nhttps://cdn.example.com/b.png\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
+
+    #[test]
+    fn relay_content_omits_empty_content_line() {
+        let urls = ["https://cdn.example.com/a.png"];
+        let content = assemble_relay_content("", &urls, "https://discord.com/channels/1/2/3");
+
+        assert_eq!(
+            content,
+            "https://cdn.example.com/a.png\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
+
+    #[test]
+    fn relay_content_clamps_when_attachments_alone_exceed_limit() {
+        // 添付 URL とフッタだけで上限を超えるケースでも全体が上限に収まる
+        let long_urls: Vec<String> = (0..20)
+            .map(|i| format!("https://cdn.example.com/{}/{}.png", "a".repeat(100), i))
+            .collect();
+        let url_refs: Vec<&str> = long_urls.iter().map(String::as_str).collect();
+        let content =
+            assemble_relay_content("本文", &url_refs, "https://discord.com/channels/1/2/3");
+
+        assert!(content.chars().count() <= DISCORD_MESSAGE_CONTENT_LIMIT);
+    }
+
+    #[test]
+    fn relay_content_truncates_long_content_to_limit() {
+        let long_content = "あ".repeat(3000);
+        let content =
+            assemble_relay_content(&long_content, &[], "https://discord.com/channels/1/2/3");
+
+        assert_eq!(content.chars().count(), DISCORD_MESSAGE_CONTENT_LIMIT);
+        assert!(content.contains('…'));
+        assert!(content.ends_with("-# 元のメッセージ: https://discord.com/channels/1/2/3"));
+    }
+
+    #[test]
+    fn auto_close_is_not_due_before_configured_hour() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(!is_auto_close_due(7, 8, None, today));
+    }
+
+    #[test]
+    fn auto_close_is_due_at_configured_hour_without_notification() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(is_auto_close_due(8, 8, None, today));
+        assert!(is_auto_close_due(9, 8, None, today));
+    }
+
+    #[test]
+    fn auto_close_is_not_due_when_already_notified_today() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(!is_auto_close_due(8, 8, Some(today), today));
+    }
+
+    #[test]
+    fn auto_close_is_due_when_last_notification_is_old() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        let yesterday = NaiveDate::from_ymd_opt(2026, 6, 9).unwrap();
+        assert!(is_auto_close_due(8, 8, Some(yesterday), today));
     }
 }

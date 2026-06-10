@@ -18,6 +18,20 @@ pub struct MessageBlock {
     pub block_order: i32,
 }
 
+/// 書き込み用チャンネルの元メッセージと転記メッセージの対応情報。
+#[derive(Debug, Clone, FromRow)]
+pub struct RelayedMessage {
+    /// 書き込み用チャンネルの元メッセージ ID
+    #[sqlx(try_from = "i64")]
+    pub source_message_id: u64,
+    /// 転記先の日報スレッド ID
+    #[sqlx(try_from = "i64")]
+    pub thread_id: u64,
+    /// 転記先スレッドに作成された転記メッセージ ID
+    #[sqlx(try_from = "i64")]
+    pub relayed_message_id: u64,
+}
+
 /// 日報エントリの情報。
 #[derive(Debug, Clone, FromRow)]
 pub struct DiaryEntry {
@@ -218,5 +232,62 @@ impl DiaryStore {
         .fetch_optional(&self.pool)
         .await
         .context("Failed to fetch latest diary entry")
+    }
+
+    /// 元メッセージと転記メッセージの対応を保存する。
+    ///
+    /// 同じ元メッセージに対しては転記先の情報を上書きする。
+    pub async fn upsert_relayed_message(&self, relayed: &RelayedMessage) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO diary_relayed_messages (source_message_id, thread_id, relayed_message_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (source_message_id) DO UPDATE SET
+                thread_id = EXCLUDED.thread_id,
+                relayed_message_id = EXCLUDED.relayed_message_id
+            "#,
+        )
+        .bind(relayed.source_message_id as i64)
+        .bind(relayed.thread_id as i64)
+        .bind(relayed.relayed_message_id as i64)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert relayed message")?;
+
+        Ok(())
+    }
+
+    /// 元メッセージ ID から転記メッセージの対応を取得する。
+    pub async fn get_relayed_message(
+        &self,
+        source_message_id: u64,
+    ) -> Result<Option<RelayedMessage>> {
+        sqlx::query_as(
+            r#"
+            SELECT source_message_id, thread_id, relayed_message_id
+            FROM diary_relayed_messages
+            WHERE source_message_id = $1
+            "#,
+        )
+        .bind(source_message_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch relayed message")
+    }
+
+    /// 元メッセージ ID に対応する転記メッセージの対応を削除する。
+    pub async fn delete_relayed_message(&self, source_message_id: u64) -> Result<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM diary_relayed_messages
+            WHERE source_message_id = $1
+            "#,
+        )
+        .bind(source_message_id as i64)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete relayed message")?;
+
+        Ok(())
     }
 }
