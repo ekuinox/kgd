@@ -8,7 +8,7 @@ use serenity::{
         ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
         CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
         CreateMessage, EditInteractionResponse, EditThread, GatewayIntents, GetMessages, Http,
-        Message, MessageUpdateEvent, ReactionType,
+        Message, MessageReference, MessageReferenceKind, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     diary::{
-        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, compile_url_rules,
+        DiaryEntry, DiaryStore, ForwardedMessage, MessageSyncer, NotionClient, compile_url_rules,
         format_date_in_timezone, today_in_timezone,
     },
     status::ServerStatus,
@@ -181,7 +181,17 @@ impl EventHandler for Handler {
 
     async fn message(&self, ctx: SerenityContext, message: Message) {
         // Bot 自身のメッセージは無視
+        // 注意: write_channel 分岐より先に判定すること
+        // （Bot が送る転送メッセージを処理対象にするとループする）
         if message.author.bot {
+            return;
+        }
+
+        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転送する
+        if self.config.diary.write_channel() == Some(message.channel_id.get()) {
+            if let Err(error) = self.handle_write_channel_message(&ctx, &message).await {
+                error!(error = %error, "Failed to handle write channel message");
+            }
             return;
         }
 
@@ -252,6 +262,14 @@ impl EventHandler for Handler {
             return;
         }
 
+        // 書き込み用チャンネルでの編集は Notion ブロックと転送メッセージを再生成する
+        if self.config.diary.write_channel() == Some(event.channel_id.get()) {
+            if let Err(error) = self.handle_write_channel_update(&ctx, &event).await {
+                error!(error = %error, "Failed to handle write channel message update");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = event.channel_id.to_channel(&ctx).await else {
             return;
@@ -317,6 +335,17 @@ impl EventHandler for Handler {
         deleted_message_id: MessageId,
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
+        // 書き込み用チャンネルでの削除は Notion ブロックと転送メッセージを削除する
+        if self.config.diary.write_channel() == Some(channel_id.get()) {
+            if let Err(error) = self
+                .handle_write_channel_delete(&ctx, deleted_message_id)
+                .await
+            {
+                error!(error = %error, "Failed to handle write channel message delete");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = channel_id.to_channel(&ctx).await else {
             return;
@@ -1140,6 +1169,239 @@ impl Handler {
         Ok(report)
     }
 
+    /// 転送先となる最新の日報エントリを取得する。
+    ///
+    /// 今日の日報があればそれを、無ければ最新のエントリを返す。
+    async fn latest_diary_entry_for_forward(&self) -> Result<Option<DiaryEntry>> {
+        let today = today_in_timezone(&self.config.diary.timezone);
+        if let Some(entry) = self.diary_store.get_by_date(today).await? {
+            return Ok(Some(entry));
+        }
+        self.diary_store.get_latest_entry().await
+    }
+
+    /// 書き込み用チャンネルへの投稿を処理する。
+    ///
+    /// メッセージを最新の日報スレッドの Notion ページへ同期し、
+    /// 同期に成功したらスレッドへ転送して対応を記録する。
+    /// 同期がスキップされた場合（空メッセージなど）は転送も行わない。
+    async fn handle_write_channel_message(
+        &self,
+        ctx: &SerenityContext,
+        message: &Message,
+    ) -> Result<()> {
+        let Some(entry) = self.latest_diary_entry_for_forward().await? else {
+            warn!(
+                message_id = message.id.get(),
+                "No diary entry found to forward write channel message"
+            );
+            return Ok(());
+        };
+
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )?;
+        let (synced, block_count) = self
+            .sync_message_with_reaction(&ctx.http, &syncer, &entry.page_id, message)
+            .await?;
+        if !synced {
+            // 同期対象がない場合は転送もしない
+            return Ok(());
+        }
+        info!(
+            thread_id = entry.thread_id,
+            message_id = message.id.get(),
+            blocks = block_count,
+            "Write channel message synced to Notion"
+        );
+
+        // 転送に失敗した場合は対応を記録しない
+        // （後続の編集・削除では対応が引けず、何もしない安全側に倒れる）
+        let forwarded = self
+            .forward_message_to_thread(
+                &ctx.http,
+                message.channel_id,
+                message.id,
+                ChannelId::new(entry.thread_id),
+            )
+            .await?;
+
+        self.diary_store
+            .upsert_forwarded_message(&ForwardedMessage {
+                source_message_id: message.id.get(),
+                thread_id: entry.thread_id,
+                forwarded_message_id: forwarded.id.get(),
+            })
+            .await?;
+
+        info!(
+            thread_id = entry.thread_id,
+            message_id = message.id.get(),
+            forwarded_message_id = forwarded.id.get(),
+            "Write channel message forwarded to diary thread"
+        );
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルでのメッセージ編集を処理する。
+    ///
+    /// Notion 側のブロックを作り直し、スレッドの転送メッセージを再生成する。
+    /// 転送はスナップショットのため編集に追従できず、削除して再転送する。
+    /// 再転送先は最初に転送したスレッドに固定する。
+    async fn handle_write_channel_update(
+        &self,
+        ctx: &SerenityContext,
+        event: &MessageUpdateEvent,
+    ) -> Result<()> {
+        // コンテンツがない場合は無視
+        // （埋め込み展開などユーザー編集以外の更新イベントを除外する）
+        if event.content.is_none() {
+            return Ok(());
+        }
+
+        // この機能経由で転送済みのメッセージのみ対象
+        let Some(forwarded) = self
+            .diary_store
+            .get_forwarded_message(event.id.get())
+            .await?
+        else {
+            return Ok(());
+        };
+
+        // 転送先スレッドの日報エントリ（Notion ページ）を取得
+        let Some(entry) = self.diary_store.get_by_thread(forwarded.thread_id).await? else {
+            warn!(
+                thread_id = forwarded.thread_id,
+                "Diary entry not found for forwarded message"
+            );
+            return Ok(());
+        };
+
+        // 編集後の内容を取得
+        let message = event
+            .channel_id
+            .message(&ctx.http, event.id)
+            .await
+            .context("Failed to fetch updated write channel message")?;
+
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )?;
+
+        // Notion 側は旧ブロックを削除して作り直す
+        // （添付や URL 変換によるブロック構成の変化に追従するため）
+        syncer.delete_message(event.id.get()).await?;
+        let result = syncer.sync_message(&entry.page_id, &message).await?;
+
+        // スレッド側の古い転送メッセージを削除する
+        // （手動で削除済みなどの失敗は警告に留めて続行する）
+        let thread_id = ChannelId::new(forwarded.thread_id);
+        if let Err(error) = thread_id
+            .delete_message(&ctx.http, MessageId::new(forwarded.forwarded_message_id))
+            .await
+        {
+            warn!(error = %error, "Failed to delete forwarded message before re-forwarding");
+        }
+
+        if !result.synced {
+            // 編集後の内容が同期対象でなくなった場合は再転送せず対応も削除する
+            self.diary_store
+                .delete_forwarded_message(event.id.get())
+                .await?;
+            return Ok(());
+        }
+
+        let new_forwarded = self
+            .forward_message_to_thread(&ctx.http, event.channel_id, event.id, thread_id)
+            .await?;
+
+        self.diary_store
+            .upsert_forwarded_message(&ForwardedMessage {
+                source_message_id: event.id.get(),
+                thread_id: forwarded.thread_id,
+                forwarded_message_id: new_forwarded.id.get(),
+            })
+            .await?;
+
+        info!(
+            thread_id = forwarded.thread_id,
+            message_id = event.id.get(),
+            forwarded_message_id = new_forwarded.id.get(),
+            "Write channel message updated and re-forwarded"
+        );
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルでのメッセージ削除を処理する。
+    ///
+    /// Notion 側のブロックとスレッドの転送メッセージを削除する。
+    async fn handle_write_channel_delete(
+        &self,
+        ctx: &SerenityContext,
+        deleted_message_id: MessageId,
+    ) -> Result<()> {
+        // この機能経由で転送済みのメッセージのみ対象
+        let Some(forwarded) = self
+            .diary_store
+            .get_forwarded_message(deleted_message_id.get())
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let syncer = MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )?;
+        if let Err(error) = syncer.delete_message(deleted_message_id.get()).await {
+            error!(error = %error, "Failed to delete write channel message from Notion");
+        }
+
+        // スレッド側の転送メッセージを削除する
+        // （手動で削除済みなどの失敗は警告に留めて続行する）
+        let thread_id = ChannelId::new(forwarded.thread_id);
+        if let Err(error) = thread_id
+            .delete_message(&ctx.http, MessageId::new(forwarded.forwarded_message_id))
+            .await
+        {
+            warn!(error = %error, "Failed to delete forwarded message");
+        }
+
+        self.diary_store
+            .delete_forwarded_message(deleted_message_id.get())
+            .await?;
+
+        info!(
+            thread_id = forwarded.thread_id,
+            message_id = deleted_message_id.get(),
+            "Write channel message deleted"
+        );
+
+        Ok(())
+    }
+
+    /// メッセージを指定したスレッドへ Discord の転送機能で転送する。
+    async fn forward_message_to_thread(
+        &self,
+        http: &Http,
+        source_channel_id: ChannelId,
+        source_message_id: MessageId,
+        thread_id: ChannelId,
+    ) -> Result<Message> {
+        let reference = create_forward_reference(source_channel_id, source_message_id);
+        thread_id
+            .send_message(http, CreateMessage::new().reference_message(reference))
+            .await
+            .context("Failed to forward message to diary thread")
+    }
+
     /// 1 件の日報メッセージを Notion に同期し、成功時は同期済みリアクションを付与する。
     async fn sync_message_with_reaction(
         &self,
@@ -1186,6 +1448,11 @@ impl Handler {
 
         Ok(())
     }
+}
+
+/// 転送用の MessageReference を構築する。
+fn create_forward_reference(channel_id: ChannelId, message_id: MessageId) -> MessageReference {
+    MessageReference::new(MessageReferenceKind::Forward, channel_id).message_id(message_id)
 }
 
 /// クローズ&新規作成ボタンの ActionRow を作成する。
@@ -1338,5 +1605,22 @@ async fn run_diary_periodic_tasks(handler: Handler, http: Arc<Http>, interval: D
         if let Err(error) = handler.check_hourly_sync(&http).await {
             error!(error = %error, "Hourly diary sync check failed");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forward_reference_has_forward_kind_and_source_ids() {
+        let channel_id = ChannelId::new(111);
+        let message_id = MessageId::new(222);
+
+        let reference = create_forward_reference(channel_id, message_id);
+
+        assert_eq!(reference.kind, MessageReferenceKind::Forward);
+        assert_eq!(reference.channel_id, channel_id);
+        assert_eq!(reference.message_id, Some(message_id));
     }
 }
