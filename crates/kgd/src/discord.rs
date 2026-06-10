@@ -188,7 +188,7 @@ impl EventHandler for Handler {
         }
 
         // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転記する
-        if self.config.diary.write_channel() == Some(message.channel_id.get()) {
+        if self.config.diary.write_channel_id == message.channel_id.get() {
             if let Err(error) = self.handle_write_channel_message(&ctx, &message).await {
                 error!(error = %error, "Failed to handle write channel message");
             }
@@ -259,7 +259,7 @@ impl EventHandler for Handler {
         }
 
         // 書き込み用チャンネルでの編集は Notion ブロックと転記メッセージに反映する
-        if self.config.diary.write_channel() == Some(event.channel_id.get()) {
+        if self.config.diary.write_channel_id == event.channel_id.get() {
             if let Err(error) = self.handle_write_channel_update(&ctx, &event).await {
                 error!(error = %error, "Failed to handle write channel message update");
             }
@@ -328,7 +328,7 @@ impl EventHandler for Handler {
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
         // 書き込み用チャンネルでの削除は Notion ブロックと転記メッセージを削除する
-        if self.config.diary.write_channel() == Some(channel_id.get()) {
+        if self.config.diary.write_channel_id == channel_id.get() {
             if let Err(error) = self
                 .handle_write_channel_delete(&ctx, deleted_message_id)
                 .await
@@ -810,7 +810,7 @@ impl Handler {
         let channel_id = component.channel_id;
         // 書き込み用チャンネル経由の場合は最新の日報スレッドをクローズ対象にし、
         // 日報スレッド内の場合はそのスレッド自身をクローズ対象にする
-        let in_write_channel = self.config.diary.write_channel() == Some(channel_id.get());
+        let in_write_channel = self.config.diary.write_channel_id == channel_id.get();
         if !in_write_channel
             && self
                 .diary_store
@@ -970,31 +970,24 @@ impl Handler {
             return Ok(());
         }
 
-        let mut sent = false;
-
         // スレッドがまだアクティブな場合のみスレッドへ送信する
         let thread_id = ChannelId::new(entry.thread_id);
         if self.is_thread_active(http, thread_id).await {
             self.send_auto_close_button(http, thread_id).await?;
             info!(thread_id = entry.thread_id, "Sent auto-close button");
-            sent = true;
         }
 
         // 書き込み用チャンネルにも送信する
         // （スレッドがアーカイブ済みでも、書き込み用からは新しい日報を作成できるようにする）
-        if let Some(write_channel_id) = self.config.diary.write_channel() {
-            self.send_write_channel_new_diary_button(http, ChannelId::new(write_channel_id))
-                .await?;
-            info!(
-                channel_id = write_channel_id,
-                "Sent new-diary button to write channel"
-            );
-            sent = true;
-        }
+        let write_channel_id = self.config.diary.write_channel_id;
+        self.send_write_channel_new_diary_button(http, ChannelId::new(write_channel_id))
+            .await?;
+        info!(
+            channel_id = write_channel_id,
+            "Sent new-diary button to write channel"
+        );
 
-        if sent {
-            *self.last_auto_close_notification_date.lock().await = Some(today_local);
-        }
+        *self.last_auto_close_notification_date.lock().await = Some(today_local);
 
         Ok(())
     }
