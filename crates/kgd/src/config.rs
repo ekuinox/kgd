@@ -127,6 +127,10 @@ pub struct DiaryConfig {
     pub notion_tags: Vec<NotionTagConfig>,
     /// 日報スレッドを作成する Discord フォーラムチャンネル ID
     pub forum_channel_id: u64,
+    /// 日報の書き込み用チャンネル ID（0 の場合は無効）
+    /// このチャンネルへの投稿は最新の日報スレッドへ転送され、Notion ページに同期される
+    #[serde(default)]
+    pub write_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
     #[serde(default = "default_sync_reaction")]
     pub sync_reaction: String,
@@ -153,6 +157,13 @@ pub struct DiaryConfig {
     /// OGP メタデータ取得のタイムアウト（デフォルト: 10秒）
     #[serde(default = "default_ogp_timeout", with = "humantime_serde")]
     pub ogp_timeout: Duration,
+}
+
+impl DiaryConfig {
+    /// 書き込み用チャンネル ID を返す。未設定（0）の場合は None を返す。
+    pub fn write_channel(&self) -> Option<u64> {
+        (self.write_channel_id != 0).then_some(self.write_channel_id)
+    }
 }
 
 /// URL 変換ルール設定。
@@ -259,6 +270,7 @@ mod tests {
                 notion_title_property: "Name".to_string(),
                 notion_tags: vec![],
                 forum_channel_id: 123456789012345678,
+                write_channel_id: 0,
                 sync_reaction: "✅".to_string(),
                 timezone: chrono_tz::Asia::Tokyo,
                 url_rules: vec![],
@@ -271,5 +283,20 @@ mod tests {
         };
 
         assert_eq!(config, expected);
+    }
+
+    #[test]
+    fn write_channel_returns_none_when_unset() {
+        let content = include_str!("../../../config.example.toml");
+        let config: Config = toml::from_str(content).expect("Failed to parse config.example.toml");
+
+        // example では未設定（0）なので None
+        assert_eq!(config.diary.write_channel(), None);
+
+        let diary = DiaryConfig {
+            write_channel_id: 123456789012345678,
+            ..config.diary
+        };
+        assert_eq!(diary.write_channel(), Some(123456789012345678));
     }
 }
