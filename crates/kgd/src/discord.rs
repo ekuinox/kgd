@@ -812,15 +812,24 @@ impl Handler {
     }
 
     /// 日報スレッドをクローズして新しいスレッドを作成する。
+    ///
+    /// 書き込み用チャンネルで押された場合は、最新の日報スレッドをクローズ対象とする。
     async fn handle_diary_close_and_new(
         &self,
         ctx: &SerenityContext,
         component: &ComponentInteraction,
     ) -> Result<()> {
         let channel_id = component.channel_id;
-        let Some(_entry) = self.diary_store.get_by_thread(channel_id.get()).await? else {
+        let in_write_channel = self.config.diary.write_channel() == Some(channel_id.get());
+        if !in_write_channel
+            && self
+                .diary_store
+                .get_by_thread(channel_id.get())
+                .await?
+                .is_none()
+        {
             anyhow::bail!("このスレッドは日報スレッドではありません");
-        };
+        }
 
         let timezone = &self.config.diary.timezone;
         let today = today_in_timezone(timezone);
@@ -843,6 +852,17 @@ impl Handler {
                 .await?;
             return Ok(());
         }
+
+        // クローズ対象のスレッドを決める
+        // （書き込み用チャンネルの場合は最新の日報スレッド、日報スレッドの場合はそのスレッド）
+        let thread_to_close = if in_write_channel {
+            self.diary_store
+                .get_latest_entry()
+                .await?
+                .map(|entry| ChannelId::new(entry.thread_id))
+        } else {
+            Some(channel_id)
+        };
 
         let response = CreateInteractionResponseMessage::new()
             .content("日報スレッドをクローズして新しいスレッドを作成しています...")
@@ -903,22 +923,31 @@ impl Handler {
             .await
             .context("Failed to send mention message")?;
 
-        let edit = EditThread::new().archived(true).locked(true);
-        channel_id
-            .edit_thread(&ctx.http, edit)
-            .await
-            .context("Failed to close thread after sending mention message")?;
+        if let Some(thread_to_close) = thread_to_close {
+            let edit = EditThread::new().archived(true).locked(true);
+            if let Err(error) = thread_to_close.edit_thread(&ctx.http, edit).await {
+                // 書き込み用チャンネル経由ではクローズ対象が既にアーカイブ済みのことがあるため、
+                // 失敗は警告に留めて続行する
+                warn!(
+                    error = %error,
+                    thread_id = thread_to_close.get(),
+                    "Failed to close thread after sending mention message"
+                );
+            }
 
-        info!(
-            old_thread_id = channel_id.get(),
-            new_thread_id = thread.id.get(),
-            "Diary thread closed by button"
-        );
+            info!(
+                old_thread_id = thread_to_close.get(),
+                new_thread_id = thread.id.get(),
+                "Diary thread closed by button"
+            );
+        }
 
         Ok(())
     }
 
     /// 自動クローズのチェックを行い、必要ならボタン付きメッセージを送信する。
+    ///
+    /// 前日の日報スレッドに加え、書き込み用チャンネルが設定されていればそちらにも送信する。
     pub async fn check_auto_close(&self, http: &Http) -> Result<()> {
         if !self.config.diary.auto_close_enabled {
             return Ok(());
@@ -929,15 +958,16 @@ impl Handler {
         let today = today_in_timezone(timezone);
         let today_local = now.date_naive();
 
-        // 指定された時刻以降かチェック
-        if now.hour() < self.config.diary.auto_close_hour {
-            return Ok(());
-        }
-
+        // 指定された時刻以降かつ今日まだ通知していないかチェック
         {
             let last_auto_close_notification_date =
                 self.last_auto_close_notification_date.lock().await;
-            if last_auto_close_notification_date.is_some_and(|date| date == today_local) {
+            if !is_auto_close_due(
+                now.hour(),
+                self.config.diary.auto_close_hour,
+                *last_auto_close_notification_date,
+                today_local,
+            ) {
                 return Ok(());
             }
         }
@@ -952,30 +982,46 @@ impl Handler {
             return Ok(());
         }
 
-        // スレッドがまだアクティブかチェック
-        let thread_id = ChannelId::new(entry.thread_id);
-        let Ok(channel) = thread_id.to_channel(http).await else {
-            return Ok(());
-        };
-        let Some(thread) = channel.guild() else {
-            return Ok(());
-        };
+        let mut sent = false;
 
-        // アーカイブされている、またはロックされている場合はスキップ
-        if thread
-            .thread_metadata
-            .is_some_and(|m| m.archived || m.locked)
-        {
-            return Ok(());
+        // スレッドがまだアクティブな場合のみスレッドへ送信する
+        let thread_id = ChannelId::new(entry.thread_id);
+        if self.is_thread_active(http, thread_id).await {
+            self.send_auto_close_button(http, thread_id).await?;
+            info!(thread_id = entry.thread_id, "Sent auto-close button");
+            sent = true;
         }
 
-        // ボタン付きメッセージを送信
-        self.send_auto_close_button(http, thread_id).await?;
-        *self.last_auto_close_notification_date.lock().await = Some(today_local);
+        // 書き込み用チャンネルにも送信する
+        // （スレッドがアーカイブ済みでも、書き込み用からは新しい日報を作成できるようにする）
+        if let Some(write_channel_id) = self.config.diary.write_channel() {
+            self.send_write_channel_new_diary_button(http, ChannelId::new(write_channel_id))
+                .await?;
+            info!(
+                channel_id = write_channel_id,
+                "Sent new-diary button to write channel"
+            );
+            sent = true;
+        }
 
-        info!(thread_id = entry.thread_id, "Sent auto-close button");
+        if sent {
+            *self.last_auto_close_notification_date.lock().await = Some(today_local);
+        }
 
         Ok(())
+    }
+
+    /// スレッドがアクティブ（アーカイブ・ロックされていない）かどうかを返す。
+    async fn is_thread_active(&self, http: &Http, thread_id: ChannelId) -> bool {
+        let Ok(channel) = thread_id.to_channel(http).await else {
+            return false;
+        };
+        let Some(thread) = channel.guild() else {
+            return false;
+        };
+        !thread
+            .thread_metadata
+            .is_some_and(|m| m.archived || m.locked)
     }
 
     /// 毎時の境目で直近 3 日分の日報スレッドを再同期する。
@@ -1019,6 +1065,24 @@ impl Handler {
             .send_message(http, message)
             .await
             .context("Failed to send auto-close button message")?;
+
+        Ok(())
+    }
+
+    /// 書き込み用チャンネルへ新しい日報作成のボタン付きメッセージを送信する。
+    async fn send_write_channel_new_diary_button(
+        &self,
+        http: &Http,
+        channel_id: ChannelId,
+    ) -> Result<()> {
+        let message = CreateMessage::new()
+            .content("日付が変わりました。前日の日報をクローズして新しい日報を作成しますか？")
+            .components(vec![create_close_and_new_action_row()]);
+
+        channel_id
+            .send_message(http, message)
+            .await
+            .context("Failed to send new-diary button message to write channel")?;
 
         Ok(())
     }
@@ -1455,6 +1519,16 @@ fn create_forward_reference(channel_id: ChannelId, message_id: MessageId) -> Mes
     MessageReference::new(MessageReferenceKind::Forward, channel_id).message_id(message_id)
 }
 
+/// 自動クローズの通知時刻に達していて、今日まだ通知していないかを判定する。
+fn is_auto_close_due(
+    now_hour: u32,
+    auto_close_hour: u32,
+    last_notified: Option<NaiveDate>,
+    today: NaiveDate,
+) -> bool {
+    now_hour >= auto_close_hour && last_notified.is_none_or(|date| date != today)
+}
+
 /// クローズ&新規作成ボタンの ActionRow を作成する。
 fn create_close_and_new_action_row() -> CreateActionRow {
     let button = CreateButton::new(DIARY_CLOSE_AND_NEW_BUTTON_ID)
@@ -1622,5 +1696,31 @@ mod tests {
         assert_eq!(reference.kind, MessageReferenceKind::Forward);
         assert_eq!(reference.channel_id, channel_id);
         assert_eq!(reference.message_id, Some(message_id));
+    }
+
+    #[test]
+    fn auto_close_is_not_due_before_configured_hour() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(!is_auto_close_due(7, 8, None, today));
+    }
+
+    #[test]
+    fn auto_close_is_due_at_configured_hour_without_notification() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(is_auto_close_due(8, 8, None, today));
+        assert!(is_auto_close_due(9, 8, None, today));
+    }
+
+    #[test]
+    fn auto_close_is_not_due_when_already_notified_today() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        assert!(!is_auto_close_due(8, 8, Some(today), today));
+    }
+
+    #[test]
+    fn auto_close_is_due_when_last_notification_is_old() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 10).unwrap();
+        let yesterday = NaiveDate::from_ymd_opt(2026, 6, 9).unwrap();
+        assert!(is_auto_close_due(8, 8, Some(yesterday), today));
     }
 }
