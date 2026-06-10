@@ -217,11 +217,7 @@ impl EventHandler for Handler {
         let page_id = entry.page_id.clone();
 
         // Notion に同期
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -300,11 +296,7 @@ impl EventHandler for Handler {
         let mut message = message;
         message.content = content;
 
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -363,11 +355,7 @@ impl EventHandler for Handler {
         };
 
         // Notion から対応するブロックを削除
-        let syncer = match MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        ) {
+        let syncer = match self.message_syncer() {
             Ok(s) => s,
             Err(e) => {
                 error!(error = %e, "Failed to create message syncer");
@@ -820,6 +808,8 @@ impl Handler {
         component: &ComponentInteraction,
     ) -> Result<()> {
         let channel_id = component.channel_id;
+        // 書き込み用チャンネル経由の場合は最新の日報スレッドをクローズ対象にし、
+        // 日報スレッド内の場合はそのスレッド自身をクローズ対象にする
         let in_write_channel = self.config.diary.write_channel() == Some(channel_id.get());
         if !in_write_channel
             && self
@@ -872,8 +862,6 @@ impl Handler {
             .create_response(&ctx.http, CreateInteractionResponse::Message(response))
             .await?;
 
-        let timezone = &self.config.diary.timezone;
-        let today = today_in_timezone(timezone);
         let date_str = format_date_in_timezone(today, timezone);
 
         let notion_client = self.notion_client.as_ref();
@@ -1157,11 +1145,7 @@ impl Handler {
             anyhow::bail!("Channel {} is not a public thread", thread_id.get());
         }
 
-        let syncer = MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        )?;
+        let syncer = self.message_syncer()?;
         let mut before = None;
         let mut pending_messages = Vec::new();
         let mut report = DiaryThreadSyncReport::default();
@@ -1262,32 +1246,38 @@ impl Handler {
             return Ok(());
         };
 
-        let syncer = MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        )?;
-        let (synced, block_count) = self
-            .sync_message_with_reaction(&ctx.http, &syncer, &entry.page_id, message)
-            .await?;
-        if !synced {
+        let syncer = self.message_syncer()?;
+        let result = syncer.sync_message(&entry.page_id, message).await?;
+        if !result.synced {
             // 同期対象がない場合は転記もしない
             return Ok(());
         }
         info!(
             thread_id = entry.thread_id,
             message_id = message.id.get(),
-            blocks = block_count,
+            blocks = result.block_count,
             "Write channel message synced to Notion"
         );
 
-        // 転記に失敗した場合は対応を記録しない
-        // （後続の編集・削除では対応が引けず、何もしない安全側に倒れる）
+        // 転記に失敗した場合は Notion ブロックを巻き戻して整合を保つ
+        // （対応レコードが無いまま Notion にブロックが残ると、後続の編集・削除が追従できないため）
         let content = build_relay_content(message, message.guild_id);
-        let relayed = ChannelId::new(entry.thread_id)
+        let relayed = match ChannelId::new(entry.thread_id)
             .send_message(&ctx.http, CreateMessage::new().content(content))
             .await
-            .context("Failed to relay message to diary thread")?;
+        {
+            Ok(relayed) => relayed,
+            Err(error) => {
+                if let Err(rollback_error) = syncer.delete_message(message.id.get()).await {
+                    error!(
+                        error = %rollback_error,
+                        message_id = message.id.get(),
+                        "Failed to roll back Notion blocks after relay failure"
+                    );
+                }
+                return Err(error).context("Failed to relay message to diary thread");
+            }
+        };
 
         self.diary_store
             .upsert_relayed_message(&RelayedMessage {
@@ -1296,6 +1286,9 @@ impl Handler {
                 relayed_message_id: relayed.id.get(),
             })
             .await?;
+
+        // すべて成功したらリアクションを付ける
+        self.add_sync_reaction(&ctx.http, message).await;
 
         info!(
             thread_id = entry.thread_id,
@@ -1343,36 +1336,23 @@ impl Handler {
             .await
             .context("Failed to fetch updated write channel message")?;
 
-        let syncer = MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        )?;
+        let syncer = self.message_syncer()?;
 
         // Notion 側は旧ブロックを削除して作り直す
         // （添付や URL 変換によるブロック構成の変化に追従するため）
         syncer.delete_message(event.id.get()).await?;
         let result = syncer.sync_message(&entry.page_id, &message).await?;
 
-        let thread_id = ChannelId::new(relayed.thread_id);
         if !result.synced {
             // 編集後の内容が同期対象でなくなった場合は転記メッセージと対応を削除する
-            if let Err(error) = thread_id
-                .delete_message(&ctx.http, MessageId::new(relayed.relayed_message_id))
-                .await
-            {
-                warn!(error = %error, "Failed to delete relayed message");
-            }
-            self.diary_store
-                .delete_relayed_message(event.id.get())
-                .await?;
+            self.delete_relayed(&ctx.http, &relayed).await?;
             return Ok(());
         }
 
         // 転記メッセージをその場で編集する
         // （REST で取得したメッセージは guild_id を持たないためイベント側から渡す）
         let content = build_relay_content(&message, event.guild_id);
-        thread_id
+        ChannelId::new(relayed.thread_id)
             .edit_message(
                 &ctx.http,
                 MessageId::new(relayed.relayed_message_id),
@@ -1408,28 +1388,12 @@ impl Handler {
             return Ok(());
         };
 
-        let syncer = MessageSyncer::new(
-            self.notion_client.as_ref(),
-            &self.diary_store,
-            &self.config.diary,
-        )?;
+        let syncer = self.message_syncer()?;
         if let Err(error) = syncer.delete_message(deleted_message_id.get()).await {
             error!(error = %error, "Failed to delete write channel message from Notion");
         }
 
-        // スレッド側の転記メッセージを削除する
-        // （手動で削除済みなどの失敗は警告に留めて続行する）
-        let thread_id = ChannelId::new(relayed.thread_id);
-        if let Err(error) = thread_id
-            .delete_message(&ctx.http, MessageId::new(relayed.relayed_message_id))
-            .await
-        {
-            warn!(error = %error, "Failed to delete relayed message");
-        }
-
-        self.diary_store
-            .delete_relayed_message(deleted_message_id.get())
-            .await?;
+        self.delete_relayed(&ctx.http, &relayed).await?;
 
         info!(
             thread_id = relayed.thread_id,
@@ -1438,6 +1402,31 @@ impl Handler {
         );
 
         Ok(())
+    }
+
+    /// スレッドの転記メッセージと対応レコードを削除する。
+    ///
+    /// 転記メッセージの削除失敗（手動で削除済みなど）は警告に留めて続行する。
+    async fn delete_relayed(&self, http: &Http, relayed: &RelayedMessage) -> Result<()> {
+        if let Err(error) = ChannelId::new(relayed.thread_id)
+            .delete_message(http, MessageId::new(relayed.relayed_message_id))
+            .await
+        {
+            warn!(error = %error, "Failed to delete relayed message");
+        }
+
+        self.diary_store
+            .delete_relayed_message(relayed.source_message_id)
+            .await
+    }
+
+    /// 設定済みの構成で MessageSyncer を作成する。
+    fn message_syncer(&self) -> Result<MessageSyncer<'_>> {
+        MessageSyncer::new(
+            self.notion_client.as_ref(),
+            &self.diary_store,
+            &self.config.diary,
+        )
     }
 
     /// 1 件の日報メッセージを Notion に同期し、成功時は同期済みリアクションを付与する。
@@ -1507,7 +1496,6 @@ fn build_relay_content(message: &Message, guild_id: Option<GuildId>) -> String {
 /// 転記メッセージの本文を本文・添付 URL・元メッセージリンクから組み立てる。
 ///
 /// 全体が Discord の文字数上限を超える場合は本文側を切り詰める。
-/// （本文以外だけで上限を超えるケースは想定しない）
 fn assemble_relay_content(content: &str, attachment_urls: &[&str], source_link: &str) -> String {
     let footer = format!("-# 元のメッセージ: {source_link}");
 
@@ -1531,7 +1519,13 @@ fn assemble_relay_content(content: &str, attachment_urls: &[&str], source_link: 
     let overflow = total - DISCORD_MESSAGE_CONTENT_LIMIT;
     let keep = content.chars().count().saturating_sub(overflow + 1);
     let truncated: String = content.chars().take(keep).chain(['…']).collect();
+
+    // 本文以外（添付 URL とフッタ）だけで上限を超える場合に備え、
+    // 最終的に全体を上限で丸めて送信失敗を防ぐ
     build(&truncated)
+        .chars()
+        .take(DISCORD_MESSAGE_CONTENT_LIMIT)
+        .collect()
 }
 
 /// 自動クローズの通知時刻に達していて、今日まだ通知していないかを判定する。
@@ -1735,6 +1729,19 @@ mod tests {
             content,
             "https://cdn.example.com/a.png\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
         );
+    }
+
+    #[test]
+    fn relay_content_clamps_when_attachments_alone_exceed_limit() {
+        // 添付 URL とフッタだけで上限を超えるケースでも全体が上限に収まる
+        let long_urls: Vec<String> = (0..20)
+            .map(|i| format!("https://cdn.example.com/{}/{}.png", "a".repeat(100), i))
+            .collect();
+        let url_refs: Vec<&str> = long_urls.iter().map(String::as_str).collect();
+        let content =
+            assemble_relay_content("本文", &url_refs, "https://discord.com/channels/1/2/3");
+
+        assert!(content.chars().count() <= DISCORD_MESSAGE_CONTENT_LIMIT);
     }
 
     #[test]
