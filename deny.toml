@@ -12,11 +12,75 @@ all-features = true
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# notion-client の依存関係 (reqwest v0.11) が使用している rustls-pemfile はメンテナンス終了
-# notion-client のアップデートを待つ
-# image crate の依存関係 (rav1e -> paste) がメンテナンス終了
-# image crate のアップデートを待つ
-ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2024-0436", "RUSTSEC-2026-0049"]
+
+# paste はメンテナンス終了 (脆弱性ではなく未保守の通知)。
+# 依存経路: paste -> rav1e -> ravif -> image -> heif -> kgd。
+# 画像 (HEIC 等) 変換のためのビルド時 proc-macro として利用されるのみで、
+# 実行時のセキュリティ影響はない。修正版は存在せず、image / rav1e 側の上流更新を待つ。
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0436"
+reason = "paste はメンテナンス終了 (未保守の通知のみで脆弱性ではない)。image -> rav1e 経由で引き込まれるビルド時 proc-macro で実行時影響なし。修正版なし、上流更新待ち"
+
+# rustls-pemfile はメンテナンス終了 (脆弱性ではなく未保守の通知)。
+# 依存経路: rustls-pemfile -> reqwest 0.11 -> notion-client -> kgd。
+# notion-client が古い reqwest 0.11 を使用しているため引き込まれる。
+# 既知の脆弱性はなく、notion-client が reqwest を更新するのを待つ。
+[[advisories.ignore]]
+id = "RUSTSEC-2025-0134"
+reason = "rustls-pemfile はメンテナンス終了 (未保守の通知のみで脆弱性ではない)。notion-client -> reqwest 0.11 経由で引き込まれる。既知の脆弱性なし、notion-client の更新待ち"
+
+# rustls-webpki 0.102.x の CRL 照合ロジックの不具合。
+# 依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21
+#   -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
+# 本プロジェクトは CRL ベースの失効確認を構成しておらず本不具合には到達しない。
+# また悪用には信頼された発行局の侵害が必要で実質的な影響は限定的。
+# 0.102.x 系に修正版がなく、serenity が rustls 0.22.4 を固定しているため上流更新待ち。
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0049"
+reason = """
+rustls-webpki 0.102.x の CRL distributionPoint 照合ロジックの不具合。
+依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21 -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
+本プロジェクトは CRL ベースの失効確認を構成しておらず本不具合には到達しない。悪用にも信頼された発行局の侵害が必要で実質的な影響は限定的。
+0.102.x 系に修正版がなく serenity が rustls 0.22.4 を固定しているため、serenity 側の上流更新を待つ。
+"""
+
+# rustls-webpki 0.102.x で URI 名の name constraints が無視され受理される不具合。
+# 依存経路は RUSTSEC-2026-0049 と同じ (serenity -> rustls 0.22.4)。
+# 発火には署名検証後の誤発行証明書が必要で、既知の正規 CA に接続する
+# クライアント用途 (Discord) では実質的な影響はない。
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0098"
+reason = """
+rustls-webpki 0.102.x で URI 名の name constraints が無視され受理される不具合。
+依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21 -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
+発火には署名検証後の誤発行証明書が必要で、既知の正規 CA に接続するクライアント用途では実質的な影響はない。
+0.102.x 系に修正版がなく serenity が rustls 0.22.4 を固定しているため、serenity 側の上流更新を待つ。
+"""
+
+# rustls-webpki 0.102.x でワイルドカード名証明書に対し name constraints が
+# 誤って受理される不具合。依存経路は RUSTSEC-2026-0049 と同じ。
+# 発火には誤発行証明書が必要で、クライアント用途 (Discord) では実質的な影響はない。
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0099"
+reason = """
+rustls-webpki 0.102.x でワイルドカード名証明書に対し name constraints が誤って受理される不具合。
+依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21 -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
+発火には誤発行証明書が必要で、既知の正規 CA に接続するクライアント用途では実質的な影響はない。
+0.102.x 系に修正版がなく serenity が rustls 0.22.4 を固定しているため、serenity 側の上流更新を待つ。
+"""
+
+# rustls-webpki 0.102.x の CRL パースで到達可能な panic。
+# 依存経路は RUSTSEC-2026-0049 と同じ。
+# advisory 記載の通り CRL を使用しないアプリケーションは影響を受けず、
+# 本プロジェクトは CRL を使用しないため影響なし。
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0104"
+reason = """
+rustls-webpki 0.102.x の CRL パースで到達可能な panic。
+依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21 -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
+advisory 記載の通り CRL を使用しないアプリケーションは影響を受けず、本プロジェクトは CRL を使用しないため影響なし。
+0.102.x 系に修正版がなく serenity が rustls 0.22.4 を固定しているため、serenity 側の上流更新を待つ。
+"""
 
 # Licenses check - checks for allowed licenses
 # コピーレフト（伝搬性のある）ライセンスは許可しない
