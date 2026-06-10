@@ -10,7 +10,7 @@ mod sync;
 mod url_parser;
 
 pub use notion::NotionClient;
-pub use store::{DiaryEntry, DiaryStore, ForwardedMessage, MessageBlock};
+pub use store::{DiaryEntry, DiaryStore, MessageBlock, RelayedMessage};
 pub use sync::MessageSyncer;
 pub use url_parser::compile_url_rules;
 

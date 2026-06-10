@@ -7,14 +7,14 @@ use serenity::{
         ActionRowComponent, ButtonKind, ChannelId, ChannelType, CommandInteraction,
         ComponentInteraction, CreateActionRow, CreateButton, CreateCommand, CreateCommandOption,
         CreateEmbed, CreateForumPost, CreateInteractionResponse, CreateInteractionResponseMessage,
-        CreateMessage, EditInteractionResponse, EditThread, GatewayIntents, GetMessages, Http,
-        Message, MessageReference, MessageReferenceKind, MessageUpdateEvent, ReactionType,
+        CreateMessage, EditInteractionResponse, EditMessage, EditThread, GatewayIntents,
+        GetMessages, Http, Message, MessageUpdateEvent, ReactionType,
     },
     async_trait,
     builder::CreateEmbedFooter,
     client::Context as SerenityContext,
     model::application::CommandOptionType,
-    model::id::MessageId,
+    model::id::{GuildId, MessageId},
     prelude::*,
 };
 use tokio::sync::{Mutex, mpsc};
@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     diary::{
-        DiaryEntry, DiaryStore, ForwardedMessage, MessageSyncer, NotionClient, compile_url_rules,
+        DiaryEntry, DiaryStore, MessageSyncer, NotionClient, RelayedMessage, compile_url_rules,
         format_date_in_timezone, today_in_timezone,
     },
     status::ServerStatus,
@@ -182,12 +182,12 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: SerenityContext, message: Message) {
         // Bot 自身のメッセージは無視
         // 注意: write_channel 分岐より先に判定すること
-        // （Bot が送る転送メッセージを処理対象にするとループする）
+        // （Bot が送る転記メッセージを処理対象にするとループする）
         if message.author.bot {
             return;
         }
 
-        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転送する
+        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転記する
         if self.config.diary.write_channel() == Some(message.channel_id.get()) {
             if let Err(error) = self.handle_write_channel_message(&ctx, &message).await {
                 error!(error = %error, "Failed to handle write channel message");
@@ -262,7 +262,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        // 書き込み用チャンネルでの編集は Notion ブロックと転送メッセージを再生成する
+        // 書き込み用チャンネルでの編集は Notion ブロックと転記メッセージに反映する
         if self.config.diary.write_channel() == Some(event.channel_id.get()) {
             if let Err(error) = self.handle_write_channel_update(&ctx, &event).await {
                 error!(error = %error, "Failed to handle write channel message update");
@@ -335,7 +335,7 @@ impl EventHandler for Handler {
         deleted_message_id: MessageId,
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
-        // 書き込み用チャンネルでの削除は Notion ブロックと転送メッセージを削除する
+        // 書き込み用チャンネルでの削除は Notion ブロックと転記メッセージを削除する
         if self.config.diary.write_channel() == Some(channel_id.get()) {
             if let Err(error) = self
                 .handle_write_channel_delete(&ctx, deleted_message_id)
@@ -1233,10 +1233,10 @@ impl Handler {
         Ok(report)
     }
 
-    /// 転送先となる最新の日報エントリを取得する。
+    /// 転記先となる最新の日報エントリを取得する。
     ///
     /// 今日の日報があればそれを、無ければ最新のエントリを返す。
-    async fn latest_diary_entry_for_forward(&self) -> Result<Option<DiaryEntry>> {
+    async fn latest_diary_entry_for_relay(&self) -> Result<Option<DiaryEntry>> {
         let today = today_in_timezone(&self.config.diary.timezone);
         if let Some(entry) = self.diary_store.get_by_date(today).await? {
             return Ok(Some(entry));
@@ -1247,17 +1247,17 @@ impl Handler {
     /// 書き込み用チャンネルへの投稿を処理する。
     ///
     /// メッセージを最新の日報スレッドの Notion ページへ同期し、
-    /// 同期に成功したらスレッドへ転送して対応を記録する。
-    /// 同期がスキップされた場合（空メッセージなど）は転送も行わない。
+    /// 同期に成功したらスレッドへ転記して対応を記録する。
+    /// 同期がスキップされた場合（空メッセージなど）は転記も行わない。
     async fn handle_write_channel_message(
         &self,
         ctx: &SerenityContext,
         message: &Message,
     ) -> Result<()> {
-        let Some(entry) = self.latest_diary_entry_for_forward().await? else {
+        let Some(entry) = self.latest_diary_entry_for_relay().await? else {
             warn!(
                 message_id = message.id.get(),
-                "No diary entry found to forward write channel message"
+                "No diary entry found to relay write channel message"
             );
             return Ok(());
         };
@@ -1271,7 +1271,7 @@ impl Handler {
             .sync_message_with_reaction(&ctx.http, &syncer, &entry.page_id, message)
             .await?;
         if !synced {
-            // 同期対象がない場合は転送もしない
+            // 同期対象がない場合は転記もしない
             return Ok(());
         }
         info!(
@@ -1281,30 +1281,27 @@ impl Handler {
             "Write channel message synced to Notion"
         );
 
-        // 転送に失敗した場合は対応を記録しない
+        // 転記に失敗した場合は対応を記録しない
         // （後続の編集・削除では対応が引けず、何もしない安全側に倒れる）
-        let forwarded = self
-            .forward_message_to_thread(
-                &ctx.http,
-                message.channel_id,
-                message.id,
-                ChannelId::new(entry.thread_id),
-            )
-            .await?;
+        let content = build_relay_content(message, message.guild_id);
+        let relayed = ChannelId::new(entry.thread_id)
+            .send_message(&ctx.http, CreateMessage::new().content(content))
+            .await
+            .context("Failed to relay message to diary thread")?;
 
         self.diary_store
-            .upsert_forwarded_message(&ForwardedMessage {
+            .upsert_relayed_message(&RelayedMessage {
                 source_message_id: message.id.get(),
                 thread_id: entry.thread_id,
-                forwarded_message_id: forwarded.id.get(),
+                relayed_message_id: relayed.id.get(),
             })
             .await?;
 
         info!(
             thread_id = entry.thread_id,
             message_id = message.id.get(),
-            forwarded_message_id = forwarded.id.get(),
-            "Write channel message forwarded to diary thread"
+            relayed_message_id = relayed.id.get(),
+            "Write channel message relayed to diary thread"
         );
 
         Ok(())
@@ -1312,9 +1309,8 @@ impl Handler {
 
     /// 書き込み用チャンネルでのメッセージ編集を処理する。
     ///
-    /// Notion 側のブロックを作り直し、スレッドの転送メッセージを再生成する。
-    /// 転送はスナップショットのため編集に追従できず、削除して再転送する。
-    /// 再転送先は最初に転送したスレッドに固定する。
+    /// Notion 側のブロックを作り直し、スレッドの転記メッセージをその場で編集する
+    /// （スレッド内の時系列を保つため、削除や再投稿はしない）。
     async fn handle_write_channel_update(
         &self,
         ctx: &SerenityContext,
@@ -1326,20 +1322,16 @@ impl Handler {
             return Ok(());
         }
 
-        // この機能経由で転送済みのメッセージのみ対象
-        let Some(forwarded) = self
-            .diary_store
-            .get_forwarded_message(event.id.get())
-            .await?
-        else {
+        // この機能経由で転記済みのメッセージのみ対象
+        let Some(relayed) = self.diary_store.get_relayed_message(event.id.get()).await? else {
             return Ok(());
         };
 
-        // 転送先スレッドの日報エントリ（Notion ページ）を取得
-        let Some(entry) = self.diary_store.get_by_thread(forwarded.thread_id).await? else {
+        // 転記先スレッドの日報エントリ（Notion ページ）を取得
+        let Some(entry) = self.diary_store.get_by_thread(relayed.thread_id).await? else {
             warn!(
-                thread_id = forwarded.thread_id,
-                "Diary entry not found for forwarded message"
+                thread_id = relayed.thread_id,
+                "Diary entry not found for relayed message"
             );
             return Ok(());
         };
@@ -1362,41 +1354,38 @@ impl Handler {
         syncer.delete_message(event.id.get()).await?;
         let result = syncer.sync_message(&entry.page_id, &message).await?;
 
-        // スレッド側の古い転送メッセージを削除する
-        // （手動で削除済みなどの失敗は警告に留めて続行する）
-        let thread_id = ChannelId::new(forwarded.thread_id);
-        if let Err(error) = thread_id
-            .delete_message(&ctx.http, MessageId::new(forwarded.forwarded_message_id))
-            .await
-        {
-            warn!(error = %error, "Failed to delete forwarded message before re-forwarding");
-        }
-
+        let thread_id = ChannelId::new(relayed.thread_id);
         if !result.synced {
-            // 編集後の内容が同期対象でなくなった場合は再転送せず対応も削除する
+            // 編集後の内容が同期対象でなくなった場合は転記メッセージと対応を削除する
+            if let Err(error) = thread_id
+                .delete_message(&ctx.http, MessageId::new(relayed.relayed_message_id))
+                .await
+            {
+                warn!(error = %error, "Failed to delete relayed message");
+            }
             self.diary_store
-                .delete_forwarded_message(event.id.get())
+                .delete_relayed_message(event.id.get())
                 .await?;
             return Ok(());
         }
 
-        let new_forwarded = self
-            .forward_message_to_thread(&ctx.http, event.channel_id, event.id, thread_id)
-            .await?;
-
-        self.diary_store
-            .upsert_forwarded_message(&ForwardedMessage {
-                source_message_id: event.id.get(),
-                thread_id: forwarded.thread_id,
-                forwarded_message_id: new_forwarded.id.get(),
-            })
-            .await?;
+        // 転記メッセージをその場で編集する
+        // （REST で取得したメッセージは guild_id を持たないためイベント側から渡す）
+        let content = build_relay_content(&message, event.guild_id);
+        thread_id
+            .edit_message(
+                &ctx.http,
+                MessageId::new(relayed.relayed_message_id),
+                EditMessage::new().content(content),
+            )
+            .await
+            .context("Failed to edit relayed message")?;
 
         info!(
-            thread_id = forwarded.thread_id,
+            thread_id = relayed.thread_id,
             message_id = event.id.get(),
-            forwarded_message_id = new_forwarded.id.get(),
-            "Write channel message updated and re-forwarded"
+            relayed_message_id = relayed.relayed_message_id,
+            "Write channel message updated and relayed message edited"
         );
 
         Ok(())
@@ -1404,16 +1393,16 @@ impl Handler {
 
     /// 書き込み用チャンネルでのメッセージ削除を処理する。
     ///
-    /// Notion 側のブロックとスレッドの転送メッセージを削除する。
+    /// Notion 側のブロックとスレッドの転記メッセージを削除する。
     async fn handle_write_channel_delete(
         &self,
         ctx: &SerenityContext,
         deleted_message_id: MessageId,
     ) -> Result<()> {
-        // この機能経由で転送済みのメッセージのみ対象
-        let Some(forwarded) = self
+        // この機能経由で転記済みのメッセージのみ対象
+        let Some(relayed) = self
             .diary_store
-            .get_forwarded_message(deleted_message_id.get())
+            .get_relayed_message(deleted_message_id.get())
             .await?
         else {
             return Ok(());
@@ -1428,42 +1417,27 @@ impl Handler {
             error!(error = %error, "Failed to delete write channel message from Notion");
         }
 
-        // スレッド側の転送メッセージを削除する
+        // スレッド側の転記メッセージを削除する
         // （手動で削除済みなどの失敗は警告に留めて続行する）
-        let thread_id = ChannelId::new(forwarded.thread_id);
+        let thread_id = ChannelId::new(relayed.thread_id);
         if let Err(error) = thread_id
-            .delete_message(&ctx.http, MessageId::new(forwarded.forwarded_message_id))
+            .delete_message(&ctx.http, MessageId::new(relayed.relayed_message_id))
             .await
         {
-            warn!(error = %error, "Failed to delete forwarded message");
+            warn!(error = %error, "Failed to delete relayed message");
         }
 
         self.diary_store
-            .delete_forwarded_message(deleted_message_id.get())
+            .delete_relayed_message(deleted_message_id.get())
             .await?;
 
         info!(
-            thread_id = forwarded.thread_id,
+            thread_id = relayed.thread_id,
             message_id = deleted_message_id.get(),
             "Write channel message deleted"
         );
 
         Ok(())
-    }
-
-    /// メッセージを指定したスレッドへ Discord の転送機能で転送する。
-    async fn forward_message_to_thread(
-        &self,
-        http: &Http,
-        source_channel_id: ChannelId,
-        source_message_id: MessageId,
-        thread_id: ChannelId,
-    ) -> Result<Message> {
-        let reference = create_forward_reference(source_channel_id, source_message_id);
-        thread_id
-            .send_message(http, CreateMessage::new().reference_message(reference))
-            .await
-            .context("Failed to forward message to diary thread")
     }
 
     /// 1 件の日報メッセージを Notion に同期し、成功時は同期済みリアクションを付与する。
@@ -1514,9 +1488,50 @@ impl Handler {
     }
 }
 
-/// 転送用の MessageReference を構築する。
-fn create_forward_reference(channel_id: ChannelId, message_id: MessageId) -> MessageReference {
-    MessageReference::new(MessageReferenceKind::Forward, channel_id).message_id(message_id)
+/// Discord メッセージ本文の最大文字数。
+const DISCORD_MESSAGE_CONTENT_LIMIT: usize = 2000;
+
+/// 転記メッセージの本文を組み立てる。
+///
+/// 元メッセージの本文に添付ファイルの URL と元メッセージへのリンクを付け加える。
+fn build_relay_content(message: &Message, guild_id: Option<GuildId>) -> String {
+    let source_link = message.id.link(message.channel_id, guild_id);
+    let attachment_urls: Vec<&str> = message
+        .attachments
+        .iter()
+        .map(|attachment| attachment.url.as_str())
+        .collect();
+    assemble_relay_content(&message.content, &attachment_urls, &source_link)
+}
+
+/// 転記メッセージの本文を本文・添付 URL・元メッセージリンクから組み立てる。
+///
+/// 全体が Discord の文字数上限を超える場合は本文側を切り詰める。
+/// （本文以外だけで上限を超えるケースは想定しない）
+fn assemble_relay_content(content: &str, attachment_urls: &[&str], source_link: &str) -> String {
+    let footer = format!("-# 元のメッセージ: {source_link}");
+
+    let build = |content: &str| {
+        let mut sections = Vec::new();
+        if !content.is_empty() {
+            sections.push(content);
+        }
+        sections.extend(attachment_urls.iter().copied());
+        sections.push(&footer);
+        sections.join("\n")
+    };
+
+    let assembled = build(content);
+    let total = assembled.chars().count();
+    if total <= DISCORD_MESSAGE_CONTENT_LIMIT {
+        return assembled;
+    }
+
+    // 上限超過分と省略記号の分だけ本文を切り詰める
+    let overflow = total - DISCORD_MESSAGE_CONTENT_LIMIT;
+    let keep = content.chars().count().saturating_sub(overflow + 1);
+    let truncated: String = content.chars().take(keep).chain(['…']).collect();
+    build(&truncated)
 }
 
 /// 自動クローズの通知時刻に達していて、今日まだ通知していないかを判定する。
@@ -1687,15 +1702,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn forward_reference_has_forward_kind_and_source_ids() {
-        let channel_id = ChannelId::new(111);
-        let message_id = MessageId::new(222);
+    fn relay_content_contains_content_and_source_link() {
+        let content =
+            assemble_relay_content("今日の作業ログ", &[], "https://discord.com/channels/1/2/3");
 
-        let reference = create_forward_reference(channel_id, message_id);
+        assert_eq!(
+            content,
+            "今日の作業ログ\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
 
-        assert_eq!(reference.kind, MessageReferenceKind::Forward);
-        assert_eq!(reference.channel_id, channel_id);
-        assert_eq!(reference.message_id, Some(message_id));
+    #[test]
+    fn relay_content_includes_attachment_urls() {
+        let urls = [
+            "https://cdn.example.com/a.png",
+            "https://cdn.example.com/b.png",
+        ];
+        let content = assemble_relay_content("写真", &urls, "https://discord.com/channels/1/2/3");
+
+        assert_eq!(
+            content,
+            "写真\nhttps://cdn.example.com/a.png\nhttps://cdn.example.com/b.png\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
+
+    #[test]
+    fn relay_content_omits_empty_content_line() {
+        let urls = ["https://cdn.example.com/a.png"];
+        let content = assemble_relay_content("", &urls, "https://discord.com/channels/1/2/3");
+
+        assert_eq!(
+            content,
+            "https://cdn.example.com/a.png\n-# 元のメッセージ: https://discord.com/channels/1/2/3"
+        );
+    }
+
+    #[test]
+    fn relay_content_truncates_long_content_to_limit() {
+        let long_content = "あ".repeat(3000);
+        let content =
+            assemble_relay_content(&long_content, &[], "https://discord.com/channels/1/2/3");
+
+        assert_eq!(content.chars().count(), DISCORD_MESSAGE_CONTENT_LIMIT);
+        assert!(content.contains('…'));
+        assert!(content.ends_with("-# 元のメッセージ: https://discord.com/channels/1/2/3"));
     }
 
     #[test]
