@@ -24,7 +24,7 @@ pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,
     should_send_auto_close,
 };
-pub use message::{SyncAttachment, SyncMessage, ThreadState};
+pub use message::{SyncAttachment, SyncMessage, ThreadState, merge_forwarded_content};
 pub use ogp::{OgpMetadata, parse_ogp_metadata};
 pub use server::{ServerStatus, ServerTarget};
 pub use url_rules::{

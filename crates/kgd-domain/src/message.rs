@@ -31,6 +31,24 @@ pub struct SyncAttachment {
     pub description: Option<String>,
 }
 
+/// 転送メッセージのスナップショット本文をメッセージ本文に統合する。
+///
+/// Discord の転送 (Forward) メッセージは `content` が空で、
+/// 元メッセージの本文がスナップショットに入るため、両方を結合して扱う。
+pub fn merge_forwarded_content(content: &str, snapshot_contents: &[String]) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(1 + snapshot_contents.len());
+    if !content.is_empty() {
+        parts.push(content);
+    }
+    parts.extend(
+        snapshot_contents
+            .iter()
+            .map(String::as_str)
+            .filter(|s| !s.is_empty()),
+    );
+    parts.join("\n")
+}
+
 /// Discord スレッドの状態。
 ///
 /// 自動クローズ判定などで使用する。
@@ -48,5 +66,45 @@ impl ThreadState {
     /// アーカイブまたはロックされている (クローズ扱いの) 状態かどうかを返す。
     pub fn is_closed(&self) -> bool {
         self.archived || self.locked
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_forwarded_content_returns_own_content_when_no_snapshots() {
+        assert_eq!(merge_forwarded_content("hello", &[]), "hello");
+    }
+
+    #[test]
+    fn merge_forwarded_content_uses_snapshot_when_own_content_empty() {
+        // 転送メッセージ: 本文が空でスナップショットに元の本文が入る
+        assert_eq!(
+            merge_forwarded_content("", &["forwarded".to_string()]),
+            "forwarded"
+        );
+    }
+
+    #[test]
+    fn merge_forwarded_content_joins_own_and_snapshots() {
+        assert_eq!(
+            merge_forwarded_content("comment", &["a".to_string(), "b".to_string()]),
+            "comment\na\nb"
+        );
+    }
+
+    #[test]
+    fn merge_forwarded_content_skips_empty_snapshots() {
+        assert_eq!(
+            merge_forwarded_content("", &[String::new(), "x".to_string()]),
+            "x"
+        );
+    }
+
+    #[test]
+    fn merge_forwarded_content_returns_empty_when_all_empty() {
+        assert_eq!(merge_forwarded_content("", &[String::new()]), "");
     }
 }

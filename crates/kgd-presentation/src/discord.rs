@@ -24,6 +24,7 @@ use kgd_application::{
 };
 use kgd_domain::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, ServerStatus, ServerTarget, SyncAttachment, SyncMessage,
+    merge_forwarded_content,
 };
 
 use crate::presenter::{
@@ -39,15 +40,28 @@ fn is_authorized(admins: &[u64], user_id: u64) -> bool {
 }
 
 /// serenity の Message をドメインの [`SyncMessage`] に変換する。
+///
+/// 転送 (Forward) メッセージは本文・添付がスナップショット側に入るため統合する。
 fn to_sync_message(message: &Message) -> SyncMessage {
+    let snapshot_contents: Vec<String> = message
+        .message_snapshots
+        .iter()
+        .map(|snapshot| snapshot.content.clone())
+        .collect();
+    let snapshot_attachments = message
+        .message_snapshots
+        .iter()
+        .flat_map(|snapshot| snapshot.attachments.iter());
+
     SyncMessage {
         message_id: message.id.get(),
         channel_id: message.channel_id.get(),
-        content: message.content.clone(),
+        content: merge_forwarded_content(&message.content, &snapshot_contents),
         is_bot: message.author.bot,
         attachments: message
             .attachments
             .iter()
+            .chain(snapshot_attachments)
             .map(|attachment| SyncAttachment {
                 filename: attachment.filename.clone(),
                 url: attachment.url.clone(),
