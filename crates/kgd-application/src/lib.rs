@@ -10,6 +10,8 @@ mod relay_write_channel_message;
 mod run_diary_maintenance;
 mod scheduler;
 mod sync_diary_message;
+#[cfg(test)]
+mod test_support;
 mod wake_server;
 
 pub use check_server_status::CheckServerStatus;

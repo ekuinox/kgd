@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 kgd-application = { path = "../kgd-application" }
 kgd-domain = { path = "../kgd-domain" }
+kgd-infrastructure = { path = "../kgd-infrastructure" }
 
 anyhow.workspace = true
 humantime.workspace = true

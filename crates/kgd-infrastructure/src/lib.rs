@@ -14,7 +14,7 @@ mod store;
 mod wol_sender;
 
 pub use clock::SystemClock;
-pub use discord_gateway::SerenityGateway;
+pub use discord_gateway::{SerenityGateway, to_sync_message};
 pub use downloader::ReqwestDownloader;
 pub use image_converter::HeifConverter;
 pub use notion::{NotionClient, NotionTagConfig};

@@ -1926,6 +1926,7 @@ dependencies = [
  "humantime",
  "kgd-application",
  "kgd-domain",
+ "kgd-infrastructure",
  "macaddr",
  "serenity",
  "tokio",
