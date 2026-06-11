@@ -18,6 +18,7 @@ use kgd_application::{
         AttachmentDownloader, Clock, DiaryRepository, DiscordGateway, ImageConverter, NotionApi,
         OgpClient, WolSender,
     },
+    run_relay_worker,
 };
 use kgd_domain::{ServerStatus, compile_url_rules};
 use kgd_infrastructure::{
@@ -116,6 +117,10 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         },
     ));
 
+    // 書き込み用チャンネルの転記は順序を保つため単一ワーカーで直列に処理する
+    let (relay_tx, relay_rx) = mpsc::channel(64);
+    tokio::spawn(run_relay_worker(relay, relay_rx));
+
     let servers = config.server_targets();
     let wake_server = Arc::new(WakeServer::new(
         Arc::new(UdpWolSender) as Arc<dyn WolSender>,
@@ -138,7 +143,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         sync_service,
         maintenance.clone(),
         lifecycle,
-        relay,
+        relay_tx,
         wake_server,
     );
 

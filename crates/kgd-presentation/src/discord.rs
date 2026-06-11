@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use kgd_application::{
-    CloseAndNewPrecheck, ManageDiaryLifecycle, RelayWriteChannelMessage, RunDiaryMaintenance,
-    SyncDiaryMessage, WakeServer, ports::DiaryRepository,
+    CloseAndNewPrecheck, ManageDiaryLifecycle, RunDiaryMaintenance, SyncDiaryMessage, WakeServer,
+    WriteChannelEvent, ports::DiaryRepository,
 };
 use kgd_domain::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, ServerStatus, ServerTarget, SyncAttachment, SyncMessage,
@@ -98,8 +98,8 @@ pub struct Handler {
     maintenance: Arc<RunDiaryMaintenance>,
     /// 日報ライフサイクルユースケース
     lifecycle: Arc<ManageDiaryLifecycle>,
-    /// 書き込み用チャンネル転記ユースケース
-    relay: Arc<RelayWriteChannelMessage>,
+    /// 書き込み用チャンネルイベントの送信キュー
+    relay_tx: mpsc::Sender<WriteChannelEvent>,
     /// WOL ユースケース
     wake_server: Arc<WakeServer>,
 }
@@ -112,7 +112,7 @@ impl Handler {
         sync_service: Arc<SyncDiaryMessage>,
         maintenance: Arc<RunDiaryMaintenance>,
         lifecycle: Arc<ManageDiaryLifecycle>,
-        relay: Arc<RelayWriteChannelMessage>,
+        relay_tx: mpsc::Sender<WriteChannelEvent>,
         wake_server: Arc<WakeServer>,
     ) -> Self {
         Self {
@@ -121,7 +121,7 @@ impl Handler {
             sync_service,
             maintenance,
             lifecycle,
-            relay,
+            relay_tx,
             wake_server,
         }
     }
@@ -149,7 +149,10 @@ impl Handler {
         let mut sync_message = to_sync_message(&message);
         sync_message.guild_id = event.guild_id.map(|guild_id| guild_id.get());
 
-        self.relay.update(&sync_message).await
+        self.relay_tx
+            .send(WriteChannelEvent::Updated(sync_message))
+            .await
+            .context("Failed to enqueue write channel message update")
     }
 }
 
@@ -263,11 +266,16 @@ impl EventHandler for Handler {
             return;
         }
 
-        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転記する
+        // 書き込み用チャンネルへの投稿は転記ワーカーのキューへ送る
+        // （転記順を投稿順に保つため、処理自体は単一ワーカーが直列に行う）
         if self.settings.write_channel_id == message.channel_id.get() {
             let sync_message = to_sync_message(&message);
-            if let Err(error) = self.relay.relay(&sync_message).await {
-                error!(error = %error, "Failed to handle write channel message");
+            if let Err(error) = self
+                .relay_tx
+                .send(WriteChannelEvent::Posted(sync_message))
+                .await
+            {
+                error!(error = %error, "Failed to enqueue write channel message");
             }
             return;
         }
@@ -391,10 +399,16 @@ impl EventHandler for Handler {
         deleted_message_id: MessageId,
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
-        // 書き込み用チャンネルでの削除は Notion ブロックと転記メッセージを削除する
+        // 書き込み用チャンネルでの削除は転記ワーカーのキューへ送る
         if self.settings.write_channel_id == channel_id.get() {
-            if let Err(error) = self.relay.delete(deleted_message_id.get()).await {
-                error!(error = %error, "Failed to handle write channel message delete");
+            if let Err(error) = self
+                .relay_tx
+                .send(WriteChannelEvent::Deleted {
+                    source_message_id: deleted_message_id.get(),
+                })
+                .await
+            {
+                error!(error = %error, "Failed to enqueue write channel message delete");
             }
             return;
         }

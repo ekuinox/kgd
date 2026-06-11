@@ -16,7 +16,9 @@ pub use check_server_status::CheckServerStatus;
 pub use manage_diary_lifecycle::{
     CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycle,
 };
-pub use relay_write_channel_message::{RelaySettings, RelayWriteChannelMessage};
+pub use relay_write_channel_message::{
+    RelaySettings, RelayWriteChannelMessage, WriteChannelEvent, run_relay_worker,
+};
 pub use run_diary_maintenance::{DiaryMaintenanceSettings, RunDiaryMaintenance};
 pub use scheduler::{AutoCloseJob, HourlySyncJob, ScheduledJob};
 pub use sync_diary_message::SyncDiaryMessage;
