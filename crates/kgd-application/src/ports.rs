@@ -10,7 +10,9 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use macaddr::MacAddr6;
 
-use kgd_domain::{DiaryEntry, MessageBlock, OgpMetadata, SyncAttachment, SyncMessage, ThreadState};
+use kgd_domain::{
+    DiaryEntry, MessageBlock, OgpMetadata, RelayedMessage, SyncAttachment, SyncMessage, ThreadState,
+};
 
 /// Notion API へのアクセスを抽象化するポート。
 #[cfg_attr(test, mockall::automock)]
@@ -82,6 +84,17 @@ pub trait DiaryRepository: Send + Sync {
 
     /// 最新の日報エントリを取得する。
     async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>>;
+
+    /// 元メッセージと転記メッセージの対応を保存する。
+    ///
+    /// 同じ元メッセージに対しては転記先の情報を上書きする。
+    async fn upsert_relayed_message(&self, relayed: &RelayedMessage) -> Result<()>;
+
+    /// 元メッセージ ID から転記メッセージの対応を取得する。
+    async fn get_relayed_message(&self, source_message_id: u64) -> Result<Option<RelayedMessage>>;
+
+    /// 元メッセージ ID に対応する転記メッセージの対応を削除する。
+    async fn delete_relayed_message(&self, source_message_id: u64) -> Result<()>;
 }
 
 /// Discord への操作を抽象化するポート。
@@ -110,11 +123,25 @@ pub trait DiscordGateway: Send + Sync {
     /// 直近 limit 件のメッセージにクローズ & 新規作成ボタンが含まれるかを返す。
     async fn has_close_and_new_button(&self, thread_id: u64, limit: u8) -> Result<bool>;
 
-    /// 平文メッセージを送信する。
-    async fn send_text(&self, channel_id: u64, content: &str) -> Result<()>;
+    /// 平文メッセージを送信し、送信したメッセージ ID を返す。
+    async fn send_text(&self, channel_id: u64, content: &str) -> Result<u64>;
+
+    /// メッセージの本文を編集する。
+    async fn edit_message_content(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+    ) -> Result<()>;
+
+    /// メッセージを削除する。
+    async fn delete_message(&self, channel_id: u64, message_id: u64) -> Result<()>;
 
     /// クローズ & 新規作成ボタン付きメッセージを送信する。
     async fn send_close_and_new_button(&self, thread_id: u64) -> Result<()>;
+
+    /// 書き込み用チャンネルへ新しい日報作成のボタン付きメッセージを送信する。
+    async fn send_write_channel_new_diary_button(&self, channel_id: u64) -> Result<()>;
 
     /// before より前のメッセージを limit 件取得する (新しい順)。
     ///

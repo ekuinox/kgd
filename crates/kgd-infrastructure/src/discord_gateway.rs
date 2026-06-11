@@ -8,7 +8,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use serenity::all::{
     ActionRowComponent, ButtonKind, ChannelId, ChannelType, CreateActionRow, CreateButton,
-    CreateForumPost, CreateMessage, EditThread, GetMessages, Http, Message, MessageId,
+    CreateForumPost, CreateMessage, EditMessage, EditThread, GetMessages, Http, Message, MessageId,
     ReactionType,
 };
 use tracing::warn;
@@ -106,12 +106,37 @@ impl DiscordGateway for SerenityGateway {
         Ok(messages.iter().any(message_has_close_and_new_button))
     }
 
-    async fn send_text(&self, channel_id: u64, content: &str) -> Result<()> {
+    async fn send_text(&self, channel_id: u64, content: &str) -> Result<u64> {
         let message = CreateMessage::new().content(content);
-        ChannelId::new(channel_id)
+        let sent = ChannelId::new(channel_id)
             .send_message(&self.http, message)
             .await
             .context("Failed to send message")?;
+        Ok(sent.id.get())
+    }
+
+    async fn edit_message_content(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+        content: &str,
+    ) -> Result<()> {
+        ChannelId::new(channel_id)
+            .edit_message(
+                &self.http,
+                MessageId::new(message_id),
+                EditMessage::new().content(content),
+            )
+            .await
+            .context("Failed to edit message")?;
+        Ok(())
+    }
+
+    async fn delete_message(&self, channel_id: u64, message_id: u64) -> Result<()> {
+        ChannelId::new(channel_id)
+            .delete_message(&self.http, MessageId::new(message_id))
+            .await
+            .context("Failed to delete message")?;
         Ok(())
     }
 
@@ -123,6 +148,17 @@ impl DiscordGateway for SerenityGateway {
             .send_message(&self.http, message)
             .await
             .context("Failed to send close-and-new button message")?;
+        Ok(())
+    }
+
+    async fn send_write_channel_new_diary_button(&self, channel_id: u64) -> Result<()> {
+        let message = CreateMessage::new()
+            .content("日付が変わりました。前日の日報をクローズして新しい日報を作成しますか？")
+            .components(vec![create_close_and_new_action_row()]);
+        ChannelId::new(channel_id)
+            .send_message(&self.http, message)
+            .await
+            .context("Failed to send new-diary button message to write channel")?;
         Ok(())
     }
 
@@ -174,6 +210,7 @@ pub(crate) fn to_sync_message(message: &Message) -> SyncMessage {
     SyncMessage {
         message_id: message.id.get(),
         channel_id: message.channel_id.get(),
+        guild_id: message.guild_id.map(|guild_id| guild_id.get()),
         content: merge_forwarded_content(&message.content, &snapshot_contents),
         is_bot: message.author.bot,
         attachments: message

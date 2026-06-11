@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
 use kgd_application::ports::DiaryRepository;
-use kgd_domain::{DiaryEntry, MessageBlock};
+use kgd_domain::{DiaryEntry, MessageBlock, RelayedMessage};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
 /// diary_entries テーブルの行。
@@ -55,6 +55,30 @@ impl From<MessageBlockRow> for MessageBlock {
             block_id: row.block_id,
             block_type: row.block_type,
             block_order: row.block_order,
+        }
+    }
+}
+
+/// diary_relayed_messages テーブルの行。
+#[derive(Debug, Clone, FromRow)]
+struct RelayedMessageRow {
+    /// 書き込み用チャンネルの元メッセージ ID
+    #[sqlx(try_from = "i64")]
+    source_message_id: u64,
+    /// 転記先の日報スレッド ID
+    #[sqlx(try_from = "i64")]
+    thread_id: u64,
+    /// 転記先スレッドに作成された転記メッセージ ID
+    #[sqlx(try_from = "i64")]
+    relayed_message_id: u64,
+}
+
+impl From<RelayedMessageRow> for RelayedMessage {
+    fn from(row: RelayedMessageRow) -> Self {
+        Self {
+            source_message_id: row.source_message_id,
+            thread_id: row.thread_id,
+            relayed_message_id: row.relayed_message_id,
         }
     }
 }
@@ -245,5 +269,56 @@ impl DiaryRepository for DiaryStore {
         .context("Failed to fetch latest diary entry")?;
 
         Ok(row.map(Into::into))
+    }
+
+    async fn upsert_relayed_message(&self, relayed: &RelayedMessage) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO diary_relayed_messages (source_message_id, thread_id, relayed_message_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (source_message_id) DO UPDATE SET
+                thread_id = EXCLUDED.thread_id,
+                relayed_message_id = EXCLUDED.relayed_message_id
+            "#,
+        )
+        .bind(relayed.source_message_id as i64)
+        .bind(relayed.thread_id as i64)
+        .bind(relayed.relayed_message_id as i64)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert relayed message")?;
+
+        Ok(())
+    }
+
+    async fn get_relayed_message(&self, source_message_id: u64) -> Result<Option<RelayedMessage>> {
+        let row: Option<RelayedMessageRow> = sqlx::query_as(
+            r#"
+            SELECT source_message_id, thread_id, relayed_message_id
+            FROM diary_relayed_messages
+            WHERE source_message_id = $1
+            "#,
+        )
+        .bind(source_message_id as i64)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to fetch relayed message")?;
+
+        Ok(row.map(Into::into))
+    }
+
+    async fn delete_relayed_message(&self, source_message_id: u64) -> Result<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM diary_relayed_messages
+            WHERE source_message_id = $1
+            "#,
+        )
+        .bind(source_message_id as i64)
+        .execute(&self.pool)
+        .await
+        .context("Failed to delete relayed message")?;
+
+        Ok(())
     }
 }

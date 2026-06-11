@@ -20,6 +20,8 @@ pub struct DiaryLifecycleSettings {
     pub timezone: Tz,
     /// 日報スレッドを作成するフォーラムチャンネル ID
     pub forum_channel_id: u64,
+    /// 日報の書き込み用チャンネル ID
+    pub write_channel_id: u64,
 }
 
 /// 日報作成（/diary new）の結果。
@@ -175,15 +177,17 @@ impl ManageDiaryLifecycle {
     /// 重い処理の前に応答を返す必要があるため、実処理 ([`Self::close_and_create_new`]) と分離している。
     pub async fn close_and_new_precheck(
         &self,
-        current_thread_id: u64,
+        current_channel_id: u64,
     ) -> Result<CloseAndNewPrecheck> {
-        if self.repo.get_by_thread(current_thread_id).await?.is_none() {
+        // 書き込み用チャンネル経由の場合は日報スレッドの登録チェックをスキップする
+        let in_write_channel = self.settings.write_channel_id == current_channel_id;
+        if !in_write_channel && self.repo.get_by_thread(current_channel_id).await?.is_none() {
             return Ok(CloseAndNewPrecheck::NotDiaryThread);
         }
 
         let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
         if let Some(today_entry) = self.repo.get_by_date(today).await? {
-            return Ok(if today_entry.thread_id == current_thread_id {
+            return Ok(if today_entry.thread_id == current_channel_id {
                 CloseAndNewPrecheck::AlreadyLatest
             } else {
                 CloseAndNewPrecheck::LatestExists {
@@ -198,10 +202,22 @@ impl ManageDiaryLifecycle {
     /// 現在のスレッドをクローズし、今日の日報スレッドを新規作成する。
     ///
     /// 事前に [`Self::close_and_new_precheck`] で `ReadyToCreate` を確認してから呼ぶこと。
-    pub async fn close_and_create_new(&self, current_thread_id: u64) -> Result<u64> {
+    pub async fn close_and_create_new(&self, current_channel_id: u64) -> Result<u64> {
         let timezone = &self.settings.timezone;
         let today = today_in_timezone(self.clock.now(), timezone);
         let date_str = format_date_in_timezone(today, timezone);
+
+        // クローズ対象のスレッドを決める
+        // （書き込み用チャンネルの場合は最新の日報スレッド、日報スレッドの場合はそのスレッド）
+        let in_write_channel = self.settings.write_channel_id == current_channel_id;
+        let thread_to_close = if in_write_channel {
+            self.repo
+                .get_latest_entry()
+                .await?
+                .map(|entry| entry.thread_id)
+        } else {
+            Some(current_channel_id)
+        };
 
         let (page_id, page_url, _) = self.ensure_page(&date_str).await?;
 
@@ -230,21 +246,28 @@ impl ManageDiaryLifecycle {
 
         self.gateway
             .send_text(
-                current_thread_id,
+                current_channel_id,
                 &format!("新しい日報スレッドを作成しました: <#{}>", new_thread_id),
             )
             .await
             .context("Failed to send mention message")?;
 
-        self.gateway
-            .close_thread(current_thread_id)
-            .await
-            .context("Failed to close thread after sending mention message")?;
+        if let Some(thread_to_close) = thread_to_close {
+            // 書き込み用チャンネル経由ではクローズ対象が既にアーカイブ済みのことがあるため、
+            // 失敗は警告に留めて続行する
+            if let Err(error) = self.gateway.close_thread(thread_to_close).await {
+                warn!(
+                    error = %error,
+                    thread_id = thread_to_close,
+                    "Failed to close thread after sending mention message"
+                );
+            }
 
-        info!(
-            old_thread_id = current_thread_id,
-            new_thread_id, "Diary thread closed by button"
-        );
+            info!(
+                old_thread_id = thread_to_close,
+                new_thread_id, "Diary thread closed by button"
+            );
+        }
 
         Ok(new_thread_id)
     }
@@ -327,6 +350,7 @@ mod tests {
         DiaryLifecycleSettings {
             timezone: chrono_tz::UTC,
             forum_channel_id: 555,
+            write_channel_id: 500,
         }
     }
 
@@ -556,7 +580,7 @@ mod tests {
             .expect_send_text()
             .withf(|channel_id, content| *channel_id == 100 && content.contains("<#400>"))
             .times(1)
-            .returning(|_, _| Ok(()));
+            .returning(|_, _| Ok(901));
         gateway
             .expect_close_thread()
             .with(eq(100u64))
@@ -568,6 +592,65 @@ mod tests {
         let new_thread_id = l.close_and_create_new(100).await.unwrap();
 
         assert_eq!(new_thread_id, 400);
+    }
+
+    #[tokio::test]
+    async fn close_and_create_new_from_write_channel_closes_latest_thread() {
+        let mut repo = MockDiaryRepository::new();
+        // 書き込み用チャンネル経由では最新エントリのスレッドをクローズ対象にする
+        repo.expect_get_latest_entry()
+            .times(1)
+            .returning(|| Ok(Some(entry(100, utc(2025, 1, 1, 0, 0)))));
+        repo.expect_insert().times(1).returning(|_| Ok(()));
+        let mut notion = MockNotionApi::new();
+        notion
+            .expect_find_diary_page_by_title()
+            .times(1)
+            .returning(|_| Ok(None));
+        notion
+            .expect_create_diary_page()
+            .times(1)
+            .returning(|_| Ok(("p".to_string(), "u".to_string())));
+        let mut gateway = MockDiscordGateway::new();
+        gateway
+            .expect_create_diary_forum_post()
+            .times(1)
+            .returning(|_, _, _| Ok(400));
+        gateway
+            .expect_has_close_and_new_button()
+            .times(1)
+            .returning(|_, _| Ok(true));
+        // 案内はボタンが押された書き込み用チャンネルへ送る
+        gateway
+            .expect_send_text()
+            .withf(|channel_id, content| *channel_id == 500 && content.contains("<#400>"))
+            .times(1)
+            .returning(|_, _| Ok(902));
+        gateway
+            .expect_close_thread()
+            .with(eq(100u64))
+            .times(1)
+            .returning(|_| Ok(()));
+        let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
+
+        let l = lifecycle(repo, notion, gateway, clock);
+        let new_thread_id = l.close_and_create_new(500).await.unwrap();
+
+        assert_eq!(new_thread_id, 400);
+    }
+
+    #[tokio::test]
+    async fn precheck_allows_write_channel_without_thread_registration() {
+        let mut repo = MockDiaryRepository::new();
+        // 書き込み用チャンネルでは get_by_thread を確認しない
+        repo.expect_get_by_thread().times(0);
+        repo.expect_get_by_date().times(1).returning(|_| Ok(None));
+        let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
+
+        let l = lifecycle(repo, MockNotionApi::new(), MockDiscordGateway::new(), clock);
+        let precheck = l.close_and_new_precheck(500).await.unwrap();
+
+        assert_eq!(precheck, CloseAndNewPrecheck::ReadyToCreate);
     }
 
     #[tokio::test]

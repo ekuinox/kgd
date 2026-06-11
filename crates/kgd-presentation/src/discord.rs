@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use kgd_application::{
-    CloseAndNewPrecheck, ManageDiaryLifecycle, RunDiaryMaintenance, SyncDiaryMessage, WakeServer,
-    ports::DiaryRepository,
+    CloseAndNewPrecheck, ManageDiaryLifecycle, RelayWriteChannelMessage, RunDiaryMaintenance,
+    SyncDiaryMessage, WakeServer, ports::DiaryRepository,
 };
 use kgd_domain::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, ServerStatus, ServerTarget, SyncAttachment, SyncMessage,
@@ -56,6 +56,7 @@ fn to_sync_message(message: &Message) -> SyncMessage {
     SyncMessage {
         message_id: message.id.get(),
         channel_id: message.channel_id.get(),
+        guild_id: message.guild_id.map(|guild_id| guild_id.get()),
         content: merge_forwarded_content(&message.content, &snapshot_contents),
         is_bot: message.author.bot,
         attachments: message
@@ -80,6 +81,8 @@ pub struct HandlerSettings {
     pub version_info: VersionInfo,
     /// 操作対象のサーバー一覧
     pub servers: Vec<ServerTarget>,
+    /// 日報の書き込み用チャンネル ID
+    pub write_channel_id: u64,
 }
 
 /// Discord イベントを処理するハンドラー。
@@ -95,6 +98,8 @@ pub struct Handler {
     maintenance: Arc<RunDiaryMaintenance>,
     /// 日報ライフサイクルユースケース
     lifecycle: Arc<ManageDiaryLifecycle>,
+    /// 書き込み用チャンネル転記ユースケース
+    relay: Arc<RelayWriteChannelMessage>,
     /// WOL ユースケース
     wake_server: Arc<WakeServer>,
 }
@@ -107,6 +112,7 @@ impl Handler {
         sync_service: Arc<SyncDiaryMessage>,
         maintenance: Arc<RunDiaryMaintenance>,
         lifecycle: Arc<ManageDiaryLifecycle>,
+        relay: Arc<RelayWriteChannelMessage>,
         wake_server: Arc<WakeServer>,
     ) -> Self {
         Self {
@@ -115,8 +121,35 @@ impl Handler {
             sync_service,
             maintenance,
             lifecycle,
+            relay,
             wake_server,
         }
+    }
+
+    /// 書き込み用チャンネルでのメッセージ編集を転記ユースケースへ引き渡す。
+    async fn handle_write_channel_update(
+        &self,
+        ctx: &SerenityContext,
+        event: &MessageUpdateEvent,
+    ) -> Result<()> {
+        // コンテンツがない場合は無視
+        // （埋め込み展開などユーザー編集以外の更新イベントを除外する）
+        if event.content.is_none() {
+            return Ok(());
+        }
+
+        // 編集後の内容を取得
+        let message = event
+            .channel_id
+            .message(&ctx.http, event.id)
+            .await
+            .context("Failed to fetch updated write channel message")?;
+
+        // REST で取得したメッセージは guild_id を持たないためイベント側から補う
+        let mut sync_message = to_sync_message(&message);
+        sync_message.guild_id = event.guild_id.map(|guild_id| guild_id.get());
+
+        self.relay.update(&sync_message).await
     }
 }
 
@@ -224,7 +257,18 @@ impl EventHandler for Handler {
 
     async fn message(&self, ctx: SerenityContext, message: Message) {
         // Bot 自身のメッセージは無視
+        // 注意: write_channel 分岐より先に判定すること
+        // （Bot が送る転記メッセージを処理対象にするとループする）
         if message.author.bot {
+            return;
+        }
+
+        // 書き込み用チャンネルへの投稿は最新の日報スレッドへ転記する
+        if self.settings.write_channel_id == message.channel_id.get() {
+            let sync_message = to_sync_message(&message);
+            if let Err(error) = self.relay.relay(&sync_message).await {
+                error!(error = %error, "Failed to handle write channel message");
+            }
             return;
         }
 
@@ -285,6 +329,14 @@ impl EventHandler for Handler {
             return;
         }
 
+        // 書き込み用チャンネルでの編集は Notion ブロックと転記メッセージに反映する
+        if self.settings.write_channel_id == event.channel_id.get() {
+            if let Err(error) = self.handle_write_channel_update(&ctx, &event).await {
+                error!(error = %error, "Failed to handle write channel message update");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = event.channel_id.to_channel(&ctx).await else {
             return;
@@ -339,6 +391,14 @@ impl EventHandler for Handler {
         deleted_message_id: MessageId,
         _guild_id: Option<serenity::model::id::GuildId>,
     ) {
+        // 書き込み用チャンネルでの削除は Notion ブロックと転記メッセージを削除する
+        if self.settings.write_channel_id == channel_id.get() {
+            if let Err(error) = self.relay.delete(deleted_message_id.get()).await {
+                error!(error = %error, "Failed to handle write channel message delete");
+            }
+            return;
+        }
+
         // スレッドでない場合は無視
         let Ok(channel) = channel_id.to_channel(&ctx).await else {
             return;

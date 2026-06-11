@@ -6,6 +6,7 @@
 mod check_server_status;
 mod manage_diary_lifecycle;
 pub mod ports;
+mod relay_write_channel_message;
 mod run_diary_maintenance;
 mod scheduler;
 mod sync_diary_message;
@@ -15,6 +16,7 @@ pub use check_server_status::CheckServerStatus;
 pub use manage_diary_lifecycle::{
     CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycle,
 };
+pub use relay_write_channel_message::{RelaySettings, RelayWriteChannelMessage};
 pub use run_diary_maintenance::{DiaryMaintenanceSettings, RunDiaryMaintenance};
 pub use scheduler::{AutoCloseJob, HourlySyncJob, ScheduledJob};
 pub use sync_diary_message::SyncDiaryMessage;

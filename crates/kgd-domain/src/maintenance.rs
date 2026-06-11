@@ -70,24 +70,6 @@ pub fn should_attempt_auto_close(
     last_notified.is_none_or(|date| date != local.date_naive())
 }
 
-/// IO 取得後（最新エントリとスレッド状態が揃った状態）の自動クローズ判定を行う純粋関数。
-///
-/// `latest_entry_date` が `None`（エントリ無し）、最新エントリが今日以降、
-/// スレッドがアーカイブ/ロック済みのいずれかならば `false` を返す。
-pub fn should_send_auto_close(
-    latest_entry_date: Option<DateTime<Utc>>,
-    today: DateTime<Utc>,
-    thread_archived_or_locked: bool,
-) -> bool {
-    let Some(entry_date) = latest_entry_date else {
-        return false;
-    };
-    if entry_date >= today {
-        return false;
-    }
-    !thread_archived_or_locked
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone as _;
@@ -184,31 +166,5 @@ mod tests {
             8,
             None,
         ));
-    }
-
-    #[test]
-    fn should_send_auto_close_false_when_no_entry() {
-        let today = utc(2025, 1, 2, 0, 0);
-        assert!(!should_send_auto_close(None, today, false));
-    }
-
-    #[test]
-    fn should_send_auto_close_false_when_entry_is_today_or_later() {
-        let today = utc(2025, 1, 2, 0, 0);
-        assert!(!should_send_auto_close(Some(today), today, false));
-    }
-
-    #[test]
-    fn should_send_auto_close_false_when_thread_archived_or_locked() {
-        let today = utc(2025, 1, 2, 0, 0);
-        let yesterday = utc(2025, 1, 1, 0, 0);
-        assert!(!should_send_auto_close(Some(yesterday), today, true));
-    }
-
-    #[test]
-    fn should_send_auto_close_true_when_stale_entry_and_active_thread() {
-        let today = utc(2025, 1, 2, 0, 0);
-        let yesterday = utc(2025, 1, 1, 0, 0);
-        assert!(should_send_auto_close(Some(yesterday), today, false));
     }
 }

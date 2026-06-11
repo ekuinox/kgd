@@ -10,7 +10,7 @@ use tracing::{error, info};
 
 use kgd_domain::{
     DiaryHourlySyncSlot, HourlySyncDecision, SyncMessage, decide_hourly_sync,
-    should_attempt_auto_close, should_send_auto_close, today_in_timezone,
+    should_attempt_auto_close, today_in_timezone,
 };
 
 use super::{
@@ -30,6 +30,8 @@ pub struct DiaryMaintenanceSettings {
     pub auto_close_enabled: bool,
     /// 自動クローズの確認メッセージを送信する時刻（時）
     pub auto_close_hour: u32,
+    /// 日報の書き込み用チャンネル ID
+    pub write_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字
     pub sync_reaction: String,
 }
@@ -111,23 +113,36 @@ impl RunDiaryMaintenance {
             return Ok(());
         };
 
-        // スレッドがまだアクティブかチェック
-        let Some(thread_state) = self.gateway.thread_state(entry.thread_id).await? else {
-            return Ok(());
-        };
-
-        // IO 取得後の最終判定（エントリ日付・スレッド状態）
-        if !should_send_auto_close(Some(entry.date), today, thread_state.is_closed()) {
+        // 最新エントリが今日以降なら通知は不要
+        if entry.date >= today {
             return Ok(());
         }
 
-        // ボタン付きメッセージを送信
-        self.gateway
-            .send_close_and_new_button(entry.thread_id)
-            .await?;
-        *self.last_auto_close_notification_date.lock().await = Some(today_local);
+        // スレッドがまだアクティブな場合のみスレッドへ送信する
+        let thread_active = self
+            .gateway
+            .thread_state(entry.thread_id)
+            .await?
+            .is_some_and(|state| !state.is_closed());
+        if thread_active {
+            self.gateway
+                .send_close_and_new_button(entry.thread_id)
+                .await?;
+            info!(thread_id = entry.thread_id, "Sent auto-close button");
+        }
 
-        info!(thread_id = entry.thread_id, "Sent auto-close button");
+        // 書き込み用チャンネルにも送信する
+        // （スレッドがアーカイブ済みでも、書き込み用からは新しい日報を作成できるようにする）
+        let write_channel_id = self.settings.write_channel_id;
+        self.gateway
+            .send_write_channel_new_diary_button(write_channel_id)
+            .await?;
+        info!(
+            channel_id = write_channel_id,
+            "Sent new-diary button to write channel"
+        );
+
+        *self.last_auto_close_notification_date.lock().await = Some(today_local);
 
         Ok(())
     }
@@ -341,6 +356,7 @@ mod tests {
             timezone: chrono_tz::UTC,
             auto_close_enabled: true,
             auto_close_hour: 8,
+            write_channel_id: 500,
             sync_reaction: "✅".to_string(),
         }
     }
@@ -428,6 +444,11 @@ mod tests {
             .with(eq(100u64))
             .times(1)
             .returning(|_| Ok(()));
+        gateway
+            .expect_send_write_channel_new_diary_button()
+            .with(eq(500u64))
+            .times(1)
+            .returning(|_| Ok(()));
         let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
 
         let m = maintenance(repo, gateway, clock, empty_sync_service());
@@ -452,6 +473,12 @@ mod tests {
             }))
         });
         gateway.expect_send_close_and_new_button().times(0);
+        // スレッドがアーカイブ済みでも書き込み用チャンネルへは送信する
+        gateway
+            .expect_send_write_channel_new_diary_button()
+            .with(eq(500u64))
+            .times(1)
+            .returning(|_| Ok(()));
         let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
 
         let m = maintenance(repo, gateway, clock, empty_sync_service());
@@ -523,6 +550,7 @@ mod tests {
                     SyncMessage {
                         message_id: 2,
                         channel_id: 100,
+                        guild_id: Some(1),
                         content: String::new(),
                         is_bot: false,
                         attachments: vec![],
@@ -530,6 +558,7 @@ mod tests {
                     SyncMessage {
                         message_id: 9,
                         channel_id: 100,
+                        guild_id: Some(1),
                         content: "bot message".to_string(),
                         is_bot: true,
                         attachments: vec![],
@@ -537,6 +566,7 @@ mod tests {
                     SyncMessage {
                         message_id: 1,
                         channel_id: 100,
+                        guild_id: Some(1),
                         content: "synced".to_string(),
                         is_bot: false,
                         attachments: vec![],
@@ -598,6 +628,7 @@ mod tests {
         let message = SyncMessage {
             message_id: 10,
             channel_id: 100,
+            guild_id: Some(1),
             content: "hello".to_string(),
             is_bot: false,
             attachments: vec![],

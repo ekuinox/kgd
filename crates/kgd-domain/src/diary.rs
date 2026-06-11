@@ -36,6 +36,17 @@ pub struct MessageBlock {
     pub block_order: i32,
 }
 
+/// 書き込み用チャンネルの元メッセージと転記メッセージの対応情報。
+#[derive(Debug, Clone)]
+pub struct RelayedMessage {
+    /// 書き込み用チャンネルの元メッセージ ID
+    pub source_message_id: u64,
+    /// 転記先の日報スレッド ID
+    pub thread_id: u64,
+    /// 転記先スレッドに作成された転記メッセージ ID
+    pub relayed_message_id: u64,
+}
+
 /// 指定された時刻を基準に、そのタイムゾーンでの日付の開始時刻（00:00:00）を UTC で取得する。
 ///
 /// `now` を引数で受けることで、現在時刻に依存しない単体テストが可能になる。

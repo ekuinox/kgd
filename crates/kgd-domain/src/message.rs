@@ -12,6 +12,8 @@ pub struct SyncMessage {
     pub message_id: u64,
     /// メッセージが属するチャンネル (スレッド) ID
     pub channel_id: u64,
+    /// メッセージが属するギルド ID（DM などでは `None`）
+    pub guild_id: Option<u64>,
     /// メッセージ本文
     pub content: String,
     /// Bot が送信したメッセージかどうか

@@ -12,7 +12,8 @@ use tracing::info;
 
 use kgd_application::{
     AutoCloseJob, DiaryLifecycleSettings, DiaryMaintenanceSettings, HourlySyncJob,
-    ManageDiaryLifecycle, RunDiaryMaintenance, SyncDiaryMessage, WakeServer,
+    ManageDiaryLifecycle, RelaySettings, RelayWriteChannelMessage, RunDiaryMaintenance,
+    SyncDiaryMessage, WakeServer,
     ports::{
         AttachmentDownloader, Clock, DiaryRepository, DiscordGateway, ImageConverter, NotionApi,
         OgpClient, WolSender,
@@ -89,17 +90,29 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
             timezone: diary_config.timezone,
             auto_close_enabled: diary_config.auto_close_enabled,
             auto_close_hour: diary_config.auto_close_hour,
+            write_channel_id: diary_config.write_channel_id,
             sync_reaction: diary_config.sync_reaction.clone(),
         },
     ));
     let lifecycle = Arc::new(ManageDiaryLifecycle::new(
         diary_store.clone(),
         notion_client,
-        gateway,
-        clock,
+        gateway.clone(),
+        clock.clone(),
         DiaryLifecycleSettings {
             timezone: diary_config.timezone,
             forum_channel_id: diary_config.forum_channel_id,
+            write_channel_id: diary_config.write_channel_id,
+        },
+    ));
+    let relay = Arc::new(RelayWriteChannelMessage::new(
+        diary_store.clone(),
+        gateway,
+        clock,
+        sync_service.clone(),
+        RelaySettings {
+            timezone: diary_config.timezone,
+            sync_reaction: diary_config.sync_reaction.clone(),
         },
     ));
 
@@ -119,11 +132,13 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
                 build_date: version::BUILD_DATE.to_string(),
             },
             servers,
+            write_channel_id: diary_config.write_channel_id,
         },
         diary_store,
         sync_service,
         maintenance.clone(),
         lifecycle,
+        relay,
         wake_server,
     );
 

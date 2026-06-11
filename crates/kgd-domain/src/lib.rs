@@ -8,6 +8,7 @@ mod diary;
 mod maintenance;
 mod message;
 mod ogp;
+mod relay;
 mod server;
 mod url_rules;
 
@@ -17,15 +18,17 @@ pub use attachment::{
 };
 pub use blocks::{file_block_json, image_block_json, toggle_block_json};
 pub use diary::{
-    DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryEntry, MessageBlock, format_date_in_timezone,
-    today_in_timezone,
+    DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryEntry, MessageBlock, RelayedMessage,
+    format_date_in_timezone, today_in_timezone,
 };
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,
-    should_send_auto_close,
 };
 pub use message::{SyncAttachment, SyncMessage, ThreadState, merge_forwarded_content};
 pub use ogp::{OgpMetadata, parse_ogp_metadata};
+pub use relay::{
+    DISCORD_MESSAGE_CONTENT_LIMIT, assemble_relay_content, build_relay_content, message_link,
+};
 pub use server::{ServerStatus, ServerTarget};
 pub use url_rules::{
     CompiledUrlRules, PatternConfig, UrlRuleConfig, apply_ogp_to_bookmark,

@@ -349,6 +349,7 @@ mod tests {
         SyncMessage {
             message_id,
             channel_id: 1,
+            guild_id: Some(1),
             content: content.to_string(),
             is_bot: false,
             attachments: vec![],
@@ -436,6 +437,7 @@ mod tests {
         let message = SyncMessage {
             message_id: 10,
             channel_id: 1,
+            guild_id: Some(1),
             content: "caption".to_string(),
             is_bot: false,
             attachments: vec![SyncAttachment {
@@ -481,6 +483,7 @@ mod tests {
         let message = SyncMessage {
             message_id: 10,
             channel_id: 1,
+            guild_id: Some(1),
             content: String::new(),
             is_bot: false,
             attachments: vec![SyncAttachment {
@@ -542,6 +545,7 @@ mod tests {
         let message = SyncMessage {
             message_id: 10,
             channel_id: 1,
+            guild_id: Some(1),
             content: String::new(),
             is_bot: false,
             attachments: vec![SyncAttachment {
@@ -593,6 +597,7 @@ mod tests {
         let message = SyncMessage {
             message_id: 10,
             channel_id: 1,
+            guild_id: Some(1),
             content: String::new(),
             is_bot: false,
             attachments: vec![SyncAttachment {

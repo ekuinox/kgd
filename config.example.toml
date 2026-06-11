@@ -63,6 +63,11 @@ notion_database_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 # Discord Forum Channel ID where diary threads will be created
 forum_channel_id = 123456789012345678
 
+# Discord channel ID for writing diary entries
+# Messages posted to this channel are relayed to the latest diary thread
+# and synced to its Notion page
+write_channel_id = 123456789012345678
+
 # Emoji reaction added to messages when synced successfully (default: ✅)
 # Use the actual Unicode emoji character, not the name
 # sync_reaction = "✅"
