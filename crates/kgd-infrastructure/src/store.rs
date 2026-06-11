@@ -2,36 +2,61 @@
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
+use kgd_application::ports::DiaryRepository;
+use kgd_domain::{DiaryEntry, MessageBlock};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 
-/// メッセージとブロックの対応情報。
+/// diary_entries テーブルの行。
 #[derive(Debug, Clone, FromRow)]
-pub struct MessageBlock {
-    /// Discord メッセージ ID
-    #[sqlx(try_from = "i64")]
-    pub message_id: u64,
-    /// Notion ブロック ID
-    pub block_id: String,
-    /// ブロックの種類
-    pub block_type: String,
-    /// ブロックの順序
-    pub block_order: i32,
-}
-
-/// 日報エントリの情報。
-#[derive(Debug, Clone, FromRow)]
-pub struct DiaryEntry {
+struct DiaryEntryRow {
     /// Discord スレッド ID
     #[sqlx(try_from = "i64")]
-    pub thread_id: u64,
+    thread_id: u64,
     /// Notion ページ ID
-    pub page_id: String,
+    page_id: String,
     /// Notion ページ URL
-    pub page_url: String,
+    page_url: String,
     /// 日付
-    pub date: DateTime<Utc>,
+    date: DateTime<Utc>,
     /// 作成日時
-    pub created_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
+}
+
+impl From<DiaryEntryRow> for DiaryEntry {
+    fn from(row: DiaryEntryRow) -> Self {
+        Self {
+            thread_id: row.thread_id,
+            page_id: row.page_id,
+            page_url: row.page_url,
+            date: row.date,
+            created_at: row.created_at,
+        }
+    }
+}
+
+/// diary_message_blocks テーブルの行。
+#[derive(Debug, Clone, FromRow)]
+struct MessageBlockRow {
+    /// Discord メッセージ ID
+    #[sqlx(try_from = "i64")]
+    message_id: u64,
+    /// Notion ブロック ID
+    block_id: String,
+    /// ブロックの種類
+    block_type: String,
+    /// ブロックの順序
+    block_order: i32,
+}
+
+impl From<MessageBlockRow> for MessageBlock {
+    fn from(row: MessageBlockRow) -> Self {
+        Self {
+            message_id: row.message_id,
+            block_id: row.block_id,
+            block_type: row.block_type,
+            block_order: row.block_order,
+        }
+    }
 }
 
 /// スレッドと Notion ページの紐付け情報を管理するストア。
@@ -57,9 +82,11 @@ impl DiaryStore {
 
         Ok(Self { pool })
     }
+}
 
-    /// エントリを追加する。
-    pub async fn insert(&self, entry: &DiaryEntry) -> Result<()> {
+#[async_trait::async_trait]
+impl DiaryRepository for DiaryStore {
+    async fn insert(&self, entry: &DiaryEntry) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO diary_entries (thread_id, page_id, page_url, date, created_at)
@@ -82,9 +109,8 @@ impl DiaryStore {
         Ok(())
     }
 
-    /// スレッド ID からエントリを取得する。
-    pub async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
-        sqlx::query_as(
+    async fn get_by_thread(&self, thread_id: u64) -> Result<Option<DiaryEntry>> {
+        let row: Option<DiaryEntryRow> = sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -94,14 +120,13 @@ impl DiaryStore {
         .bind(thread_id as i64)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by thread")
+        .context("Failed to fetch diary entry by thread")?;
+
+        Ok(row.map(Into::into))
     }
 
-    /// 日付からエントリを取得する。
-    ///
-    /// 指定された日時が含まれる日（その日の00:00:00から翌日の00:00:00まで）のエントリを検索する。
-    pub async fn get_by_date(&self, date: DateTime<Utc>) -> Result<Option<DiaryEntry>> {
-        sqlx::query_as(
+    async fn get_by_date(&self, date: DateTime<Utc>) -> Result<Option<DiaryEntry>> {
+        let row: Option<DiaryEntryRow> = sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -111,11 +136,12 @@ impl DiaryStore {
         .bind(date)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch diary entry by date")
+        .context("Failed to fetch diary entry by date")?;
+
+        Ok(row.map(Into::into))
     }
 
-    /// メッセージとブロックの対応を保存する。
-    pub async fn insert_message_block(&self, block: &MessageBlock) -> Result<()> {
+    async fn insert_message_block(&self, block: &MessageBlock) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO diary_message_blocks (message_id, block_id, block_type, block_order)
@@ -134,9 +160,8 @@ impl DiaryStore {
         Ok(())
     }
 
-    /// メッセージ ID から対応するブロック一覧を取得する。
-    pub async fn get_blocks_by_message(&self, message_id: u64) -> Result<Vec<MessageBlock>> {
-        sqlx::query_as(
+    async fn get_blocks_by_message(&self, message_id: u64) -> Result<Vec<MessageBlock>> {
+        let rows: Vec<MessageBlockRow> = sqlx::query_as(
             r#"
             SELECT message_id, block_id, block_type, block_order
             FROM diary_message_blocks
@@ -147,11 +172,12 @@ impl DiaryStore {
         .bind(message_id as i64)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch message blocks")
+        .context("Failed to fetch message blocks")?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    /// メッセージ ID に対応するブロックをすべて削除する。
-    pub async fn delete_blocks_by_message(&self, message_id: u64) -> Result<()> {
+    async fn delete_blocks_by_message(&self, message_id: u64) -> Result<()> {
         sqlx::query(
             r#"
             DELETE FROM diary_message_blocks
@@ -166,8 +192,7 @@ impl DiaryStore {
         Ok(())
     }
 
-    /// Message ID に紐づくブロックが存在するかどうかを返す。
-    pub async fn has_blocks_by_message(&self, message_id: u64) -> Result<bool> {
+    async fn has_blocks_by_message(&self, message_id: u64) -> Result<bool> {
         sqlx::query_scalar(
             r#"
             SELECT EXISTS(
@@ -183,14 +208,13 @@ impl DiaryStore {
         .context("Failed to check message blocks")
     }
 
-    /// 指定した日付範囲に含まれる日報エントリを古い順で取得する。
-    pub async fn get_entries_in_date_range(
+    async fn get_entries_in_date_range(
         &self,
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
     ) -> Result<Vec<DiaryEntry>> {
         // 起動時同期で日単位の対象スレッドをまとめて引くため、両端を含む範囲で取得する。
-        sqlx::query_as(
+        let rows: Vec<DiaryEntryRow> = sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -202,12 +226,13 @@ impl DiaryStore {
         .bind(end_date)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch diary entries in date range")
+        .context("Failed to fetch diary entries in date range")?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    /// 最新の日報エントリを取得する。
-    pub async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>> {
-        sqlx::query_as(
+    async fn get_latest_entry(&self) -> Result<Option<DiaryEntry>> {
+        let row: Option<DiaryEntryRow> = sqlx::query_as(
             r#"
             SELECT thread_id, page_id, page_url, date, created_at
             FROM diary_entries
@@ -217,6 +242,8 @@ impl DiaryStore {
         )
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to fetch latest diary entry")
+        .context("Failed to fetch latest diary entry")?;
+
+        Ok(row.map(Into::into))
     }
 }

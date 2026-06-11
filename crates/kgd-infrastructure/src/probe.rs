@@ -1,8 +1,21 @@
-//! ICMP pingによるサーバー到達性チェック機能を提供する。
+//! ICMP ping による ServerProber ポートの実装。
 
 use std::{net::IpAddr, time::Duration};
 
 use surge_ping::{Client, Config, PingIdentifier, PingSequence};
+
+use kgd_application::ports::ServerProber;
+
+/// surge-ping を使った [`ServerProber`] 実装。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SurgeProber;
+
+#[async_trait::async_trait]
+impl ServerProber for SurgeProber {
+    async fn probe(&self, addr: IpAddr, timeout: Duration) -> bool {
+        ping(addr, timeout).await
+    }
+}
 
 /// 指定されたIPアドレスにICMP pingを送信し、到達可能かどうかを判定する。
 ///
@@ -12,7 +25,7 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence};
 ///
 /// # Returns
 /// サーバーが応答した場合は `true`、タイムアウトまたはエラーの場合は `false`
-pub async fn ping(addr: IpAddr, timeout: Duration) -> bool {
+async fn ping(addr: IpAddr, timeout: Duration) -> bool {
     let client = match Client::new(&Config::default()) {
         Ok(client) => client,
         Err(_) => return false,

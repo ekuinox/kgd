@@ -3,9 +3,36 @@
 use anyhow::{Result, bail};
 use regex::Regex;
 
-use crate::config::{PatternConfig, UrlRuleConfig};
+use serde::{Deserialize, Serialize};
 
-use super::ogp::OgpMetadata;
+use crate::ogp::OgpMetadata;
+
+/// URL 変換ルール設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UrlRuleConfig {
+    /// マッチする URL パターン
+    pub pattern: PatternConfig,
+    /// 生成するブロックタイプのリスト（link, bookmark, embed）
+    pub convert_to: Vec<String>,
+    /// このパターンにマッチすべき URL の一覧（起動時バリデーション用）
+    #[serde(default)]
+    pub expect_matches: Vec<String>,
+    /// このパターンにマッチすべきでない URL の一覧（起動時バリデーション用）
+    #[serde(default)]
+    pub expect_no_matches: Vec<String>,
+}
+
+/// URL マッチパターンの種類。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternConfig {
+    /// glob 形式のパターン
+    Glob(String),
+    /// 正規表現パターン
+    Regex(String),
+    /// 前方一致パターン
+    Prefix(String),
+}
 
 /// URL から生成する変換の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

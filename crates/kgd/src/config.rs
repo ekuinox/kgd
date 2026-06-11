@@ -6,6 +6,9 @@ use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
+use kgd_domain::{ServerTarget, UrlRuleConfig};
+use kgd_infrastructure::NotionTagConfig;
+
 /// 指定されたパスから設定ファイルを読み込む。
 pub fn open_config(path: impl AsRef<Path>) -> Result<Config> {
     let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
@@ -34,9 +37,17 @@ pub struct Config {
 }
 
 impl Config {
-    /// 指定された名前のサーバー設定を検索する。
-    pub fn find_server(&self, name: &str) -> Option<&ServerConfig> {
-        self.servers.iter().find(|s| s.name == name)
+    /// 監視・操作対象のサーバー一覧をドメイン型に変換して返す。
+    pub fn server_targets(&self) -> Vec<ServerTarget> {
+        self.servers
+            .iter()
+            .map(|server| ServerTarget {
+                name: server.name.clone(),
+                mac_address: server.mac_address,
+                ip_address: server.ip_address.clone(),
+                description: server.description.clone(),
+            })
+            .collect()
     }
 }
 
@@ -153,45 +164,6 @@ pub struct DiaryConfig {
     /// OGP メタデータ取得のタイムアウト（デフォルト: 10秒）
     #[serde(default = "default_ogp_timeout", with = "humantime_serde")]
     pub ogp_timeout: Duration,
-}
-
-/// URL 変換ルール設定。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct UrlRuleConfig {
-    /// マッチする URL パターン
-    pub pattern: PatternConfig,
-    /// 生成するブロックタイプのリスト（link, bookmark, embed）
-    pub convert_to: Vec<String>,
-    /// このパターンにマッチすべき URL の一覧（起動時バリデーション用）
-    #[serde(default)]
-    pub expect_matches: Vec<String>,
-    /// このパターンにマッチすべきでない URL の一覧（起動時バリデーション用）
-    #[serde(default)]
-    pub expect_no_matches: Vec<String>,
-}
-
-/// URL マッチパターンの種類。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PatternConfig {
-    /// glob 形式のパターン
-    Glob(String),
-    /// 正規表現パターン
-    Regex(String),
-    /// 前方一致パターン
-    Prefix(String),
-}
-
-/// Notion タグ設定。
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct NotionTagConfig {
-    /// プロパティ名
-    pub property: String,
-    /// 設定する値
-    pub value: String,
-    /// マルチセレクトかどうか（デフォルト: false）
-    #[serde(default)]
-    pub multi_select: bool,
 }
 
 fn default_title_property() -> String {

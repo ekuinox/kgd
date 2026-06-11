@@ -14,9 +14,21 @@ use notion_client::{
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 
-use crate::config::NotionTagConfig;
+use kgd_application::ports::NotionApi;
 
 const NOTION_API_VERSION: &str = "2022-06-28";
+
+/// Notion タグ設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct NotionTagConfig {
+    /// プロパティ名
+    pub property: String,
+    /// 設定する値
+    pub value: String,
+    /// マルチセレクトかどうか（デフォルト: false）
+    #[serde(default)]
+    pub multi_select: bool,
+}
 
 /// Notion API クライアントのラッパー。
 pub struct NotionClient {
@@ -342,6 +354,46 @@ impl NotionClient {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl NotionApi for NotionClient {
+    async fn find_diary_page_by_title(&self, title: &str) -> Result<Option<(String, String)>> {
+        NotionClient::find_diary_page_by_title(self, title).await
+    }
+
+    async fn create_diary_page(&self, title: &str) -> Result<(String, String)> {
+        NotionClient::create_diary_page(self, title).await
+    }
+
+    async fn upload_file(
+        &self,
+        filename: &str,
+        content_type: &str,
+        data: Vec<u8>,
+    ) -> Result<String> {
+        NotionClient::upload_file(self, filename, content_type, data).await
+    }
+
+    async fn append_blocks(
+        &self,
+        page_id: &str,
+        children: Vec<serde_json::Value>,
+    ) -> Result<Vec<String>> {
+        NotionClient::append_blocks(self, page_id, children).await
+    }
+
+    async fn update_text_block(
+        &self,
+        block_id: &str,
+        rich_text: Vec<serde_json::Value>,
+    ) -> Result<()> {
+        NotionClient::update_text_block(self, block_id, rich_text).await
+    }
+
+    async fn delete_block(&self, block_id: &str) -> Result<()> {
+        NotionClient::delete_block(self, block_id).await
     }
 }
 
