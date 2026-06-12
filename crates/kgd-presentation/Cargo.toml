@@ -1,0 +1,22 @@
+[package]
+name = "kgd-presentation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+kgd-application = { path = "../kgd-application" }
+kgd-domain = { path = "../kgd-domain" }
+kgd-infrastructure = { path = "../kgd-infrastructure" }
+
+anyhow.workspace = true
+humantime.workspace = true
+serenity.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+macaddr.workspace = true

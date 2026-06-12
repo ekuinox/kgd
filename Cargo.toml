@@ -81,6 +81,10 @@ image = "0.25"
 # Async utilities
 futures = "0.3"
 
+# Async trait support (for ports / use cases)
+async-trait = "0.1"
+
 # Testing
 tempfile = "3.14"
+mockall = "0.13"
 
