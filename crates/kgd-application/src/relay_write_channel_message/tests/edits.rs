@@ -9,6 +9,8 @@ use crate::test_support::{entry, text_sync_service, utc};
 
 use super::*;
 
+/// 転記済みメッセージを update した場合、転記先の Discord メッセージ本文を編集し、
+/// 旧 Notion ブロックを削除してから再同期(新ブロック append・DB 更新)することを確認する。
 #[tokio::test]
 async fn update_edits_relayed_message() {
     let mut repo = MockDiaryRepository::new();
@@ -77,6 +79,8 @@ async fn update_edits_relayed_message() {
     relay.update(&message(10, "edited")).await.unwrap();
 }
 
+/// 転記マッピングが無い(未転記の)メッセージを update した場合、Discord メッセージの
+/// 編集(edit_message_content)を行わない(times(0))ことを確認する。
 #[tokio::test]
 async fn update_ignores_messages_not_relayed() {
     let mut repo = MockDiaryRepository::new();
@@ -90,6 +94,8 @@ async fn update_ignores_messages_not_relayed() {
     relay.update(&message(10, "edited")).await.unwrap();
 }
 
+/// 転記済みメッセージを delete した場合、Notion ブロックを削除し、転記先の Discord メッセージを
+/// 削除し、転記マッピングも削除することを確認する。
 #[tokio::test]
 async fn delete_removes_blocks_relayed_message_and_mapping() {
     let mut repo = MockDiaryRepository::new();

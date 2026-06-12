@@ -9,6 +9,9 @@ use crate::test_support::{empty_sync_service, entry, fixed_clock, text_sync_serv
 
 use super::*;
 
+/// スレッドのメッセージをページングで走査し、bot メッセージは除外、同期済みは already_synced、
+/// 未同期でも空コンテンツのものは skipped として集計し、件数(checked=2, already=1, synced=0, skipped=1)
+/// が正しいことを確認する。
 #[tokio::test]
 async fn sync_missing_pages_through_thread_and_counts() {
     let mut repo = MockDiaryRepository::new();
@@ -89,6 +92,8 @@ async fn sync_missing_pages_through_thread_and_counts() {
     assert_eq!(report.skipped_messages, 1);
 }
 
+/// sync_message_with_reaction で同期が成功した場合、対象メッセージへ ✅ リアクションを付け、
+/// synced=true・blocks=1 を返すことを確認する。
 #[tokio::test]
 async fn sync_message_with_reaction_adds_reaction_on_success() {
     let sync = text_sync_service(1);

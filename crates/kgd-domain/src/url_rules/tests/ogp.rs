@@ -4,6 +4,8 @@ use crate::ogp::OgpMetadata;
 
 use super::*;
 
+/// OGP にタイトルと説明の両方がある場合、bookmark の caption が
+/// 「タイトル\n説明」の 1 要素として設定されることを確認する。
 #[test]
 fn test_apply_ogp_to_bookmark_with_title_and_description() {
     let mut block = serde_json::json!({
@@ -30,6 +32,7 @@ fn test_apply_ogp_to_bookmark_with_title_and_description() {
     );
 }
 
+/// OGP にタイトルのみある場合、bookmark の caption がタイトル文字列のみになることを確認する。
 #[test]
 fn test_apply_ogp_to_bookmark_with_title_only() {
     let mut block = serde_json::json!({
@@ -53,6 +56,7 @@ fn test_apply_ogp_to_bookmark_with_title_only() {
     assert_eq!(caption[0]["text"]["content"], "Title Only");
 }
 
+/// OGP に説明のみある場合、bookmark の caption が説明文字列のみになることを確認する。
 #[test]
 fn test_apply_ogp_to_bookmark_with_description_only() {
     let mut block = serde_json::json!({
@@ -76,6 +80,7 @@ fn test_apply_ogp_to_bookmark_with_description_only() {
     assert_eq!(caption[0]["text"]["content"], "Description Only");
 }
 
+/// OGP にタイトルも説明も無い場合、bookmark の caption が変更されず空のままになることを確認する。
 #[test]
 fn test_apply_ogp_to_bookmark_empty_metadata() {
     let mut block = serde_json::json!({
@@ -99,6 +104,8 @@ fn test_apply_ogp_to_bookmark_empty_metadata() {
     assert!(caption.is_empty());
 }
 
+/// 説明が長すぎる場合、説明部分が末尾 "..." を含む 200 文字に切り詰められて
+/// caption に設定されることを確認する。
 #[test]
 fn test_apply_ogp_to_bookmark_long_description_truncated() {
     let mut block = serde_json::json!({

@@ -71,6 +71,8 @@ mod tests {
         }
     }
 
+    /// 登録済みサーバー名を指定した場合、その MAC アドレス宛に WOL を 1 回送信し、
+    /// Sent{name, mac_address} を返すことを確認する。
     #[test]
     fn wake_sends_wol_to_known_server() {
         let mac = MacAddr6::new(0, 1, 2, 3, 4, 5);
@@ -92,6 +94,8 @@ mod tests {
         );
     }
 
+    /// 未登録のサーバー名を指定した場合、WOL を送信せず(times(0))に
+    /// ServerNotFound を返すことを確認する。
     #[test]
     fn wake_returns_not_found_for_unknown_server() {
         let mut wol = MockWolSender::new();

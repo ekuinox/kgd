@@ -6,6 +6,9 @@ use crate::test_support::{entry, text_sync_service, utc};
 
 use super::*;
 
+/// 転記ワーカーがチャンネルから受け取ったイベントを到着順(メッセージ 1 → 2)に直列で
+/// 転記すること(Sequence で send_text の順序を検証)、および送信側を閉じると残りを処理して
+/// から終了することを確認する。
 #[tokio::test]
 async fn worker_processes_events_in_arrival_order() {
     use mockall::Sequence;

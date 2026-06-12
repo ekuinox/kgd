@@ -75,11 +75,14 @@ impl ThreadState {
 mod tests {
     use super::*;
 
+    /// スナップショットが空の場合、元の本文がそのまま返ることを確認する。
     #[test]
     fn merge_forwarded_content_returns_own_content_when_no_snapshots() {
         assert_eq!(merge_forwarded_content("hello", &[]), "hello");
     }
 
+    /// 本文が空（転送メッセージ）の場合、スナップショットの内容が
+    /// 結果として返ることを確認する。
     #[test]
     fn merge_forwarded_content_uses_snapshot_when_own_content_empty() {
         // 転送メッセージ: 本文が空でスナップショットに元の本文が入る
@@ -89,6 +92,8 @@ mod tests {
         );
     }
 
+    /// 本文と複数スナップショットがある場合、本文・各スナップショットが
+    /// この順で改行区切りに結合されることを確認する。
     #[test]
     fn merge_forwarded_content_joins_own_and_snapshots() {
         assert_eq!(
@@ -97,6 +102,8 @@ mod tests {
         );
     }
 
+    /// 空のスナップショットは結合対象から除外され、
+    /// 非空の要素だけが残ることを確認する。
     #[test]
     fn merge_forwarded_content_skips_empty_snapshots() {
         assert_eq!(
@@ -105,6 +112,7 @@ mod tests {
         );
     }
 
+    /// 本文もスナップショットもすべて空の場合、空文字列が返ることを確認する。
     #[test]
     fn merge_forwarded_content_returns_empty_when_all_empty() {
         assert_eq!(merge_forwarded_content("", &[String::new()]), "");

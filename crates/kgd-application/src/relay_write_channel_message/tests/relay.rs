@@ -6,6 +6,8 @@ use crate::test_support::{entry, text_sync_service, utc};
 
 use super::*;
 
+/// 書き込み用チャンネルの投稿を relay した場合、今日の日報スレッドへ本文と元投稿リンクを付けて
+/// 転記し、転記マッピングを記録し、元投稿に ✅ リアクションを付けることを確認する。
 #[tokio::test]
 async fn relay_syncs_posts_and_records_mapping() {
     let today = utc(2025, 1, 2, 0, 0);
@@ -41,6 +43,8 @@ async fn relay_syncs_posts_and_records_mapping() {
     relay.relay(&message(10, "hello")).await.unwrap();
 }
 
+/// 今日の日報も最新エントリも存在しない場合、転記先が無いため send_text を呼ばず(times(0))に
+/// スキップすることを確認する。
 #[tokio::test]
 async fn relay_skips_when_no_diary_entry() {
     let mut repo = MockDiaryRepository::new();
@@ -55,6 +59,8 @@ async fn relay_skips_when_no_diary_entry() {
     relay.relay(&message(10, "hello")).await.unwrap();
 }
 
+/// 日報スレッドはあるが本文が空のメッセージを relay した場合、転記投稿(send_text)も
+/// マッピング記録(upsert_relayed_message)も行わない(times(0))ことを確認する。
 #[tokio::test]
 async fn relay_skips_posting_for_empty_message() {
     let today = utc(2025, 1, 2, 0, 0);

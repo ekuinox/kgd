@@ -2,6 +2,8 @@
 
 use super::*;
 
+/// 空メッセージを sync した場合、Notion への append も DB への挿入も行わず(times(0))、
+/// synced=false・block_count=0 を返すことを確認する。
 #[tokio::test]
 async fn sync_skips_empty_message() {
     let mut builder = TestSyncBuilder::new();
@@ -16,6 +18,8 @@ async fn sync_skips_empty_message() {
     assert_eq!(result.block_count, 0);
 }
 
+/// テキストメッセージを sync した場合、paragraph ブロックを 1 件 append し、
+/// 返ってきた block_id を text タイプ・order 0 で DB に記録することを確認する。
 #[tokio::test]
 async fn sync_appends_text_block_and_stores_mapping() {
     let mut builder = TestSyncBuilder::new();
@@ -49,6 +53,8 @@ async fn sync_appends_text_block_and_stores_mapping() {
     assert_eq!(result.block_count, 1);
 }
 
+/// URL を bookmark 化するルール下で sync した場合、OGP メタデータを fetch_many で取得し、
+/// 取得したタイトルを bookmark ブロックの caption に反映することを確認する。
 #[tokio::test]
 async fn sync_applies_ogp_to_bookmark_blocks() {
     let mut builder = TestSyncBuilder::new();

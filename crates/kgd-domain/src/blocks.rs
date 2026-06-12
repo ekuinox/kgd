@@ -50,6 +50,9 @@ pub fn toggle_block_json(summary: &str, children: Vec<serde_json::Value>) -> ser
 mod tests {
     use super::*;
 
+    /// 子ブロックを渡してトグルブロック JSON を生成し、type が toggle、
+    /// summary が rich_text に入り、子ブロック（image）が children に
+    /// 1 件含まれることを確認する。
     #[test]
     fn test_toggle_block_json_includes_children() {
         let toggle = toggle_block_json("Spoiler image", vec![image_block_json("upload-id")]);

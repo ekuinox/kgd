@@ -2,6 +2,8 @@
 
 use super::*;
 
+/// 有効な正規表現パターンと bookmark 変換のルールをコンパイルし、ルールが 1 件・
+/// block_types が Bookmark・デフォルトが Link として正しく反映されることを確認する。
 #[test]
 fn test_compile_url_rules_regex_valid() {
     let rules = vec![UrlRuleConfig {
@@ -16,6 +18,7 @@ fn test_compile_url_rules_regex_valid() {
     assert_eq!(compiled.default_types, vec![UrlBlockType::Link]);
 }
 
+/// 不正な正規表現パターン (`[invalid`) を含むルールのコンパイルがエラーになることを確認する。
 #[test]
 fn test_compile_url_rules_invalid_regex() {
     let rules = vec![UrlRuleConfig {
@@ -27,6 +30,8 @@ fn test_compile_url_rules_invalid_regex() {
     assert!(compile_url_rules(&rules, &[]).is_err());
 }
 
+/// glob パターンと bookmark 変換のルールが正常にコンパイルされ、
+/// block_types が Bookmark になることを確認する。
 #[test]
 fn test_compile_url_rules_glob() {
     let rules = vec![UrlRuleConfig {
@@ -40,6 +45,8 @@ fn test_compile_url_rules_glob() {
     assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
 }
 
+/// prefix パターンと bookmark 変換のルールが正常にコンパイルされ、
+/// block_types が Bookmark になることを確認する。
 #[test]
 fn test_compile_url_rules_prefix() {
     let rules = vec![UrlRuleConfig {
@@ -53,6 +60,8 @@ fn test_compile_url_rules_prefix() {
     assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
 }
 
+/// convert_to が未知のブロックタイプのみで有効な変換先が 1 つも無い場合、
+/// コンパイルがエラーになることを確認する。
 #[test]
 fn test_compile_url_rules_unknown_block_type() {
     let rules = vec![UrlRuleConfig {
@@ -65,6 +74,8 @@ fn test_compile_url_rules_unknown_block_type() {
     assert!(compile_url_rules(&rules, &[]).is_err());
 }
 
+/// convert_to に有効 (bookmark) と無効 (invalid) のタイプが混在する場合、
+/// 無効なタイプは無視され有効な Bookmark のみが block_types に残ることを確認する。
 #[test]
 fn test_compile_url_rules_partial_valid_block_types() {
     let rules = vec![UrlRuleConfig {
@@ -78,12 +89,15 @@ fn test_compile_url_rules_partial_valid_block_types() {
     assert_eq!(compiled.rules[0].block_types, vec![UrlBlockType::Bookmark]);
 }
 
+/// ルールもデフォルトも空の場合、コンパイル結果のルールが空になることを確認する。
 #[test]
 fn test_compile_url_rules_empty() {
     let compiled = compile_url_rules(&[], &[]).unwrap();
     assert!(compiled.rules.is_empty());
 }
 
+/// convert_to に link と bookmark を指定した場合、block_types が指定順 (Link, Bookmark)
+/// で保持されることを確認する。
 #[test]
 fn test_compile_url_rules_with_link_type() {
     let rules = vec![UrlRuleConfig {
@@ -100,6 +114,8 @@ fn test_compile_url_rules_with_link_type() {
     );
 }
 
+/// expect_matches の URL がマッチし expect_no_matches の URL がマッチしない場合、
+/// バリデーションを通過してコンパイルが成功することを確認する。
 #[test]
 fn test_compile_url_rules_expect_matches_pass() {
     let rules = vec![UrlRuleConfig {
@@ -111,6 +127,8 @@ fn test_compile_url_rules_expect_matches_pass() {
     assert!(compile_url_rules(&rules, &[]).is_ok());
 }
 
+/// expect_matches に指定した URL が実際にはパターンにマッチしない場合、
+/// バリデーションに失敗してコンパイルがエラーになることを確認する。
 #[test]
 fn test_compile_url_rules_expect_matches_fail() {
     let rules = vec![UrlRuleConfig {
@@ -122,6 +140,8 @@ fn test_compile_url_rules_expect_matches_fail() {
     assert!(compile_url_rules(&rules, &[]).is_err());
 }
 
+/// expect_no_matches に指定した URL が実際にはパターンにマッチしてしまう場合、
+/// バリデーションに失敗してコンパイルがエラーになることを確認する。
 #[test]
 fn test_compile_url_rules_expect_no_matches_fail() {
     let rules = vec![UrlRuleConfig {

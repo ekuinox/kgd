@@ -6,6 +6,8 @@ use kgd_domain::SyncAttachment;
 
 use super::*;
 
+/// HEIC 添付を sync した場合、JPEG へ変換して image ブロックを、元 HEIC を file ブロックとして
+/// この順でアップロード・追加し、2 ブロックを記録することを確認する。
 #[tokio::test]
 async fn sync_uploads_heic_as_jpeg_and_original_file() {
     let mut builder = TestSyncBuilder::new();
@@ -66,6 +68,8 @@ async fn sync_uploads_heic_as_jpeg_and_original_file() {
     assert_eq!(result.block_count, 2);
 }
 
+/// HEIC の JPEG 変換が失敗した場合、image ブロックを作らず元 HEIC を file ブロックとして
+/// のみアップロードし、1 ブロックを記録することを確認する。
 #[tokio::test]
 async fn sync_skips_jpeg_block_when_conversion_fails() {
     let mut builder = TestSyncBuilder::new();

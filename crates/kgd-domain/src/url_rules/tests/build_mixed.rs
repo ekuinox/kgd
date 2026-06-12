@@ -4,6 +4,8 @@ use regex::Regex;
 
 use super::*;
 
+/// link・bookmark・embed の 3 つを指定したルールにマッチする URL 単体が、
+/// インラインリンクの paragraph・bookmark・embed の 3 ブロックに展開されることを確認する。
 #[test]
 fn test_build_multiple_block_types() {
     let compiled = compiled_with_rules(vec![UrlRule {
@@ -29,6 +31,9 @@ fn test_build_multiple_block_types() {
     assert_eq!(result.blocks[2].1, "embed");
 }
 
+/// デフォルト Link の URL と bookmark ルールにマッチする URL が混在するテキストで、
+/// 前者はインラインリンクとして paragraph に残り、後者は独立した bookmark ブロックに
+/// なることを確認する。
 #[test]
 fn test_build_mixed_urls() {
     let compiled = compiled_with_default(
@@ -55,6 +60,8 @@ fn test_build_mixed_urls() {
     assert_eq!(result.blocks[1].1, "bookmark");
 }
 
+/// bookmark URL の前後にテキストがある場合、「前テキストの paragraph → bookmark →
+/// 後テキストの paragraph」の順序でブロックが生成されることを確認する。
 #[test]
 fn test_build_order_text_bookmark_text() {
     let compiled = compiled_with_default(
@@ -84,6 +91,8 @@ fn test_build_order_text_bookmark_text() {
     assert_eq!(rt2[0]["text"]["content"], " after");
 }
 
+/// bookmark に変換される URL が複数ある場合、それらが result.bookmark_urls に
+/// すべて収集されることを確認する。
 #[test]
 fn test_build_bookmark_urls_collected() {
     let compiled = compiled_with_default(
@@ -110,6 +119,8 @@ fn test_build_bookmark_urls_collected() {
     );
 }
 
+/// URL がデフォルトの Link 変換のみの場合、bookmark は生成されず
+/// result.bookmark_urls が空になることを確認する。
 #[test]
 fn test_build_bookmark_urls_empty_for_links_only() {
     let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);

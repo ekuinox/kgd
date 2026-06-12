@@ -6,6 +6,8 @@ use kgd_domain::SyncAttachment;
 
 use super::*;
 
+/// 画像添付とテキストを持つメッセージを sync した場合、image ブロックを
+/// paragraph(テキスト)より前に配置し、2 ブロックを記録することを確認する。
 #[tokio::test]
 async fn sync_places_attachments_before_text() {
     let mut builder = TestSyncBuilder::new();
@@ -57,6 +59,8 @@ async fn sync_places_attachments_before_text() {
     assert_eq!(result.block_count, 2);
 }
 
+/// スポイラー(SPOILER_ 接頭辞)の画像添付を sync した場合、画像を toggle ブロックで包み、
+/// toggle タイプとして 1 ブロック記録することを確認する。
 #[tokio::test]
 async fn sync_wraps_spoiler_image_in_toggle() {
     let mut builder = TestSyncBuilder::new();

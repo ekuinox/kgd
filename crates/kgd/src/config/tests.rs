@@ -1,5 +1,8 @@
 use super::*;
 
+/// 同梱の config.example.toml を Config にパースし、
+/// 各フィールドが期待どおりの値 (Discord 設定・サーバー一覧・日報設定など) に
+/// デシリアライズされることを確認する。
 #[test]
 fn parse_example_config() {
     let content = include_str!("../../../../config.example.toml");

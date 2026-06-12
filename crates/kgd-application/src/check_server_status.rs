@@ -68,6 +68,8 @@ mod tests {
         }
     }
 
+    /// check_all が各サーバーを probe して状態を返すこと、および IP がパース不能なサーバーは
+    /// probe を呼ばずにオフライン扱いになることを確認する。
     #[tokio::test]
     async fn check_all_reports_each_server() {
         let mut prober = MockServerProber::new();

@@ -85,6 +85,8 @@ mod tests {
         }
     }
 
+    /// 先頭の失敗ジョブと後続のカウントジョブを登録して run_jobs を実行し、
+    /// 1 つのジョブが失敗しても後続ジョブが実行される (カウントが 1 になる) ことを確認する。
     #[tokio::test]
     async fn run_jobs_continues_after_failure() {
         let count = Arc::new(AtomicUsize::new(0));

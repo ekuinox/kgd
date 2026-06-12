@@ -66,6 +66,8 @@ pub fn replace_extension(filename: &str, new_ext: &str) -> String {
 mod tests {
     use super::*;
 
+    /// 画像拡張子（png/jpg/jpeg/gif/webp）を持つファイル名が、
+    /// 大文字小文字を問わず FileType::Image に分類されることを確認する。
     #[test]
     fn test_classify_file_image() {
         assert_eq!(classify_file("photo.png"), FileType::Image);
@@ -77,6 +79,8 @@ mod tests {
         assert_eq!(classify_file("modern.webp"), FileType::Image);
     }
 
+    /// heic/heif 拡張子を持つファイル名が、大文字小文字を問わず
+    /// FileType::Heic に分類されることを確認する。
     #[test]
     fn test_classify_file_heic() {
         assert_eq!(classify_file("photo.heic"), FileType::Heic);
@@ -85,6 +89,8 @@ mod tests {
         assert_eq!(classify_file("image.HEIF"), FileType::Heic);
     }
 
+    /// 画像/HEIC 以外の拡張子や拡張子なしのファイル名が、
+    /// FileType::Other に分類されることを確認する。
     #[test]
     fn test_classify_file_other() {
         assert_eq!(classify_file("document.pdf"), FileType::Other);
@@ -93,6 +99,8 @@ mod tests {
         assert_eq!(classify_file("noextension"), FileType::Other);
     }
 
+    /// ドット無しで拡張子文字列のみで終わる名前（somepng 等）が、
+    /// 画像や HEIC と誤判定されず FileType::Other になることを確認する。
     #[test]
     fn test_classify_file_rejects_similar_names() {
         // ドットなしの拡張子文字列で終わるファイル名は画像として判定されない
@@ -101,6 +109,8 @@ mod tests {
         assert_eq!(classify_file("imageheic"), FileType::Other);
     }
 
+    /// 各種拡張子から推定される Content-Type が期待どおりになり、
+    /// 拡張子なしの場合は None になることを確認する。
     #[test]
     fn test_guess_content_type() {
         assert_eq!(
@@ -138,6 +148,8 @@ mod tests {
         assert_eq!(guess_content_type("noextension"), None);
     }
 
+    /// ファイル名が "SPOILER_" で始まる場合のみスポイラー添付と判定し、
+    /// 接頭辞の大文字小文字も区別することを確認する。
     #[test]
     fn test_is_spoiler_attachment() {
         assert!(is_spoiler_attachment("SPOILER_photo.png"));
@@ -145,12 +157,16 @@ mod tests {
         assert!(!is_spoiler_attachment("spoiler_photo.png"));
     }
 
+    /// 説明が None または空白のみの場合、ALT 行を付けず
+    /// "Spoiler image" のみの見出しが生成されることを確認する。
     #[test]
     fn test_spoiler_summary_without_alt() {
         assert_eq!(spoiler_summary(None), "Spoiler image");
         assert_eq!(spoiler_summary(Some("   ")), "Spoiler image");
     }
 
+    /// 説明が指定された場合、"Spoiler image" に続けて
+    /// "ALT: <説明>" 行が付いた見出しが生成されることを確認する。
     #[test]
     fn test_spoiler_summary_with_alt() {
         assert_eq!(
@@ -159,6 +175,8 @@ mod tests {
         );
     }
 
+    /// 既存の拡張子を新しい拡張子へ置き換え、複数ドットを含む名前は
+    /// 最後のドット以降のみ置換、拡張子なしの場合は付加されることを確認する。
     #[test]
     fn test_replace_extension() {
         assert_eq!(replace_extension("photo.heic", "jpg"), "photo.jpg");

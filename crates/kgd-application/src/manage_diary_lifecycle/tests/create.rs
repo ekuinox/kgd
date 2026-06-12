@@ -6,6 +6,8 @@ use crate::test_support::{entry, fixed_clock, utc};
 
 use super::*;
 
+/// 今日の日報が既に存在する場合、Notion 呼び出しやスレッド新規作成を行わず(times(0))、
+/// 既存スレッドを reopen してボタン有無を確認し、Reopened を返すことを確認する。
 #[tokio::test]
 async fn create_reopens_existing_thread() {
     let today = utc(2025, 1, 2, 0, 0);
@@ -34,6 +36,8 @@ async fn create_reopens_existing_thread() {
     assert_eq!(outcome, DiaryCreateOutcome::Reopened { thread_id: 100 });
 }
 
+/// 今日の日報が無く、同名の Notion ページが既存の場合、create_diary_page を呼ばず(times(0))
+/// 既存ページを再利用してスレッドを作成・登録し、reused_page=true の Created を返すことを確認する。
 #[tokio::test]
 async fn create_makes_new_thread_with_existing_page() {
     let today = utc(2025, 1, 2, 0, 0);
@@ -81,6 +85,8 @@ async fn create_makes_new_thread_with_existing_page() {
     );
 }
 
+/// 今日の日報も既存ページも無い場合、新規 Notion ページを作成してスレッドを作成し、
+/// ボタンが無ければ send_close_and_new_button を送り、reused_page=false の Created を返すことを確認する。
 #[tokio::test]
 async fn create_makes_new_page_when_not_found() {
     let mut repo = MockDiaryRepository::new();

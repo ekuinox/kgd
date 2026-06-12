@@ -4,6 +4,8 @@ use mockall::predicate::eq;
 
 use super::*;
 
+/// 対象メッセージに対応するブロックが DB に無い場合、update_text_block を呼ばず(times(0))、
+/// update が false を返すことを確認する。
 #[tokio::test]
 async fn update_returns_false_when_no_blocks() {
     let mut builder = TestSyncBuilder::new();
@@ -21,6 +23,8 @@ async fn update_returns_false_when_no_blocks() {
     assert!(!updated);
 }
 
+/// image と text のブロックが混在する場合、update では text ブロックのみ更新し
+/// (image ブロックには update_text_block を呼ばない)、true を返すことを確認する。
 #[tokio::test]
 async fn update_updates_text_blocks_only() {
     let mut builder = TestSyncBuilder::new();
@@ -58,6 +62,8 @@ async fn update_updates_text_blocks_only() {
     assert!(updated);
 }
 
+/// delete した場合、対応する全ブロック(2 件)を Notion から削除し、
+/// DB のブロック行も delete_blocks_by_message で削除して true を返すことを確認する。
 #[tokio::test]
 async fn delete_removes_all_blocks_and_db_rows() {
     let mut builder = TestSyncBuilder::new();
@@ -100,6 +106,8 @@ async fn delete_removes_all_blocks_and_db_rows() {
     assert!(deleted);
 }
 
+/// 対象メッセージのブロックが無い場合、Notion の delete_block も DB の
+/// delete_blocks_by_message も呼ばず(times(0))、delete が false を返すことを確認する。
 #[tokio::test]
 async fn delete_returns_false_when_no_blocks() {
     let mut builder = TestSyncBuilder::new();

@@ -4,6 +4,8 @@ use regex::Regex;
 
 use super::*;
 
+/// URL を含まないテキストが、1 つの paragraph ブロック (リンクなしのプレーン rich_text) に
+/// 変換されることを確認する。
 #[test]
 fn test_build_no_urls() {
     let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
@@ -18,6 +20,8 @@ fn test_build_no_urls() {
     assert!(rich_text[0]["text"]["link"].is_null());
 }
 
+/// デフォルト変換が Link の場合、URL を含むテキストが 1 つの paragraph にまとまり、
+/// URL 部分がインラインリンク (link.url 付き) になることを確認する。
 #[test]
 fn test_build_inline_link_default() {
     let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
@@ -33,6 +37,8 @@ fn test_build_inline_link_default() {
     assert_eq!(rich_text[1]["text"]["link"]["url"], "https://example.com");
 }
 
+/// ルールもデフォルト変換も無い場合、URL はリンク化されずプレーンテキストとして
+/// paragraph に表示される (link が null) ことを確認する。
 #[test]
 fn test_build_url_no_default_renders_plain_text() {
     let compiled = compiled_with_rules(vec![]);
@@ -48,6 +54,8 @@ fn test_build_url_no_default_renders_plain_text() {
     assert!(rich_text[1]["text"]["link"].is_null());
 }
 
+/// bookmark のみのルールにマッチする URL は、先行テキストの paragraph と独立した
+/// bookmark ブロック (インラインリンクを含まない) に分割されることを確認する。
 #[test]
 fn test_build_bookmark_only_no_link() {
     let compiled = compiled_with_default(
@@ -73,6 +81,8 @@ fn test_build_bookmark_only_no_link() {
     );
 }
 
+/// link と bookmark の両方を指定したルールにマッチする URL は、インラインリンクを含む
+/// paragraph と、それに続く bookmark ブロックの 2 つに変換されることを確認する。
 #[test]
 fn test_build_link_and_bookmark() {
     let compiled = compiled_with_default(
@@ -97,6 +107,8 @@ fn test_build_link_and_bookmark() {
     assert_eq!(result.blocks[1].1, "bookmark");
 }
 
+/// embed のみのルールにマッチする URL 単体は、paragraph を生成せず embed ブロック
+/// 1 つだけに変換されることを確認する。
 #[test]
 fn test_build_embed_rule() {
     let compiled = compiled_with_rules(vec![UrlRule {

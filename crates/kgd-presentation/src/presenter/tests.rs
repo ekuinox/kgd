@@ -2,6 +2,8 @@ use macaddr::MacAddr6;
 
 use super::*;
 
+/// WakeOutcome::Sent を渡すと、サーバー名と MAC アドレスを含む送信完了メッセージが
+/// Some で整形されることを確認する。
 #[test]
 fn present_wake_outcome_formats_sent_message() {
     let outcome = WakeOutcome::Sent {
@@ -14,11 +16,14 @@ fn present_wake_outcome_formats_sent_message() {
     );
 }
 
+/// WakeOutcome::ServerNotFound を渡すと、表示メッセージなし (None) になることを確認する。
 #[test]
 fn present_wake_outcome_returns_none_for_not_found() {
     assert_eq!(present_wake_outcome(&WakeOutcome::ServerNotFound), None);
 }
 
+/// サーバー一覧を渡すと、タイトル・各サーバーをフィールド化 (IP と説明を含む)・
+/// 総数を示すフッターを持つ表示仕様が組み立てられることを確認する。
 #[test]
 fn present_servers_builds_fields_and_footer() {
     let servers = vec![ServerTarget {
@@ -37,6 +42,8 @@ fn present_servers_builds_fields_and_footer() {
     assert_eq!(spec.footer, Some("Total: 1 server(s)".to_string()));
 }
 
+/// オンライン/オフラインのステータスと更新間隔を渡すと、各フィールドが
+/// "Online"/"Offline" に整形され、フッターに更新間隔が表示されることを確認する。
 #[test]
 fn present_server_status_marks_online_and_offline() {
     let statuses = vec![
@@ -56,6 +63,8 @@ fn present_server_status_marks_online_and_offline() {
     assert_eq!(spec.footer, Some("Updated every 5m".to_string()));
 }
 
+/// DiaryCreateOutcome の各バリアント (Reopened / ExistsButNotReopened / Created) を渡すと、
+/// それぞれに応じたメッセージ (スレッド参照や作成ページ URL を含む) に整形されることを確認する。
 #[test]
 fn present_diary_create_outcome_formats_each_variant() {
     assert_eq!(
@@ -76,6 +85,8 @@ fn present_diary_create_outcome_formats_each_variant() {
     assert!(created.contains("https://notion.example/x"));
 }
 
+/// CloseAndNewPrecheck の各バリアントを渡すと、AlreadyLatest と LatestExists は
+/// 案内メッセージを Some で返し、ReadyToCreate はメッセージなし (None) になることを確認する。
 #[test]
 fn present_close_and_new_precheck_formats_messages() {
     assert_eq!(

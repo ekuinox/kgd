@@ -10,6 +10,8 @@ use crate::test_support::{empty_sync_service, entry, fixed_clock, utc};
 
 use super::*;
 
+/// 自動クローズ判定の閾値時刻(08:00)より前(07:00)の場合、get_latest_entry すら呼ばず
+/// (times(0))に何もしないことを確認する。
 #[tokio::test]
 async fn auto_close_skips_before_hour() {
     let mut repo = MockDiaryRepository::new();
@@ -22,6 +24,9 @@ async fn auto_close_skips_before_hour() {
     m.check_auto_close().await.unwrap();
 }
 
+/// 最新エントリが前日でスレッドがアクティブ(未アーカイブ)な場合、対象スレッドへ
+/// クローズボタンを、書き込み用チャンネルへ新規日報ボタンを送ること、および同日中の
+/// 2 回目では再送せず repo への問い合わせ自体が発生しない(get_latest_entry times(1))ことを確認する。
 #[tokio::test]
 async fn auto_close_sends_button_for_stale_active_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -60,6 +65,8 @@ async fn auto_close_sends_button_for_stale_active_thread() {
     m.check_auto_close().await.unwrap();
 }
 
+/// 最新エントリのスレッドがアーカイブ済みの場合、クローズボタンは送らず(times(0))、
+/// 書き込み用チャンネルへの新規日報ボタンは送ることを確認する。
 #[tokio::test]
 async fn auto_close_skips_archived_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -87,6 +94,8 @@ async fn auto_close_skips_archived_thread() {
     m.check_auto_close().await.unwrap();
 }
 
+/// 毎時同期は初回呼び出しでは現在スロットを記録するだけで同期せず、同一スロットでもスキップし、
+/// スロットが変わった時に初めて 1 回だけ同期(get_entries_in_date_range times(1))することを確認する。
 #[tokio::test]
 async fn hourly_sync_records_only_on_first_call_then_syncs_on_slot_change() {
     let mut repo = MockDiaryRepository::new();

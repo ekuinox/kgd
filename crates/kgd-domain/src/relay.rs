@@ -77,6 +77,8 @@ pub fn assemble_relay_content(
 mod tests {
     use super::*;
 
+    /// guild_id がある場合、guild/channel/message を含む
+    /// 通常のメッセージリンク URL が生成されることを確認する。
     #[test]
     fn message_link_uses_guild_id_when_present() {
         assert_eq!(
@@ -85,6 +87,8 @@ mod tests {
         );
     }
 
+    /// guild_id が None（DM 等）の場合、guild 部分に @me を使った
+    /// メッセージリンク URL が生成されることを確認する。
     #[test]
     fn message_link_uses_at_me_without_guild() {
         assert_eq!(
@@ -93,6 +97,8 @@ mod tests {
         );
     }
 
+    /// 添付なしの本文から、本文の次行に元メッセージリンクのフッタが
+    /// 付いた転記本文が組み立てられることを確認する。
     #[test]
     fn relay_content_contains_content_and_source_link() {
         let content =
@@ -104,6 +110,8 @@ mod tests {
         );
     }
 
+    /// 本文・各添付 URL・フッタが改行区切りでこの順に連結された
+    /// 転記本文が組み立てられることを確認する。
     #[test]
     fn relay_content_includes_attachment_urls() {
         let urls = [
@@ -118,6 +126,8 @@ mod tests {
         );
     }
 
+    /// 本文が空の場合は本文行を出力せず、添付 URL とフッタのみで
+    /// 転記本文が組み立てられることを確認する。
     #[test]
     fn relay_content_omits_empty_content_line() {
         let urls = ["https://cdn.example.com/a.png"];
@@ -129,6 +139,8 @@ mod tests {
         );
     }
 
+    /// 添付 URL とフッタだけで Discord の文字数上限を超えるケースでも、
+    /// 最終的に全体が上限以内に丸められることを確認する。
     #[test]
     fn relay_content_clamps_when_attachments_alone_exceed_limit() {
         // 添付 URL とフッタだけで上限を超えるケースでも全体が上限に収まる
@@ -142,6 +154,8 @@ mod tests {
         assert!(content.chars().count() <= DISCORD_MESSAGE_CONTENT_LIMIT);
     }
 
+    /// 本文が上限を超える場合、全体が上限ちょうどに収まるよう本文を切り詰め、
+    /// 省略記号を付けつつ末尾のフッタは保持されることを確認する。
     #[test]
     fn relay_content_truncates_long_content_to_limit() {
         let long_content = "あ".repeat(3000);

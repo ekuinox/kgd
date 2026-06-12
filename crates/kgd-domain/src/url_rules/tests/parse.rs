@@ -2,12 +2,14 @@
 
 use super::*;
 
+/// URL を含まない文字列が、1 つの Plain セグメントとしてそのまま返ることを確認する。
 #[test]
 fn test_parse_segments_no_urls() {
     let result = parse_segments("hello world");
     assert_eq!(result, vec![TextSegment::Plain("hello world".to_string())]);
 }
 
+/// テキスト中に URL が 1 つある場合、前後の Plain と Url の 3 セグメントに分割されることを確認する。
 #[test]
 fn test_parse_segments_single_url() {
     let result = parse_segments("check https://example.com please");
@@ -21,6 +23,7 @@ fn test_parse_segments_single_url() {
     );
 }
 
+/// テキスト中に URL が 2 つある場合、Url・Plain・Url の順にセグメント分割されることを確認する。
 #[test]
 fn test_parse_segments_multiple_urls() {
     let result = parse_segments("https://a.com and https://b.com");
@@ -34,6 +37,7 @@ fn test_parse_segments_multiple_urls() {
     );
 }
 
+/// URL のみの文字列が、1 つの Url セグメントとして返ることを確認する。
 #[test]
 fn test_parse_segments_url_only() {
     let result = parse_segments("https://example.com");
@@ -43,6 +47,7 @@ fn test_parse_segments_url_only() {
     );
 }
 
+/// http スキームの URL も Url セグメントとして認識され、前の Plain と分割されることを確認する。
 #[test]
 fn test_parse_segments_http_url() {
     let result = parse_segments("link: http://example.com");
@@ -55,6 +60,7 @@ fn test_parse_segments_http_url() {
     );
 }
 
+/// 空文字列を入力した場合、セグメントが空になることを確認する。
 #[test]
 fn test_parse_segments_empty() {
     let result = parse_segments("");

@@ -6,6 +6,8 @@ use crate::test_support::{entry, fixed_clock, utc};
 
 use super::*;
 
+/// スレッドが日報として未登録（get_by_thread が None）の場合、
+/// precheck が NotDiaryThread を返すことを確認する。
 #[tokio::test]
 async fn precheck_detects_non_diary_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -21,6 +23,8 @@ async fn precheck_detects_non_diary_thread() {
     assert_eq!(precheck, CloseAndNewPrecheck::NotDiaryThread);
 }
 
+/// 既存の日報スレッドに対する precheck で、自分自身が最新日付なら AlreadyLatest を、
+/// 別スレッドが最新なら LatestExists{thread_id} を返すことを確認する。
 #[tokio::test]
 async fn precheck_detects_latest_thread() {
     let today = utc(2025, 1, 2, 0, 0);
@@ -47,6 +51,8 @@ async fn precheck_detects_latest_thread() {
     );
 }
 
+/// 日報スレッドから close_and_create_new した場合、新スレッドを作成・登録した後、
+/// 旧スレッド(100)へ新スレッド(<#400>)への案内を送ってからクローズすることを確認する。
 #[tokio::test]
 async fn close_and_create_new_mentions_then_closes_old_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -88,6 +94,8 @@ async fn close_and_create_new_mentions_then_closes_old_thread() {
     assert_eq!(new_thread_id, 400);
 }
 
+/// 書き込み用チャンネル(500)から close_and_create_new した場合、最新エントリの
+/// スレッド(100)をクローズ対象にしつつ、案内はボタンが押されたチャンネル(500)へ送ることを確認する。
 #[tokio::test]
 async fn close_and_create_new_from_write_channel_closes_latest_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -133,6 +141,8 @@ async fn close_and_create_new_from_write_channel_closes_latest_thread() {
     assert_eq!(new_thread_id, 400);
 }
 
+/// 書き込み用チャンネル(500)からの precheck では get_by_thread を呼ばず(times(0))、
+/// 今日の日付の日報が無ければ ReadyToCreate を返すことを確認する。
 #[tokio::test]
 async fn precheck_allows_write_channel_without_thread_registration() {
     let mut repo = MockDiaryRepository::new();
@@ -147,6 +157,8 @@ async fn precheck_allows_write_channel_without_thread_registration() {
     assert_eq!(precheck, CloseAndNewPrecheck::ReadyToCreate);
 }
 
+/// 日報として未登録のスレッドを close した場合、close_thread を呼ばず(times(0))、
+/// NotDiaryThread を返すことを確認する。
 #[tokio::test]
 async fn close_skips_non_diary_thread() {
     let mut repo = MockDiaryRepository::new();
@@ -161,6 +173,8 @@ async fn close_skips_non_diary_thread() {
     assert_eq!(outcome, DiaryCloseOutcome::NotDiaryThread);
 }
 
+/// 日報として登録済みのスレッド(100)を close した場合、close_thread を呼び出して
+/// Closed を返すことを確認する。
 #[tokio::test]
 async fn close_closes_diary_thread() {
     let mut repo = MockDiaryRepository::new();

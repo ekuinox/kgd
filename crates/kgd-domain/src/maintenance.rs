@@ -82,6 +82,8 @@ mod tests {
             .unwrap()
     }
 
+    /// 直近スロットが None（初回起動）の場合は RecordOnly を返し、
+    /// 同期せず現在スロットの記録のみ行うことを確認する。
     #[test]
     fn decide_hourly_sync_records_only_on_first_run() {
         let slot = DiaryHourlySyncSlot::from(utc(2025, 1, 1, 10, 0), &chrono_tz::UTC);
@@ -91,6 +93,8 @@ mod tests {
         );
     }
 
+    /// 直近スロットと現在スロットが同一の場合は Skip を返し、
+    /// 同一時間帯では同期しないことを確認する。
     #[test]
     fn decide_hourly_sync_skips_same_slot() {
         let slot = DiaryHourlySyncSlot::from(utc(2025, 1, 1, 10, 0), &chrono_tz::UTC);
@@ -100,6 +104,8 @@ mod tests {
         );
     }
 
+    /// 時が切り替わって直近スロットと現在スロットが異なる場合は
+    /// Sync を返し、同期を行うことを確認する。
     #[test]
     fn decide_hourly_sync_syncs_on_slot_change() {
         let prev = DiaryHourlySyncSlot::from(utc(2025, 1, 1, 10, 0), &chrono_tz::UTC);
@@ -110,6 +116,8 @@ mod tests {
         );
     }
 
+    /// スロット生成が指定タイムゾーンに従い、UTC 23:00 が
+    /// Asia/Tokyo では翌日 08:00 の時・日付になることを確認する。
     #[test]
     fn hourly_slot_respects_timezone() {
         // UTC 23:00 は Asia/Tokyo では翌日 08:00。
@@ -122,6 +130,8 @@ mod tests {
         );
     }
 
+    /// 自動クローズ機能が無効な場合は、時刻や未通知でも
+    /// false を返すことを確認する。
     #[test]
     fn should_attempt_auto_close_false_when_disabled() {
         assert!(!should_attempt_auto_close(
@@ -133,6 +143,8 @@ mod tests {
         ));
     }
 
+    /// 機能が有効でも現在時（7時）が自動クローズ時刻（8時）より前なら
+    /// false を返し、早すぎる通知を防ぐことを確認する。
     #[test]
     fn should_attempt_auto_close_false_before_hour() {
         assert!(!should_attempt_auto_close(
@@ -144,6 +156,8 @@ mod tests {
         ));
     }
 
+    /// 機能が有効で時刻を満たしていても、本日すでに通知済みなら
+    /// false を返し、重複通知を防ぐことを確認する。
     #[test]
     fn should_attempt_auto_close_false_when_already_notified_today() {
         let now = utc(2025, 1, 1, 9, 0);
@@ -157,6 +171,8 @@ mod tests {
         ));
     }
 
+    /// 機能が有効・時刻到達済み（9時≧8時）・本日未通知の条件が揃った場合に
+    /// true を返すことを確認する。
     #[test]
     fn should_attempt_auto_close_true_when_due_and_not_notified() {
         assert!(should_attempt_auto_close(
