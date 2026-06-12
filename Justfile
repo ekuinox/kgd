@@ -43,7 +43,7 @@ test:
 # Run tests with coverage (HTML report; requires cargo-llvm-cov)
 cov:
     @echo "Running coverage..."
-    cargo llvm-cov --all --workspace --html
+    cargo llvm-cov --workspace --html
 
 # Build release binary
 build:
