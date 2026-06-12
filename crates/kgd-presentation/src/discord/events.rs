@@ -1,4 +1,4 @@
-//! serenity の EventHandler trait 実装。各イベントを Handler のメソッドへ委譲する。
+//! serenity の EventHandler trait 実装。各イベントを DiscordController のメソッドへ委譲する。
 
 use std::collections::HashMap;
 
@@ -15,10 +15,10 @@ use serenity::{
 };
 use tracing::{error, info};
 
-use super::Handler;
+use super::DiscordController;
 
 #[async_trait]
-impl EventHandler for Handler {
+impl EventHandler for DiscordController {
     async fn ready(&self, ctx: SerenityContext, ready: serenity::model::gateway::Ready) {
         info!(user = %ready.user.name, "Bot connected");
 

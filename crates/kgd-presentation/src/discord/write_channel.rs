@@ -6,9 +6,9 @@ use serenity::{all::MessageUpdateEvent, client::Context as SerenityContext};
 use kgd_application::WriteChannelEvent;
 use kgd_infrastructure::to_sync_message;
 
-use super::Handler;
+use super::DiscordController;
 
-impl Handler {
+impl DiscordController {
     /// 書き込み用チャンネルでのメッセージ編集を転記ユースケースへ引き渡す。
     pub(crate) async fn handle_write_channel_update(
         &self,

@@ -20,7 +20,7 @@ pub use types::{
 const BUTTON_LOOKBACK_LIMIT: u8 = 10;
 
 /// 日報スレッドのライフサイクルを管理するユースケース。
-pub struct ManageDiaryLifecycle {
+pub struct ManageDiaryLifecycleUseCase {
     /// 日報リポジトリポート
     repo: Arc<dyn DiaryRepository>,
     /// Notion API ポート
@@ -33,8 +33,8 @@ pub struct ManageDiaryLifecycle {
     settings: DiaryLifecycleSettings,
 }
 
-impl ManageDiaryLifecycle {
-    /// 新しい ManageDiaryLifecycle を作成する。
+impl ManageDiaryLifecycleUseCase {
+    /// 新しい ManageDiaryLifecycleUseCase を作成する。
     pub fn new(
         repo: Arc<dyn DiaryRepository>,
         notion: Arc<dyn NotionApi>,

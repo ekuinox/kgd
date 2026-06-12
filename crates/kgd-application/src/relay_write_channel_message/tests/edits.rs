@@ -35,7 +35,7 @@ async fn update_edits_relayed_message() {
         .times(1)
         .returning(|_, _, _| Ok(()));
 
-    // 旧ブロック削除 + 再同期を行う SyncDiaryMessage
+    // 旧ブロック削除 + 再同期を行う SyncDiaryMessageUseCase
     let url_rules =
         compile_url_rules(&[], &["link".to_string()]).expect("default rules should be ok");
     let mut notion = MockNotionApi::new();
@@ -64,7 +64,7 @@ async fn update_edits_relayed_message() {
         .expect_insert_message_block()
         .times(1)
         .returning(|_| Ok(()));
-    let sync = Arc::new(SyncDiaryMessage::new(
+    let sync = Arc::new(SyncDiaryMessageUseCase::new(
         Arc::new(notion),
         Arc::new(sync_repo),
         Arc::new(MockAttachmentDownloader::new()),
@@ -135,7 +135,7 @@ async fn delete_removes_blocks_relayed_message_and_mapping() {
         .expect_delete_blocks_by_message()
         .times(1)
         .returning(|_| Ok(()));
-    let sync = Arc::new(SyncDiaryMessage::new(
+    let sync = Arc::new(SyncDiaryMessageUseCase::new(
         Arc::new(notion),
         Arc::new(sync_repo),
         Arc::new(MockAttachmentDownloader::new()),

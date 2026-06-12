@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use kgd_domain::{DiaryEntry, RelayedMessage, SyncMessage, build_relay_content, today_in_timezone};
 
 use super::{
-    SyncDiaryMessage,
+    SyncDiaryMessageUseCase,
     ports::{Clock, DiaryRepository, DiscordGateway},
 };
 
@@ -28,7 +28,7 @@ pub struct RelaySettings {
 }
 
 /// 書き込み用チャンネルへの投稿を最新の日報スレッドへ転記するユースケース。
-pub struct RelayWriteChannelMessage {
+pub struct RelayWriteChannelMessageUseCase {
     /// 日報リポジトリポート
     repo: Arc<dyn DiaryRepository>,
     /// Discord ゲートウェイポート
@@ -36,18 +36,18 @@ pub struct RelayWriteChannelMessage {
     /// 時刻ポート
     clock: Arc<dyn Clock>,
     /// メッセージ同期ユースケース
-    sync: Arc<SyncDiaryMessage>,
+    sync: Arc<SyncDiaryMessageUseCase>,
     /// 転記設定
     settings: RelaySettings,
 }
 
-impl RelayWriteChannelMessage {
-    /// 新しい RelayWriteChannelMessage を作成する。
+impl RelayWriteChannelMessageUseCase {
+    /// 新しい RelayWriteChannelMessageUseCase を作成する。
     pub fn new(
         repo: Arc<dyn DiaryRepository>,
         gateway: Arc<dyn DiscordGateway>,
         clock: Arc<dyn Clock>,
-        sync: Arc<SyncDiaryMessage>,
+        sync: Arc<SyncDiaryMessageUseCase>,
         settings: RelaySettings,
     ) -> Self {
         Self {

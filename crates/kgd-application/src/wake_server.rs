@@ -25,15 +25,15 @@ pub enum WakeOutcome {
 }
 
 /// Wake-on-LAN でサーバーを起動するユースケース。
-pub struct WakeServer {
+pub struct WakeServerUseCase {
     /// WOL 送信ポート
     wol: Arc<dyn WolSender>,
     /// 操作対象のサーバー一覧
     servers: Vec<ServerTarget>,
 }
 
-impl WakeServer {
-    /// 新しい WakeServer を作成する。
+impl WakeServerUseCase {
+    /// 新しい WakeServerUseCase を作成する。
     pub fn new(wol: Arc<dyn WolSender>, servers: Vec<ServerTarget>) -> Self {
         Self { wol, servers }
     }
@@ -80,7 +80,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let use_case = WakeServer::new(Arc::new(wol), vec![server("nas", mac)]);
+        let use_case = WakeServerUseCase::new(Arc::new(wol), vec![server("nas", mac)]);
         let outcome = use_case.wake("nas").unwrap();
 
         assert_eq!(
@@ -97,7 +97,7 @@ mod tests {
         let mut wol = MockWolSender::new();
         wol.expect_send_wol().times(0);
 
-        let use_case = WakeServer::new(
+        let use_case = WakeServerUseCase::new(
             Arc::new(wol),
             vec![server("nas", MacAddr6::new(0, 1, 2, 3, 4, 5))],
         );

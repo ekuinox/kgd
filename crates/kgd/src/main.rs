@@ -6,7 +6,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use kgd_application::CheckServerStatus;
+use kgd_application::CheckServerStatusUseCase;
 use kgd_domain::ServerStatus;
 use kgd_infrastructure::SurgeProber;
 use tokio::sync::mpsc;
@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
 
     let ping_timeout = Duration::from_secs(5);
     let check_status =
-        CheckServerStatus::new(Arc::new(SurgeProber), config.server_targets(), ping_timeout);
+        CheckServerStatusUseCase::new(Arc::new(SurgeProber), config.server_targets(), ping_timeout);
     let interval = config.status.interval;
     tokio::spawn(run_status_monitor(check_status, interval, status_tx));
 
@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
 /// * `interval` - チェック間隔
 /// * `tx` - ステータス結果を送信するチャンネル
 async fn run_status_monitor(
-    check_status: CheckServerStatus,
+    check_status: CheckServerStatusUseCase,
     interval: Duration,
     tx: mpsc::Sender<Vec<ServerStatus>>,
 ) {

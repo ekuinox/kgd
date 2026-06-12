@@ -12,8 +12,8 @@ use tracing::info;
 
 use kgd_application::{
     AutoCloseJob, DiaryLifecycleSettings, DiaryMaintenanceSettings, HourlySyncJob,
-    ManageDiaryLifecycle, RelaySettings, RelayWriteChannelMessage, RunDiaryMaintenance,
-    SyncDiaryMessage, WakeServer,
+    ManageDiaryLifecycleUseCase, RelaySettings, RelayWriteChannelMessageUseCase,
+    RunDiaryMaintenanceUseCase, SyncDiaryMessageUseCase, WakeServerUseCase,
     ports::{
         AttachmentDownloader, Clock, DiaryRepository, DiscordGateway, ImageConverter, NotionApi,
         OgpClient, WolSender,
@@ -26,7 +26,7 @@ use kgd_infrastructure::{
     SerenityGateway, SystemClock, UdpWolSender,
 };
 use kgd_presentation::{
-    Handler, HandlerSettings, StatusNotifier, VersionInfo, run_status_receiver,
+    DiscordController, DiscordControllerSettings, StatusNotifier, VersionInfo, run_status_receiver,
 };
 
 use crate::{config::Config, version};
@@ -67,7 +67,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     } else {
         None
     };
-    let sync_service = Arc::new(SyncDiaryMessage::new(
+    let sync_service = Arc::new(SyncDiaryMessageUseCase::new(
         notion_client.clone(),
         diary_store.clone(),
         Arc::new(ReqwestDownloader::new()) as Arc<dyn AttachmentDownloader>,
@@ -82,7 +82,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         &config.discord.token,
     ))));
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    let maintenance = Arc::new(RunDiaryMaintenance::new(
+    let maintenance = Arc::new(RunDiaryMaintenanceUseCase::new(
         diary_store.clone(),
         gateway.clone(),
         clock.clone(),
@@ -95,7 +95,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
             sync_reaction: diary_config.sync_reaction.clone(),
         },
     ));
-    let lifecycle = Arc::new(ManageDiaryLifecycle::new(
+    let lifecycle = Arc::new(ManageDiaryLifecycleUseCase::new(
         diary_store.clone(),
         notion_client,
         gateway.clone(),
@@ -106,7 +106,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
             write_channel_id: diary_config.write_channel_id,
         },
     ));
-    let relay = Arc::new(RelayWriteChannelMessage::new(
+    let relay = Arc::new(RelayWriteChannelMessageUseCase::new(
         diary_store.clone(),
         gateway,
         clock,
@@ -122,13 +122,13 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     tokio::spawn(run_relay_worker(relay, relay_rx));
 
     let servers = config.server_targets();
-    let wake_server = Arc::new(WakeServer::new(
+    let wake_server = Arc::new(WakeServerUseCase::new(
         Arc::new(UdpWolSender) as Arc<dyn WolSender>,
         servers.clone(),
     ));
 
-    let handler = Handler::new(
-        HandlerSettings {
+    let handler = DiscordController::new(
+        DiscordControllerSettings {
             admins: config.discord.admins.clone(),
             version_info: VersionInfo {
                 version: version::VERSION.to_string(),

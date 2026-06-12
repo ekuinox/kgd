@@ -1,4 +1,4 @@
-//! SyncDiaryMessage の単体テスト（共有ヘルパ）。
+//! SyncDiaryMessageUseCase の単体テスト（共有ヘルパ）。
 
 use kgd_domain::compile_url_rules;
 
@@ -33,10 +33,10 @@ impl TestSyncBuilder {
         }
     }
 
-    fn build(self) -> SyncDiaryMessage {
+    fn build(self) -> SyncDiaryMessageUseCase {
         let url_rules =
             compile_url_rules(&[], &["link".to_string()]).expect("default rules should be ok");
-        SyncDiaryMessage::new(
+        SyncDiaryMessageUseCase::new(
             Arc::new(self.notion),
             Arc::new(self.repo),
             Arc::new(self.downloader),

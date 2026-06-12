@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use kgd_domain::{MessageBlock, SyncMessage, build_rich_text_and_url_blocks};
 
-use super::SyncDiaryMessage;
+use super::SyncDiaryMessageUseCase;
 
-impl SyncDiaryMessage {
+impl SyncDiaryMessageUseCase {
     /// メッセージが更新されたときに Notion ブロックを更新する。
     ///
     /// テキストブロックのみ更新可能。画像・ブックマークブロックは更新されない。

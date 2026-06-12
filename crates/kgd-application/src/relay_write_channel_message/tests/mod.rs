@@ -1,4 +1,4 @@
-//! RelayWriteChannelMessage の単体テスト（共有ヘルパ）。
+//! RelayWriteChannelMessageUseCase の単体テスト（共有ヘルパ）。
 
 use crate::ports::{MockDiaryRepository, MockDiscordGateway};
 use crate::test_support::{fixed_clock, utc};
@@ -30,9 +30,9 @@ fn message(message_id: u64, content: &str) -> SyncMessage {
 fn relay_use_case(
     repo: MockDiaryRepository,
     gateway: MockDiscordGateway,
-    sync: Arc<SyncDiaryMessage>,
-) -> RelayWriteChannelMessage {
-    RelayWriteChannelMessage::new(
+    sync: Arc<SyncDiaryMessageUseCase>,
+) -> RelayWriteChannelMessageUseCase {
+    RelayWriteChannelMessageUseCase::new(
         Arc::new(repo),
         Arc::new(gateway),
         Arc::new(fixed_clock(utc(2025, 1, 2, 9, 0))),

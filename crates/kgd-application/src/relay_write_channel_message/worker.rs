@@ -7,7 +7,7 @@ use tracing::error;
 
 use kgd_domain::SyncMessage;
 
-use super::RelayWriteChannelMessage;
+use super::RelayWriteChannelMessageUseCase;
 
 /// 書き込み用チャンネルで起きたイベント。到着順にワーカーが処理する。
 #[derive(Debug)]
@@ -29,7 +29,7 @@ pub enum WriteChannelEvent {
 /// （スレッドへの投稿順・Notion のブロック順）を保証するためにここで直列化する。
 /// このループは全送信側が閉じられるまで戻らないため、呼び出し側で spawn すること。
 pub async fn run_relay_worker(
-    relay: Arc<RelayWriteChannelMessage>,
+    relay: Arc<RelayWriteChannelMessageUseCase>,
     mut rx: mpsc::Receiver<WriteChannelEvent>,
 ) {
     while let Some(event) = rx.recv().await {

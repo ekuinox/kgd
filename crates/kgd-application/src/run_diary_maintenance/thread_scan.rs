@@ -5,9 +5,9 @@ use tracing::{error, info};
 
 use kgd_domain::today_in_timezone;
 
-use super::{DiaryThreadSyncReport, RunDiaryMaintenance, THREAD_SYNC_BATCH_SIZE};
+use super::{DiaryThreadSyncReport, RunDiaryMaintenanceUseCase, THREAD_SYNC_BATCH_SIZE};
 
-impl RunDiaryMaintenance {
+impl RunDiaryMaintenanceUseCase {
     /// 指定した日報スレッドを全走査し、未同期メッセージだけを Notion に再同期する。
     ///
     /// 同期対象の期間絞り込みはここで持たず、呼び出し側で決める。

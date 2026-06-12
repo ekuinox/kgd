@@ -7,7 +7,7 @@ use kgd_domain::{ServerStatus, ServerTarget};
 use super::ports::ServerProber;
 
 /// サーバーの死活確認を行うユースケース。
-pub struct CheckServerStatus {
+pub struct CheckServerStatusUseCase {
     /// 死活確認ポート
     prober: Arc<dyn ServerProber>,
     /// 監視対象のサーバー一覧
@@ -16,8 +16,8 @@ pub struct CheckServerStatus {
     timeout: Duration,
 }
 
-impl CheckServerStatus {
-    /// 新しい CheckServerStatus を作成する。
+impl CheckServerStatusUseCase {
+    /// 新しい CheckServerStatusUseCase を作成する。
     pub fn new(
         prober: Arc<dyn ServerProber>,
         servers: Vec<ServerTarget>,
@@ -82,7 +82,7 @@ mod tests {
             .times(1)
             .returning(|_, _| false);
 
-        let use_case = CheckServerStatus::new(
+        let use_case = CheckServerStatusUseCase::new(
             Arc::new(prober),
             vec![
                 server("a", "192.168.1.10"),

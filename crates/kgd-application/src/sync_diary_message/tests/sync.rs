@@ -89,7 +89,7 @@ async fn sync_applies_ogp_to_bookmark_blocks() {
         // bookmark に変換するルールで構築する
         let url_rules =
             compile_url_rules(&[], &["bookmark".to_string()]).expect("rules should compile");
-        SyncDiaryMessage::new(
+        SyncDiaryMessageUseCase::new(
             Arc::new(builder.notion),
             Arc::new(builder.repo),
             Arc::new(builder.downloader),

@@ -25,7 +25,7 @@ pub struct SyncResult {
 /// メッセージを Notion に同期するユースケース。
 ///
 /// 外部 IO はすべてポート経由で行うため、mockall のモックで単体テストできる。
-pub struct SyncDiaryMessage {
+pub struct SyncDiaryMessageUseCase {
     /// Notion API ポート
     notion: Arc<dyn NotionApi>,
     /// 日報リポジトリポート
@@ -40,8 +40,8 @@ pub struct SyncDiaryMessage {
     url_rules: CompiledUrlRules,
 }
 
-impl SyncDiaryMessage {
-    /// 新しい SyncDiaryMessage を作成する。
+impl SyncDiaryMessageUseCase {
+    /// 新しい SyncDiaryMessageUseCase を作成する。
     pub fn new(
         notion: Arc<dyn NotionApi>,
         repo: Arc<dyn DiaryRepository>,

@@ -14,14 +14,14 @@ mod sync_diary_message;
 mod test_support;
 mod wake_server;
 
-pub use check_server_status::CheckServerStatus;
+pub use check_server_status::CheckServerStatusUseCase;
 pub use manage_diary_lifecycle::{
-    CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycle,
+    CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycleUseCase,
 };
 pub use relay_write_channel_message::{
-    RelaySettings, RelayWriteChannelMessage, WriteChannelEvent, run_relay_worker,
+    RelaySettings, RelayWriteChannelMessageUseCase, WriteChannelEvent, run_relay_worker,
 };
-pub use run_diary_maintenance::{DiaryMaintenanceSettings, RunDiaryMaintenance};
+pub use run_diary_maintenance::{DiaryMaintenanceSettings, RunDiaryMaintenanceUseCase};
 pub use scheduler::{AutoCloseJob, HourlySyncJob, ScheduledJob};
-pub use sync_diary_message::SyncDiaryMessage;
-pub use wake_server::{WakeOutcome, WakeServer};
+pub use sync_diary_message::SyncDiaryMessageUseCase;
+pub use wake_server::{WakeOutcome, WakeServerUseCase};

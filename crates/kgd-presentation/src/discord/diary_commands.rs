@@ -11,9 +11,9 @@ use serenity::{
 
 use crate::presenter::present_diary_create_outcome;
 
-use super::Handler;
+use super::DiscordController;
 
-impl Handler {
+impl DiscordController {
     pub(crate) async fn handle_diary(
         &self,
         ctx: &SerenityContext,

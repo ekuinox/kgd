@@ -11,7 +11,7 @@ kgd はクリーンアーキテクチャに沿って、ワークスペースを�
 graph TD
     subgraph outer["外側 (フレームワーク・IO)"]
         BIN["kgd (binary)<br>main / config / version /<br>bootstrap (Composition Root)"]
-        PRES["kgd-presentation<br>Controller (Handler) / Presenter"]
+        PRES["kgd-presentation<br>Controller (DiscordController) / Presenter"]
         INFRA["kgd-infrastructure<br>ポートの実装 (アダプタ)<br>serenity / sqlx / reqwest / notion-client"]
     end
     APP["kgd-application<br>ユースケース / ポート (trait) / 入出力 DTO"]
@@ -40,7 +40,7 @@ graph TD
 | kgd-domain | エンティティ (DiaryEntry, SyncMessage など)、純粋関数 (URL 解析、OGP 解析、自動クローズ判定、転記本文の組み立て) | IO ライブラリへの依存すべて (serenity / sqlx / reqwest / tokio) |
 | kgd-application | ユースケース (Interactor)、ポート (trait)、設定 DTO、ScheduledJob | ポートの実装、serenity / sqlx / reqwest への依存 |
 | kgd-infrastructure | ポートの実装 (アダプタ)、マイグレーション、Scheduler ランナー | ビジネスロジック・判断ロジック |
-| kgd-presentation | Discord イベントを受ける Controller (Handler)、結果を文言・embed に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
+| kgd-presentation | Discord イベントを受ける Controller (DiscordController)、結果を文言・embed に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
 | kgd (binary) | 設定の読み込み、各層の組み立てと配線 (bootstrap) | 上記以外のロジック |
 
 新しいコードを足すときの判断基準:
@@ -71,12 +71,12 @@ graph TD
 
 | ユースケース | 役割 |
 |---|---|
-| SyncDiaryMessage | メッセージを Notion ページへ同期 (添付アップロード、URL 変換、OGP 取得) |
-| RelayWriteChannelMessage | 書き込み用チャンネルの投稿を最新日報スレッドへ転記し、編集・削除に追従 |
-| ManageDiaryLifecycle | 日報スレッドの作成・再開・クローズ、クローズ & 新規作成 |
-| RunDiaryMaintenance | 自動クローズ確認、毎時の未同期メッセージ走査 |
-| WakeServer | Wake-on-LAN パケットの送信 |
-| CheckServerStatus | サーバー死活確認 |
+| SyncDiaryMessageUseCase | メッセージを Notion ページへ同期 (添付アップロード、URL 変換、OGP 取得) |
+| RelayWriteChannelMessageUseCase | 書き込み用チャンネルの投稿を最新日報スレッドへ転記し、編集・削除に追従 |
+| ManageDiaryLifecycleUseCase | 日報スレッドの作成・再開・クローズ、クローズ & 新規作成 |
+| RunDiaryMaintenanceUseCase | 自動クローズ確認、毎時の未同期メッセージ走査 |
+| WakeServerUseCase | Wake-on-LAN パケットの送信 |
+| CheckServerStatusUseCase | サーバー死活確認 |
 
 ## 代表的な処理フロー
 
@@ -85,8 +85,8 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant D as Discord
-    participant H as Handler<br>(presentation)
-    participant S as SyncDiaryMessage<br>(application)
+    participant H as DiscordController<br>(presentation)
+    participant S as SyncDiaryMessageUseCase<br>(application)
     participant N as NotionApi
     participant R as DiaryRepository
 
@@ -110,10 +110,10 @@ Discord のイベントハンドラはイベントごとに並行実行される
 ```mermaid
 sequenceDiagram
     participant D as Discord
-    participant H as Handler
+    participant H as DiscordController
     participant Q as mpsc キュー
     participant W as run_relay_worker<br>(単一タスク)
-    participant RL as RelayWriteChannelMessage
+    participant RL as RelayWriteChannelMessageUseCase
 
     D->>H: message イベント (並行)
     H->>Q: WriteChannelEvent::Posted を送信 (即返る)
@@ -129,7 +129,7 @@ sequenceDiagram
 sequenceDiagram
     participant SC as Scheduler<br>(infrastructure)
     participant J as ScheduledJob<br>(AutoCloseJob / HourlySyncJob)
-    participant M as RunDiaryMaintenance
+    participant M as RunDiaryMaintenanceUseCase
 
     loop 60 秒ごと
         SC->>J: tick()

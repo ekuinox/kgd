@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use super::RunDiaryMaintenance;
+use super::RunDiaryMaintenanceUseCase;
 
 /// 定期実行されるジョブ。
 ///
@@ -21,7 +21,7 @@ pub trait ScheduledJob: Send + Sync {
 }
 
 /// 日報スレッドの自動クローズ確認を行うジョブ。
-pub struct AutoCloseJob(pub Arc<RunDiaryMaintenance>);
+pub struct AutoCloseJob(pub Arc<RunDiaryMaintenanceUseCase>);
 
 #[async_trait::async_trait]
 impl ScheduledJob for AutoCloseJob {
@@ -35,7 +35,7 @@ impl ScheduledJob for AutoCloseJob {
 }
 
 /// 直近の日報スレッドの毎時同期を行うジョブ。
-pub struct HourlySyncJob(pub Arc<RunDiaryMaintenance>);
+pub struct HourlySyncJob(pub Arc<RunDiaryMaintenanceUseCase>);
 
 #[async_trait::async_trait]
 impl ScheduledJob for HourlySyncJob {

@@ -11,9 +11,9 @@ use kgd_domain::DIARY_CLOSE_AND_NEW_BUTTON_ID;
 
 use crate::presenter::present_close_and_new_precheck;
 
-use super::Handler;
+use super::DiscordController;
 
-impl Handler {
+impl DiscordController {
     pub(crate) async fn handle_component(
         &self,
         ctx: &SerenityContext,

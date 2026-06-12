@@ -6,7 +6,7 @@ use chrono::{DateTime, TimeZone as _, Utc};
 
 use kgd_domain::{DiaryEntry, compile_url_rules};
 
-use crate::SyncDiaryMessage;
+use crate::SyncDiaryMessageUseCase;
 use crate::ports::{
     MockAttachmentDownloader, MockClock, MockDiaryRepository, MockImageConverter, MockNotionApi,
 };
@@ -35,13 +35,13 @@ pub(crate) fn fixed_clock(now: DateTime<Utc>) -> MockClock {
     clock
 }
 
-/// IO を一切呼ばない前提の SyncDiaryMessage を作る。
-pub(crate) fn empty_sync_service() -> Arc<SyncDiaryMessage> {
+/// IO を一切呼ばない前提の SyncDiaryMessageUseCase を作る。
+pub(crate) fn empty_sync_service() -> Arc<SyncDiaryMessageUseCase> {
     text_sync_service(0)
 }
 
-/// テキスト同期が expected_syncs 回成功する SyncDiaryMessage を作る。
-pub(crate) fn text_sync_service(expected_syncs: usize) -> Arc<SyncDiaryMessage> {
+/// テキスト同期が expected_syncs 回成功する SyncDiaryMessageUseCase を作る。
+pub(crate) fn text_sync_service(expected_syncs: usize) -> Arc<SyncDiaryMessageUseCase> {
     let url_rules =
         compile_url_rules(&[], &["link".to_string()]).expect("default rules should be ok");
     let mut notion = MockNotionApi::new();
@@ -53,7 +53,7 @@ pub(crate) fn text_sync_service(expected_syncs: usize) -> Arc<SyncDiaryMessage> 
     repo.expect_insert_message_block()
         .times(expected_syncs)
         .returning(|_| Ok(()));
-    Arc::new(SyncDiaryMessage::new(
+    Arc::new(SyncDiaryMessageUseCase::new(
         Arc::new(notion),
         Arc::new(repo),
         Arc::new(MockAttachmentDownloader::new()),

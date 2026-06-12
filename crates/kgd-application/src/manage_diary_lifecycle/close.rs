@@ -5,9 +5,9 @@ use tracing::{info, warn};
 
 use kgd_domain::{DiaryEntry, format_date_in_timezone, today_in_timezone};
 
-use super::{CloseAndNewPrecheck, DiaryCloseOutcome, ManageDiaryLifecycle};
+use super::{CloseAndNewPrecheck, DiaryCloseOutcome, ManageDiaryLifecycleUseCase};
 
-impl ManageDiaryLifecycle {
+impl ManageDiaryLifecycleUseCase {
     /// クローズ & 新規作成を実行してよいか確認する。
     ///
     /// 重い処理の前に応答を返す必要があるため、実処理 ([`Self::close_and_create_new`]) と分離している。

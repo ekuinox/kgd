@@ -1,4 +1,4 @@
-//! ManageDiaryLifecycle の単体テスト（共有ヘルパ）。
+//! ManageDiaryLifecycleUseCase の単体テスト（共有ヘルパ）。
 
 use crate::ports::{MockClock, MockDiaryRepository, MockDiscordGateway, MockNotionApi};
 
@@ -21,8 +21,8 @@ fn lifecycle(
     notion: MockNotionApi,
     gateway: MockDiscordGateway,
     clock: MockClock,
-) -> ManageDiaryLifecycle {
-    ManageDiaryLifecycle::new(
+) -> ManageDiaryLifecycleUseCase {
+    ManageDiaryLifecycleUseCase::new(
         Arc::new(repo),
         Arc::new(notion),
         Arc::new(gateway),

@@ -9,9 +9,9 @@ use tracing::warn;
 
 use crate::presenter::{present_servers, present_version, present_wake_outcome, render_embed};
 
-use super::{Handler, is_authorized};
+use super::{DiscordController, is_authorized};
 
-impl Handler {
+impl DiscordController {
     /// コマンドの認可判定とディスパッチを行う。
     pub(crate) async fn handle_command(
         &self,

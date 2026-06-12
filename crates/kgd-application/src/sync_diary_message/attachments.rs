@@ -8,9 +8,9 @@ use kgd_domain::{
     is_spoiler_attachment, replace_extension, spoiler_summary, toggle_block_json,
 };
 
-use super::SyncDiaryMessage;
+use super::SyncDiaryMessageUseCase;
 
-impl SyncDiaryMessage {
+impl SyncDiaryMessageUseCase {
     /// 添付ファイルをアップロードし、対応するブロック JSON とメタ情報を収集する。
     ///
     /// HEIC の場合は JPG 変換版（画像ブロック）と元ファイル（ファイルブロック）の 2 つを追加する。

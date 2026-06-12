@@ -5,9 +5,9 @@ use tracing::{error, info, warn};
 
 use kgd_domain::{RelayedMessage, SyncMessage, build_relay_content};
 
-use super::RelayWriteChannelMessage;
+use super::RelayWriteChannelMessageUseCase;
 
-impl RelayWriteChannelMessage {
+impl RelayWriteChannelMessageUseCase {
     /// 書き込み用チャンネルでのメッセージ編集を処理する。
     ///
     /// Notion 側のブロックを作り直し、スレッドの転記メッセージをその場で編集する

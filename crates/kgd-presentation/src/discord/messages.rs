@@ -10,9 +10,9 @@ use tracing::{error, info};
 use kgd_application::WriteChannelEvent;
 use kgd_infrastructure::to_sync_message;
 
-use super::Handler;
+use super::DiscordController;
 
-impl Handler {
+impl DiscordController {
     /// メッセージ作成イベントを処理する。
     pub(crate) async fn on_message(&self, ctx: SerenityContext, message: Message) {
         // Bot 自身のメッセージは無視

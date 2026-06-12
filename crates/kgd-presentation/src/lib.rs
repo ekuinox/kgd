@@ -4,5 +4,7 @@
 mod discord;
 mod presenter;
 
-pub use discord::{Handler, HandlerSettings, StatusNotifier, run_status_receiver};
+pub use discord::{
+    DiscordController, DiscordControllerSettings, StatusNotifier, run_status_receiver,
+};
 pub use presenter::VersionInfo;

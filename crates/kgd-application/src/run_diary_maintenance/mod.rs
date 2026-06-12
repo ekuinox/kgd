@@ -13,7 +13,7 @@ use kgd_domain::{
 };
 
 use super::{
-    SyncDiaryMessage,
+    SyncDiaryMessageUseCase,
     ports::{Clock, DiaryRepository, DiscordGateway},
 };
 
@@ -26,7 +26,7 @@ pub use types::{DiaryMaintenanceSettings, DiaryThreadSyncReport};
 const THREAD_SYNC_BATCH_SIZE: u8 = 100;
 
 /// 日報の定期メンテナンスを実行するユースケース。
-pub struct RunDiaryMaintenance {
+pub struct RunDiaryMaintenanceUseCase {
     /// 日報リポジトリポート
     repo: Arc<dyn DiaryRepository>,
     /// Discord ゲートウェイポート
@@ -34,7 +34,7 @@ pub struct RunDiaryMaintenance {
     /// 時刻ポート
     clock: Arc<dyn Clock>,
     /// メッセージ同期ユースケース
-    sync: Arc<SyncDiaryMessage>,
+    sync: Arc<SyncDiaryMessageUseCase>,
     /// メンテナンス設定
     settings: DiaryMaintenanceSettings,
     /// 自動クローズ通知を送信済みの日付（タイムゾーン基準）
@@ -43,13 +43,13 @@ pub struct RunDiaryMaintenance {
     last_hourly_sync_slot: Mutex<Option<DiaryHourlySyncSlot>>,
 }
 
-impl RunDiaryMaintenance {
-    /// 新しい RunDiaryMaintenance を作成する。
+impl RunDiaryMaintenanceUseCase {
+    /// 新しい RunDiaryMaintenanceUseCase を作成する。
     pub fn new(
         repo: Arc<dyn DiaryRepository>,
         gateway: Arc<dyn DiscordGateway>,
         clock: Arc<dyn Clock>,
-        sync: Arc<SyncDiaryMessage>,
+        sync: Arc<SyncDiaryMessageUseCase>,
         settings: DiaryMaintenanceSettings,
     ) -> Self {
         Self {

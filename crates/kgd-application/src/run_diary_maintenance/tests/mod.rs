@@ -1,4 +1,4 @@
-//! RunDiaryMaintenance の単体テスト（共有ヘルパ）。
+//! RunDiaryMaintenanceUseCase の単体テスト（共有ヘルパ）。
 
 use crate::ports::{MockClock, MockDiaryRepository, MockDiscordGateway};
 
@@ -22,9 +22,9 @@ fn maintenance(
     repo: MockDiaryRepository,
     gateway: MockDiscordGateway,
     clock: MockClock,
-    sync: Arc<SyncDiaryMessage>,
-) -> RunDiaryMaintenance {
-    RunDiaryMaintenance::new(
+    sync: Arc<SyncDiaryMessageUseCase>,
+) -> RunDiaryMaintenanceUseCase {
+    RunDiaryMaintenanceUseCase::new(
         Arc::new(repo),
         Arc::new(gateway),
         Arc::new(clock),
