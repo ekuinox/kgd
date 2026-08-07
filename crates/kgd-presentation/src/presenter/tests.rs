@@ -102,3 +102,13 @@ fn present_close_and_new_precheck_formats_messages() {
         None
     );
 }
+
+/// 失敗理由を渡すと、再実行を促す文言と原因を含むメッセージになることを確認する。
+#[test]
+fn present_close_and_new_failure_includes_reason_and_retry_guidance() {
+    let message = present_close_and_new_failure("Notion ページの作成に失敗しました");
+
+    assert!(message.contains("日報スレッドの作成に失敗しました"));
+    assert!(message.contains("もう一度ボタンを押してください"));
+    assert!(message.contains("Notion ページの作成に失敗しました"));
+}

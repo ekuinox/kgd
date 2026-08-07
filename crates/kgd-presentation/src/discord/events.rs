@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use serenity::{
     all::{
         ChannelId, CreateCommand, CreateCommandOption, CreateInteractionResponse,
-        CreateInteractionResponseMessage, Message, MessageUpdateEvent,
+        CreateInteractionResponseFollowup, CreateInteractionResponseMessage, Message,
+        MessageUpdateEvent,
     },
     async_trait,
     client::Context as SerenityContext,
@@ -87,14 +88,22 @@ impl EventHandler for DiscordController {
                 if let Err(e) = self.handle_command(&ctx, &command).await {
                     error!(error = ?e, command = %command.data.name, "Command error");
 
-                    let response = CreateInteractionResponseMessage::new()
-                        .content(format!("Error: {}", e))
-                        .ephemeral(true);
-
-                    if let Err(e) = command
-                        .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                    let content = format!("Error: {}", e);
+                    let result = match command
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(error_response(&content)),
+                        )
                         .await
                     {
+                        // 応答済みの場合は新しい応答を作れないため、フォローアップとして送る
+                        Err(_) => command
+                            .create_followup(&ctx.http, error_followup(&content))
+                            .await
+                            .map(|_| ()),
+                        Ok(()) => Ok(()),
+                    };
+                    if let Err(e) = result {
                         error!(error = %e, "Failed to send error response");
                     }
                 }
@@ -103,14 +112,22 @@ impl EventHandler for DiscordController {
                 if let Err(e) = self.handle_component(&ctx, &component).await {
                     error!(error = ?e, custom_id = %component.data.custom_id, "Component interaction error");
 
-                    let response = CreateInteractionResponseMessage::new()
-                        .content(format!("Error: {}", e))
-                        .ephemeral(true);
-
-                    if let Err(e) = component
-                        .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+                    let content = format!("Error: {}", e);
+                    let result = match component
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::Message(error_response(&content)),
+                        )
                         .await
                     {
+                        // 応答済みの場合は新しい応答を作れないため、フォローアップとして送る
+                        Err(_) => component
+                            .create_followup(&ctx.http, error_followup(&content))
+                            .await
+                            .map(|_| ()),
+                        Ok(()) => Ok(()),
+                    };
+                    if let Err(e) = result {
                         error!(error = %e, "Failed to send error response");
                     }
                 }
@@ -143,4 +160,18 @@ impl EventHandler for DiscordController {
         self.on_message_delete(ctx, channel_id, deleted_message_id)
             .await;
     }
+}
+
+/// エラー内容を伝える初回応答を組み立てる。
+fn error_response(content: &str) -> CreateInteractionResponseMessage {
+    CreateInteractionResponseMessage::new()
+        .content(content)
+        .ephemeral(true)
+}
+
+/// エラー内容を伝えるフォローアップ応答を組み立てる。
+fn error_followup(content: &str) -> CreateInteractionResponseFollowup {
+    CreateInteractionResponseFollowup::new()
+        .content(content)
+        .ephemeral(true)
 }

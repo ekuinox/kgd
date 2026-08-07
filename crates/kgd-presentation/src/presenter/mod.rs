@@ -181,6 +181,17 @@ pub fn present_close_and_new_precheck(precheck: &CloseAndNewPrecheck) -> Option<
     }
 }
 
+/// クローズ & 新規作成が失敗したことを伝えるメッセージを組み立てる。
+///
+/// 失敗を放置すると「作成しています...」の表示のまま気付けないため、
+/// 原因と再実行の手順を伝える。
+pub fn present_close_and_new_failure(reason: &str) -> String {
+    format!(
+        "日報スレッドの作成に失敗しました。もう一度ボタンを押してください。\n原因: {}",
+        reason
+    )
+}
+
 /// [`EmbedSpec`] を serenity の `CreateEmbed` に変換する。
 pub fn render_embed(spec: &EmbedSpec) -> CreateEmbed {
     let mut embed = CreateEmbed::new().title(&spec.title).color(spec.color);

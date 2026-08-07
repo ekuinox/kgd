@@ -2,14 +2,19 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use notion_client::objects::{
     page::{PageProperty, SelectPropertyValue},
     parent::Parent,
     rich_text::{RichText, Text},
 };
+use reqwest::Method;
 
-use super::{NOTION_API_VERSION, NotionClient, types::DatabaseQueryResponse};
+use super::{
+    NotionClient,
+    retry::ensure_success,
+    types::{DatabaseQueryResponse, PageInfo},
+};
 
 impl NotionClient {
     /// 指定したタイトルの日報ページを検索し、存在すればページ ID と URL を返す。
@@ -25,24 +30,19 @@ impl NotionClient {
         });
 
         let response = self
-            .http_client
-            .post(format!(
-                "https://api.notion.com/v1/databases/{}/query",
-                self.database_id
-            ))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
-            .header("Content-Type", "application/json")
+            .request(
+                Method::POST,
+                format!(
+                    "https://api.notion.com/v1/databases/{}/query",
+                    self.database_id
+                ),
+            )
             .json(&body)
             .send()
             .await
             .context("Failed to query database")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to query database: {} - {}", status, body);
-        }
+        let response = ensure_success(response, "Failed to query database").await?;
 
         let result: DatabaseQueryResponse = response
             .json()
@@ -105,12 +105,19 @@ impl NotionClient {
             ..Default::default()
         };
 
-        let page = self
-            .client
-            .pages
-            .create_a_page(request)
+        let response = self
+            .request(Method::POST, "https://api.notion.com/v1/pages")
+            .json(&request)
+            .send()
             .await
             .context("Failed to create Notion page")?;
+
+        let response = ensure_success(response, "Failed to create Notion page").await?;
+
+        let page: PageInfo = response
+            .json()
+            .await
+            .context("Failed to parse create page response")?;
 
         Ok((page.id, page.url))
     }

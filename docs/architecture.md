@@ -72,7 +72,7 @@ graph TD
 | ユースケース | 役割 |
 |---|---|
 | SyncDiaryMessageUseCase | メッセージを Notion ページへ同期 (添付アップロード、URL 変換、OGP 取得) |
-| RelayWriteChannelMessageUseCase | 書き込み用チャンネルの投稿を最新日報スレッドへ転記し、編集・削除に追従 |
+| RelayWriteChannelMessageUseCase | 書き込み用チャンネルの投稿を今日の日報スレッドへ転記し、編集・削除に追従 |
 | ManageDiaryLifecycleUseCase | 日報スレッドの作成・再開・クローズ、クローズ & 新規作成 |
 | RunDiaryMaintenanceUseCase | 自動クローズ確認、毎時の未同期メッセージ走査 |
 | WakeServerUseCase | Wake-on-LAN パケットの送信 |

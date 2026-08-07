@@ -2,14 +2,18 @@
 
 use anyhow::Result;
 use serenity::{
-    all::{ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage},
+    all::{
+        ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage,
+        EditInteractionResponse,
+    },
     client::Context as SerenityContext,
 };
+use tracing::error;
 
 use kgd_application::CloseAndNewPrecheck;
 use kgd_domain::DIARY_CLOSE_AND_NEW_BUTTON_ID;
 
-use crate::presenter::present_close_and_new_precheck;
+use crate::presenter::{present_close_and_new_failure, present_close_and_new_precheck};
 
 use super::DiscordController;
 
@@ -59,7 +63,19 @@ impl DiscordController {
             .create_response(&ctx.http, CreateInteractionResponse::Message(response))
             .await?;
 
-        self.lifecycle.close_and_create_new(channel_id).await?;
+        // 失敗しても「作成しています...」のまま残らないよう、この場でレスポンスを差し替える
+        // （応答済みのため、呼び出し元のエラー通知は届かない）
+        if let Err(error) = self.lifecycle.close_and_create_new(channel_id).await {
+            error!(error = ?error, channel_id, "Failed to close and create new diary thread");
+
+            component
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content(present_close_and_new_failure(&error.to_string())),
+                )
+                .await?;
+        }
 
         Ok(())
     }

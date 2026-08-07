@@ -1,10 +1,11 @@
 //! Notion へのファイルアップロード。
 
 use anyhow::{Context as _, Result, bail};
-use reqwest::multipart;
+use reqwest::{Method, multipart};
 
 use super::{
-    NOTION_API_VERSION, NotionClient,
+    NotionClient,
+    retry::ensure_success,
     types::{CreateFileUploadRequest, FileUploadResponse},
 };
 
@@ -24,20 +25,14 @@ impl NotionClient {
         };
 
         let create_response = self
-            .http_client
-            .post("https://api.notion.com/v1/file_uploads")
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
+            .request(Method::POST, "https://api.notion.com/v1/file_uploads")
             .json(&create_request)
             .send()
             .await
             .context("Failed to create file upload")?;
 
-        if !create_response.status().is_success() {
-            let status = create_response.status();
-            let body = create_response.text().await.unwrap_or_default();
-            bail!("Failed to create file upload: {} - {}", status, body);
-        }
+        let create_response =
+            ensure_success(create_response, "Failed to create file upload").await?;
 
         let file_upload: FileUploadResponse = create_response
             .json()
@@ -55,23 +50,19 @@ impl NotionClient {
         let form = multipart::Form::new().part("file", part);
 
         let send_response = self
-            .http_client
-            .post(format!(
-                "https://api.notion.com/v1/file_uploads/{}/send",
-                file_upload_id
-            ))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
+            .request(
+                Method::POST,
+                format!(
+                    "https://api.notion.com/v1/file_uploads/{}/send",
+                    file_upload_id
+                ),
+            )
             .multipart(form)
             .send()
             .await
             .context("Failed to send file upload")?;
 
-        if !send_response.status().is_success() {
-            let status = send_response.status();
-            let body = send_response.text().await.unwrap_or_default();
-            bail!("Failed to send file upload: {} - {}", status, body);
-        }
+        let send_response = ensure_success(send_response, "Failed to send file upload").await?;
 
         let upload_result: FileUploadResponse = send_response
             .json()
