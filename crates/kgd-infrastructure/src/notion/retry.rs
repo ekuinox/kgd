@@ -54,6 +54,9 @@ pub(crate) async fn ensure_success(response: Response, operation: &str) -> Resul
     })
 }
 
+/// エラー表示に含めるレスポンスボディの最大文字数。
+const BODY_DISPLAY_LIMIT: usize = 300;
+
 /// Notion API が成功以外のステータスを返したことを表すエラー。
 #[derive(Debug)]
 pub(crate) struct NotionStatusError {
@@ -67,7 +70,12 @@ pub(crate) struct NotionStatusError {
 
 impl fmt::Display for NotionStatusError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {} - {}", self.operation, self.status, self.body)
+        write!(f, "{}: {} - ", self.operation, self.status)?;
+        // Discord のメッセージ長やログ 1 行の長さを圧迫しないよう本文は切り詰める
+        match self.body.char_indices().nth(BODY_DISPLAY_LIMIT) {
+            Some((index, _)) => write!(f, "{}...", &self.body[..index]),
+            None => write!(f, "{}", self.body),
+        }
     }
 }
 
@@ -85,7 +93,7 @@ pub(crate) struct RetryPolicy {
 impl RetryPolicy {
     /// 0 起算で `attempt` 回目の試行が失敗したあとに待つ時間を返す。
     fn delay_after(&self, attempt: u32) -> Duration {
-        self.base_delay * 2u32.pow(attempt)
+        self.base_delay * 2u32.saturating_pow(attempt)
     }
 }
 
@@ -149,6 +157,12 @@ fn is_retryable(cause: &(dyn StdError + 'static), scope: RetryScope) -> bool {
             return false;
         }
         if error.is_timeout() {
+            return true;
+        }
+        // 応答が返り始める前に失敗したリクエスト。確立済みの接続がサーバー側に
+        // 切られた場合がこれにあたり、is_connect では判定できない。
+        // リクエストが処理された可能性は残るため Transient でのみ再試行する。
+        if error.is_request() && !error.is_body() {
             return true;
         }
         if let Some(status) = error.status() {

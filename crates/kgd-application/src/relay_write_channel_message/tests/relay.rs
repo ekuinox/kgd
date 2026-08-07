@@ -54,7 +54,11 @@ async fn relay_notifies_instead_of_relaying_to_a_past_diary() {
     let mut gateway = MockDiscordGateway::new();
     gateway
         .expect_send_text()
-        .withf(|channel_id, content| *channel_id == 500 && content.contains("日報作成ボタン"))
+        .withf(|channel_id, content| {
+            *channel_id == 500
+                && content.contains("日報作成ボタン")
+                && content.contains("投稿し直して")
+        })
         .times(1)
         .returning(|_, _| Ok(901));
 

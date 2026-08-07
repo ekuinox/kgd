@@ -33,3 +33,6 @@ heif.path = "../heif"
 
 [package.metadata.cargo-machete]
 ignored = ["openssl"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net"] }

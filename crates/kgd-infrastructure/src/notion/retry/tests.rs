@@ -23,6 +23,23 @@ fn status_error(status: u16) -> anyhow::Error {
     })
 }
 
+/// 長いレスポンスボディが表示時に切り詰められることを確認する。
+///
+/// このエラー文言は Discord にも出るため、長さの上限が必要になる。
+#[test]
+fn status_error_truncates_long_body() {
+    let error = NotionStatusError {
+        operation: "test".to_string(),
+        status: StatusCode::BAD_REQUEST,
+        body: "あ".repeat(1000),
+    };
+
+    let message = error.to_string();
+
+    assert!(message.ends_with("..."));
+    assert!(message.chars().count() < 400);
+}
+
 /// 待機時間が試行ごとに 2 倍になることを確認する。
 #[test]
 fn delay_after_doubles_per_attempt() {
@@ -60,6 +77,66 @@ fn should_retry_walks_error_chain() {
 #[test]
 fn connect_only_scope_ignores_server_errors() {
     let error = status_error(503);
+
+    assert!(should_retry(&error, RetryScope::Transient));
+    assert!(!should_retry(&error, RetryScope::ConnectOnly));
+}
+
+/// 接続を確立できなかった場合は、どちらのスコープでも再試行することを確認する。
+///
+/// 障害時に実際に発生したのはこの種類のエラーだった。
+#[tokio::test]
+async fn should_retry_connect_failure_in_both_scopes() {
+    // 待ち受けていないポートへの接続は接続確立フェーズで失敗する
+    let error = reqwest::Client::new()
+        .get("http://127.0.0.1:1/")
+        .send()
+        .await
+        .expect_err("connection to a closed port must fail");
+    assert!(
+        error.is_connect(),
+        "expected a connect-phase error: {error}"
+    );
+
+    let error = Err::<(), _>(error)
+        .context("Failed to create Notion page")
+        .unwrap_err();
+
+    assert!(should_retry(&error, RetryScope::Transient));
+    assert!(should_retry(&error, RetryScope::ConnectOnly));
+}
+
+/// 確立済みの接続が応答前に切られた場合は、Transient でのみ再試行することを確認する。
+///
+/// リクエストが処理された可能性が残るため、副作用のある操作では再試行しない。
+#[tokio::test]
+async fn should_retry_connection_closed_only_in_transient_scope() {
+    // 接続を受け付けた直後に応答せず切断するサーバーを立てる
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("failed to bind test listener");
+    let address = listener
+        .local_addr()
+        .expect("failed to read listener address");
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+        }
+    });
+
+    let error = reqwest::Client::new()
+        .get(format!("http://{}/", address))
+        .send()
+        .await
+        .expect_err("request to a disconnecting server must fail");
+    assert!(
+        !error.is_connect(),
+        "expected a post-connect error: {error}"
+    );
+
+    let error = Err::<(), _>(error)
+        .context("Failed to append blocks")
+        .unwrap_err();
 
     assert!(should_retry(&error, RetryScope::Transient));
     assert!(!should_retry(&error, RetryScope::ConnectOnly));

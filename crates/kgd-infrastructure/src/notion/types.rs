@@ -41,7 +41,7 @@ pub(super) struct AppendBlockChildrenResponse {
     pub(super) results: Vec<BlockInfo>,
 }
 
-/// データベースクエリレスポンスのページ情報。
+/// ページ情報。データベースクエリとページ作成のレスポンスで共用する。
 #[derive(Debug, Deserialize)]
 pub(super) struct PageInfo {
     pub(super) id: String,
