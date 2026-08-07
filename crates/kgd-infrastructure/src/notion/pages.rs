@@ -32,10 +32,7 @@ impl NotionClient {
         let response = self
             .request(
                 Method::POST,
-                format!(
-                    "https://api.notion.com/v1/databases/{}/query",
-                    self.database_id
-                ),
+                format!("/databases/{}/query", self.database_id),
             )
             .json(&body)
             .send()
@@ -106,7 +103,7 @@ impl NotionClient {
         };
 
         let response = self
-            .request(Method::POST, "https://api.notion.com/v1/pages")
+            .request(Method::POST, "/pages")
             .json(&request)
             .send()
             .await

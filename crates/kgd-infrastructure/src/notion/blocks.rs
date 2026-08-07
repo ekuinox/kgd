@@ -19,10 +19,7 @@ impl NotionClient {
         let body = serde_json::json!({ "children": children });
 
         let response = self
-            .request(
-                Method::PATCH,
-                format!("https://api.notion.com/v1/blocks/{}/children", page_id),
-            )
+            .request(Method::PATCH, format!("/blocks/{}/children", page_id))
             .json(&body)
             .send()
             .await
@@ -51,10 +48,7 @@ impl NotionClient {
         });
 
         let response = self
-            .request(
-                Method::PATCH,
-                format!("https://api.notion.com/v1/blocks/{}", block_id),
-            )
+            .request(Method::PATCH, format!("/blocks/{}", block_id))
             .json(&body)
             .send()
             .await
@@ -68,10 +62,7 @@ impl NotionClient {
     /// ブロックを削除する。
     pub async fn delete_block(&self, block_id: &str) -> Result<()> {
         let response = self
-            .request(
-                Method::DELETE,
-                format!("https://api.notion.com/v1/blocks/{}", block_id),
-            )
+            .request(Method::DELETE, format!("/blocks/{}", block_id))
             .send()
             .await
             .context("Failed to delete block")?;

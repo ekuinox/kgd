@@ -25,7 +25,7 @@ impl NotionClient {
         };
 
         let create_response = self
-            .request(Method::POST, "https://api.notion.com/v1/file_uploads")
+            .request(Method::POST, "/file_uploads")
             .json(&create_request)
             .send()
             .await
@@ -52,10 +52,7 @@ impl NotionClient {
         let send_response = self
             .request(
                 Method::POST,
-                format!(
-                    "https://api.notion.com/v1/file_uploads/{}/send",
-                    file_upload_id
-                ),
+                format!("/file_uploads/{}/send", file_upload_id),
             )
             .multipart(form)
             .send()

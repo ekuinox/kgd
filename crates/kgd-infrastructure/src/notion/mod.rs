@@ -15,9 +15,15 @@ mod pages;
 mod retry;
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 pub use types::NotionTagConfig;
 
 pub(crate) const NOTION_API_VERSION: &str = "2022-06-28";
+
+/// Notion API のベース URL。
+const NOTION_API_BASE_URL: &str = "https://api.notion.com/v1";
 
 /// 接続確立のタイムアウト。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -43,6 +49,8 @@ pub struct NotionClient {
     pub(crate) title_property: String,
     /// ページ作成時に設定するタグ
     pub(crate) tags: Vec<NotionTagConfig>,
+    /// Notion API のベース URL (テストではスタブサーバーを指す)
+    base_url: String,
 }
 
 impl NotionClient {
@@ -53,23 +61,45 @@ impl NotionClient {
         title_property: impl Into<String>,
         tags: Vec<NotionTagConfig>,
     ) -> Result<Self> {
-        let token = token.into();
+        Self::with_base_url(
+            NOTION_API_BASE_URL,
+            token,
+            database_id,
+            title_property,
+            tags,
+        )
+    }
+
+    /// ベース URL を指定して NotionClient を作成する。
+    ///
+    /// 本番では [`Self::new`] から Notion の URL が渡る。
+    /// テストではスタブサーバーを指すことで、アダプタと再試行の挙動を実際の HTTP で確認できる。
+    fn with_base_url(
+        base_url: impl Into<String>,
+        token: impl Into<String>,
+        database_id: impl Into<String>,
+        title_property: impl Into<String>,
+        tags: Vec<NotionTagConfig>,
+    ) -> Result<Self> {
         let http_client = http_client_builder()
             .build()
             .context("Failed to build HTTP client")?;
         Ok(Self {
             http_client,
-            token,
+            token: token.into(),
             database_id: database_id.into(),
             title_property: title_property.into(),
             tags,
+            base_url: base_url.into(),
         })
     }
 
     /// 認証情報と API バージョンを設定したリクエストを組み立てる。
-    pub(crate) fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> RequestBuilder {
+    ///
+    /// `path` はベース URL からの相対パス (先頭の `/` を含む) で指定する。
+    pub(crate) fn request(&self, method: Method, path: impl AsRef<str>) -> RequestBuilder {
         self.http_client
-            .request(method, url)
+            .request(method, format!("{}{}", self.base_url, path.as_ref()))
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Notion-Version", NOTION_API_VERSION)
     }
