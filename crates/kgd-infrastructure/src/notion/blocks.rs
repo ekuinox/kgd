@@ -1,8 +1,9 @@
 //! ブロックの追加・更新・削除。
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
+use reqwest::Method;
 
-use super::{NOTION_API_VERSION, NotionClient, types::AppendBlockChildrenResponse};
+use super::{NotionClient, retry::ensure_success, types::AppendBlockChildrenResponse};
 
 impl NotionClient {
     /// 複数のブロックを一括でページに追加し、作成されたブロック ID のリストを返す。
@@ -18,24 +19,13 @@ impl NotionClient {
         let body = serde_json::json!({ "children": children });
 
         let response = self
-            .http_client
-            .patch(format!(
-                "https://api.notion.com/v1/blocks/{}/children",
-                page_id
-            ))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
-            .header("Content-Type", "application/json")
+            .request(Method::PATCH, format!("/blocks/{}/children", page_id))
             .json(&body)
             .send()
             .await
             .context("Failed to append blocks")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to append blocks: {} - {}", status, body);
-        }
+        let response = ensure_success(response, "Failed to append blocks").await?;
 
         let result: AppendBlockChildrenResponse = response
             .json()
@@ -58,21 +48,13 @@ impl NotionClient {
         });
 
         let response = self
-            .http_client
-            .patch(format!("https://api.notion.com/v1/blocks/{}", block_id))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
-            .header("Content-Type", "application/json")
+            .request(Method::PATCH, format!("/blocks/{}", block_id))
             .json(&body)
             .send()
             .await
             .context("Failed to update block")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to update block: {} - {}", status, body);
-        }
+        ensure_success(response, "Failed to update block").await?;
 
         Ok(())
     }
@@ -80,19 +62,12 @@ impl NotionClient {
     /// ブロックを削除する。
     pub async fn delete_block(&self, block_id: &str) -> Result<()> {
         let response = self
-            .http_client
-            .delete(format!("https://api.notion.com/v1/blocks/{}", block_id))
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Notion-Version", NOTION_API_VERSION)
+            .request(Method::DELETE, format!("/blocks/{}", block_id))
             .send()
             .await
             .context("Failed to delete block")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            bail!("Failed to delete block: {} - {}", status, body);
-        }
+        ensure_success(response, "Failed to delete block").await?;
 
         Ok(())
     }

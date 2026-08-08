@@ -72,7 +72,7 @@ graph TD
 | ユースケース | 役割 |
 |---|---|
 | SyncDiaryMessageUseCase | メッセージを Notion ページへ同期 (添付アップロード、URL 変換、OGP 取得) |
-| RelayWriteChannelMessageUseCase | 書き込み用チャンネルの投稿を最新日報スレッドへ転記し、編集・削除に追従 |
+| RelayWriteChannelMessageUseCase | 書き込み用チャンネルの投稿を今日の日報スレッドへ転記し、編集・削除に追従 |
 | ManageDiaryLifecycleUseCase | 日報スレッドの作成・再開・クローズ、クローズ & 新規作成 |
 | RunDiaryMaintenanceUseCase | 自動クローズ確認、毎時の未同期メッセージ走査 |
 | WakeServerUseCase | Wake-on-LAN パケットの送信 |
@@ -147,5 +147,7 @@ sequenceDiagram
 - 判断・変換ロジックは kgd-domain の純粋関数とし、時刻や IO の結果は引数で受ける
 - ユースケースはポートのモック (mockall) で、呼び出し順序・回数・引数を検証する
 - Presenter の文言・embed 組み立ては純粋関数としてテストする
-- アダプタ (infrastructure) は薄く保ち、単体テストの対象にしない
+- アダプタ (infrastructure) は薄く保つ。判断ロジックを持たないものは単体テストの対象にしない
+- ただし NotionClient のように再試行などの判断を持つアダプタは、ベース URL を差し替えて
+  スタブ HTTP サーバーへ向け、実際の通信でリクエストの組み立てと再試行を検証する
 - 単体テストは各モジュールの `mod tests` (ディレクトリモジュールの tests.rs / tests/) に置く

@@ -23,7 +23,7 @@ serde_with = "3.15"
 toml = "0.9"
 
 # Async runtime
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 # Error handling
 anyhow = "1.0"

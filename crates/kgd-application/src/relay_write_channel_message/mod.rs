@@ -1,12 +1,13 @@
-//! 書き込み用チャンネルへの投稿を最新の日報スレッドへ転記するユースケース。
+//! 書き込み用チャンネルへの投稿を今日の日報スレッドへ転記するユースケース。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result};
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use tracing::{error, info, warn};
 
-use kgd_domain::{DiaryEntry, RelayedMessage, SyncMessage, build_relay_content, today_in_timezone};
+use kgd_domain::{RelayedMessage, SyncMessage, build_relay_content, today_in_timezone};
 
 use super::{
     SyncDiaryMessageUseCase,
@@ -27,7 +28,12 @@ pub struct RelaySettings {
     pub sync_reaction: String,
 }
 
-/// 書き込み用チャンネルへの投稿を最新の日報スレッドへ転記するユースケース。
+/// 転記先が無いことを知らせるメッセージ。
+///
+/// 転記されなかった投稿を後から拾う仕組みは無いため、投稿し直しが必要なことまで伝える。
+const NO_DIARY_NOTICE: &str = "今日の日報スレッドがまだ作成されていないため、この投稿は転記されません。日報作成ボタンで今日の日報を作成したうえで、投稿し直してください。";
+
+/// 書き込み用チャンネルへの投稿を今日の日報スレッドへ転記するユースケース。
 pub struct RelayWriteChannelMessageUseCase {
     /// 日報リポジトリポート
     repo: Arc<dyn DiaryRepository>,
@@ -39,6 +45,8 @@ pub struct RelayWriteChannelMessageUseCase {
     sync: Arc<SyncDiaryMessageUseCase>,
     /// 転記設定
     settings: RelaySettings,
+    /// 転記先が無いことを通知済みの日付。同じ日に何度も通知しないために保持する
+    notified_missing_date: Mutex<Option<DateTime<Utc>>>,
 }
 
 impl RelayWriteChannelMessageUseCase {
@@ -56,20 +64,27 @@ impl RelayWriteChannelMessageUseCase {
             clock,
             sync,
             settings,
+            notified_missing_date: Mutex::new(None),
         }
     }
 
     /// 書き込み用チャンネルへの投稿を処理する。
     ///
-    /// メッセージを最新の日報スレッドの Notion ページへ同期し、
+    /// メッセージを今日の日報スレッドの Notion ページへ同期し、
     /// 同期に成功したらスレッドへ転記して対応を記録する。
     /// 同期がスキップされた場合（空メッセージなど）は転記も行わない。
+    ///
+    /// 今日の日報が無い場合は、過去の日報に紛れ込むのを避けるため転記せず、
+    /// 書き込み用チャンネルへその旨を通知する。
     pub async fn relay(&self, message: &SyncMessage) -> Result<()> {
-        let Some(entry) = self.latest_diary_entry_for_relay().await? else {
+        let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
+        let Some(entry) = self.repo.get_by_date(today).await? else {
             warn!(
                 message_id = message.message_id,
-                "No diary entry found to relay write channel message"
+                date = %today,
+                "No diary entry for today to relay write channel message"
             );
+            self.notify_missing_diary(message.channel_id, today).await;
             return Ok(());
         };
 
@@ -133,15 +148,27 @@ impl RelayWriteChannelMessageUseCase {
         Ok(())
     }
 
-    /// 転記先となる最新の日報エントリを取得する。
+    /// 転記先が無いことを書き込み用チャンネルへ通知する。
     ///
-    /// 今日の日報があればそれを、無ければ最新のエントリを返す。
-    async fn latest_diary_entry_for_relay(&self) -> Result<Option<DiaryEntry>> {
-        let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
-        if let Some(entry) = self.repo.get_by_date(today).await? {
-            return Ok(Some(entry));
+    /// 投稿のたびに通知すると煩わしいため、同じ日付につき一度だけ送る。
+    /// 通知自体の失敗は転記処理の失敗としては扱わない。
+    async fn notify_missing_diary(&self, channel_id: u64, today: DateTime<Utc>) {
+        {
+            let notified = self.notified_missing_date.lock().expect("lock poisoned");
+            if *notified == Some(today) {
+                return;
+            }
         }
-        self.repo.get_latest_entry().await
+
+        match self.gateway.send_text(channel_id, NO_DIARY_NOTICE).await {
+            Ok(_) => {
+                let mut notified = self.notified_missing_date.lock().expect("lock poisoned");
+                *notified = Some(today);
+            }
+            Err(error) => {
+                error!(error = %error, channel_id, "Failed to notify missing diary entry");
+            }
+        }
     }
 }
 

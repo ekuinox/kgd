@@ -43,20 +43,64 @@ async fn relay_syncs_posts_and_records_mapping() {
     relay.relay(&message(10, "hello")).await.unwrap();
 }
 
-/// 今日の日報も最新エントリも存在しない場合、転記先が無いため send_text を呼ばず(times(0))に
-/// スキップすることを確認する。
+/// 今日の日報が存在しない場合、過去の日報へ転記せず、書き込み用チャンネルへ
+/// 案内メッセージだけを送ることを確認する。
 #[tokio::test]
-async fn relay_skips_when_no_diary_entry() {
+async fn relay_notifies_instead_of_relaying_to_a_past_diary() {
     let mut repo = MockDiaryRepository::new();
     repo.expect_get_by_date().times(1).returning(|_| Ok(None));
-    repo.expect_get_latest_entry()
-        .times(1)
-        .returning(|| Ok(None));
+    repo.expect_get_latest_entry().times(0);
+    repo.expect_upsert_relayed_message().times(0);
     let mut gateway = MockDiscordGateway::new();
-    gateway.expect_send_text().times(0);
+    gateway
+        .expect_send_text()
+        .withf(|channel_id, content| {
+            *channel_id == 500
+                && content.contains("日報作成ボタン")
+                && content.contains("投稿し直して")
+        })
+        .times(1)
+        .returning(|_, _| Ok(901));
 
     let relay = relay_use_case(repo, gateway, text_sync_service(0));
     relay.relay(&message(10, "hello")).await.unwrap();
+}
+
+/// 今日の日報が無い状態で複数回投稿されても、案内メッセージは同じ日に一度しか
+/// 送らない (times(1)) ことを確認する。
+#[tokio::test]
+async fn relay_notifies_missing_diary_only_once_per_day() {
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_by_date().times(2).returning(|_| Ok(None));
+    let mut gateway = MockDiscordGateway::new();
+    gateway
+        .expect_send_text()
+        .times(1)
+        .returning(|_, _| Ok(901));
+
+    let relay = relay_use_case(repo, gateway, text_sync_service(0));
+    relay.relay(&message(10, "hello")).await.unwrap();
+    relay.relay(&message(11, "world")).await.unwrap();
+}
+
+/// 案内の送信に失敗した場合は通知済みとして記録せず、次の投稿で送り直すことを確認する。
+///
+/// 失敗したまま記録すると、その日はもう案内が届かなくなるため。
+#[tokio::test]
+async fn relay_retries_the_notice_when_sending_it_failed() {
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_by_date().times(2).returning(|_| Ok(None));
+    let mut gateway = MockDiscordGateway::new();
+    gateway
+        .expect_send_text()
+        .times(2)
+        .returning(|_, _| Err(anyhow::anyhow!("failed to send")));
+
+    let relay = relay_use_case(repo, gateway, text_sync_service(0));
+
+    // 案内の失敗は転記処理の失敗としては扱わない
+    relay.relay(&message(10, "hello")).await.unwrap();
+    relay.relay(&message(11, "world")).await.unwrap();
 }
 
 /// 日報スレッドはあるが本文が空のメッセージを relay した場合、転記投稿(send_text)も
