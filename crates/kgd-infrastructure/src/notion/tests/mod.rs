@@ -7,9 +7,7 @@ use kgd_application::ports::NotionApi;
 
 use super::*;
 
-mod stub_server;
-
-use stub_server::{StubResponse, StubServer};
+use super::stub_server::{StubResponse, StubServer};
 
 /// スタブサーバーを指すクライアントを作る。
 ///
@@ -18,6 +16,16 @@ use stub_server::{StubResponse, StubServer};
 fn client(server: &StubServer) -> impl NotionApi {
     NotionClient::with_base_url(server.base_url(), "token", "db", "名前", vec![])
         .expect("failed to build client")
+}
+
+/// 通常の生成では Notion の URL を向くことを確認する。
+///
+/// テストはスタブサーバーを向くため、本番の向き先はここで押さえる。
+#[test]
+fn new_points_at_the_notion_api() {
+    let client = NotionClient::new("token", "db", "名前", vec![]).unwrap();
+
+    assert_eq!(client.base_url, "https://api.notion.com/v1");
 }
 
 /// ページ検索が結果の先頭からページ ID と URL を取り出すことを確認する。

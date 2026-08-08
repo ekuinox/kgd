@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context as _, anyhow};
 
+use crate::notion::stub_server::{StubResponse, StubServer};
+
 use super::*;
 
 /// テスト用に待ち時間をなくした設定。
@@ -140,6 +142,75 @@ async fn should_retry_connection_closed_only_in_transient_scope() {
 
     assert!(should_retry(&error, RetryScope::Transient));
     assert!(!should_retry(&error, RetryScope::ConnectOnly));
+}
+
+/// 応答を待ちきれなかった場合は、Transient でのみ再試行することを確認する。
+#[tokio::test]
+async fn should_retry_timeout_only_in_transient_scope() {
+    // 接続は受け付けるが応答を返さないサーバーを立てる
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("failed to bind test listener");
+    let address = listener
+        .local_addr()
+        .expect("failed to read listener address");
+    tokio::spawn(async move {
+        let mut accepted = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            // 応答せずに接続を保持する
+            accepted.push(stream);
+        }
+    });
+
+    let error = reqwest::Client::builder()
+        .timeout(Duration::from_millis(100))
+        .build()
+        .unwrap()
+        .get(format!("http://{}/", address))
+        .send()
+        .await
+        .expect_err("request must time out");
+    assert!(error.is_timeout(), "expected a timeout error: {error}");
+
+    let error = anyhow::Error::new(error);
+
+    assert!(should_retry(&error, RetryScope::Transient));
+    assert!(!should_retry(&error, RetryScope::ConnectOnly));
+}
+
+/// ステータスを持つ reqwest エラーもステータスで判定することを確認する。
+#[tokio::test]
+async fn should_retry_reqwest_error_carrying_status() {
+    let server = StubServer::start(vec![
+        StubResponse::status(503, "{}"),
+        StubResponse::status(400, "{}"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+
+    let retryable = client
+        .get(format!("{}/", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .expect_err("503 must be an error");
+    let permanent = client
+        .get(format!("{}/", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .expect_err("400 must be an error");
+
+    assert!(should_retry(
+        &anyhow::Error::new(retryable),
+        RetryScope::Transient
+    ));
+    assert!(!should_retry(
+        &anyhow::Error::new(permanent),
+        RetryScope::Transient
+    ));
 }
 
 /// 分類できないエラーは再試行しないことを確認する。

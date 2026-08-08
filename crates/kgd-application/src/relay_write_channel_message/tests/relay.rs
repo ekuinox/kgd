@@ -83,6 +83,26 @@ async fn relay_notifies_missing_diary_only_once_per_day() {
     relay.relay(&message(11, "world")).await.unwrap();
 }
 
+/// 案内の送信に失敗した場合は通知済みとして記録せず、次の投稿で送り直すことを確認する。
+///
+/// 失敗したまま記録すると、その日はもう案内が届かなくなるため。
+#[tokio::test]
+async fn relay_retries_the_notice_when_sending_it_failed() {
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_by_date().times(2).returning(|_| Ok(None));
+    let mut gateway = MockDiscordGateway::new();
+    gateway
+        .expect_send_text()
+        .times(2)
+        .returning(|_, _| Err(anyhow::anyhow!("failed to send")));
+
+    let relay = relay_use_case(repo, gateway, text_sync_service(0));
+
+    // 案内の失敗は転記処理の失敗としては扱わない
+    relay.relay(&message(10, "hello")).await.unwrap();
+    relay.relay(&message(11, "world")).await.unwrap();
+}
+
 /// 日報スレッドはあるが本文が空のメッセージを relay した場合、転記投稿(send_text)も
 /// マッピング記録(upsert_relayed_message)も行わない(times(0))ことを確認する。
 #[tokio::test]

@@ -16,6 +16,8 @@ mod retry;
 mod types;
 
 #[cfg(test)]
+mod stub_server;
+#[cfg(test)]
 mod tests;
 
 pub use types::NotionTagConfig;

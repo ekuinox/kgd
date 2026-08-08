@@ -10,7 +10,7 @@ use tokio::{
 };
 
 /// 用意した応答を順に返すスタブサーバー。
-pub(super) struct StubServer {
+pub(crate) struct StubServer {
     /// このサーバーを指すベース URL
     base_url: String,
     /// 受け取ったリクエストの記録 ("METHOD PATH" の形式)
@@ -57,7 +57,7 @@ impl StubServer {
 }
 
 /// スタブサーバーが返す応答。
-pub(super) struct StubResponse {
+pub(crate) struct StubResponse {
     /// ステータスコード
     status: u16,
     /// レスポンスボディ (JSON)
