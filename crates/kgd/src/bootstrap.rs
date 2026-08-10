@@ -20,7 +20,7 @@ use kgd_application::{
     },
     run_relay_worker,
 };
-use kgd_domain::{ServerStatus, compile_url_rules};
+use kgd_domain::{DiaryCalendar, ServerStatus, compile_url_rules};
 use kgd_infrastructure::{
     DiaryStore, HeifConverter, NotionClient, OgpFetcher, ReqwestDownloader, Scheduler,
     SerenityGateway, SystemClock, UdpWolSender,
@@ -82,15 +82,16 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         &config.discord.token,
     ))));
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    // 日報日の区切り方は全ユースケースで共有する
+    let calendar = DiaryCalendar::new(diary_config.timezone, diary_config.day_start_hour);
     let maintenance = Arc::new(RunDiaryMaintenanceUseCase::new(
         diary_store.clone(),
         gateway.clone(),
         clock.clone(),
         sync_service.clone(),
         DiaryMaintenanceSettings {
-            timezone: diary_config.timezone,
+            calendar,
             auto_close_enabled: diary_config.auto_close_enabled,
-            auto_close_hour: diary_config.auto_close_hour,
             write_channel_id: diary_config.write_channel_id,
             sync_reaction: diary_config.sync_reaction.clone(),
         },
@@ -101,7 +102,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         gateway.clone(),
         clock.clone(),
         DiaryLifecycleSettings {
-            timezone: diary_config.timezone,
+            calendar,
             forum_channel_id: diary_config.forum_channel_id,
             write_channel_id: diary_config.write_channel_id,
         },
@@ -112,7 +113,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         clock,
         sync_service.clone(),
         RelaySettings {
-            timezone: diary_config.timezone,
+            calendar,
             sync_reaction: diary_config.sync_reaction.clone(),
         },
     ));

@@ -18,8 +18,7 @@ pub use attachment::{
 };
 pub use blocks::{file_block_json, image_block_json, toggle_block_json};
 pub use diary::{
-    DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryEntry, MessageBlock, RelayedMessage,
-    format_date_in_timezone, today_in_timezone,
+    DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryCalendar, DiaryEntry, MessageBlock, RelayedMessage,
 };
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,

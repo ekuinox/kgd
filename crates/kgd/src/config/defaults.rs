@@ -24,7 +24,7 @@ pub(super) fn default_convert_to() -> Vec<String> {
     vec!["link".to_string()]
 }
 
-pub(super) fn default_auto_close_hour() -> u32 {
+pub(super) fn default_day_start_hour() -> u32 {
     8
 }
 

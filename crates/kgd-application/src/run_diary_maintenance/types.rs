@@ -1,16 +1,14 @@
 //! 定期メンテナンスの設定と結果レポートの型。
 
-use chrono_tz::Tz;
+use kgd_domain::DiaryCalendar;
 
 /// 定期メンテナンスの設定。
 #[derive(Debug, Clone)]
 pub struct DiaryMaintenanceSettings {
-    /// 日報の日付計算に使用するタイムゾーン
-    pub timezone: Tz,
+    /// 日報の日付計算に使用するカレンダー
+    pub calendar: DiaryCalendar,
     /// 自動クローズ機能を有効にするか
     pub auto_close_enabled: bool,
-    /// 自動クローズの確認メッセージを送信する時刻（時）
-    pub auto_close_hour: u32,
     /// 日報の書き込み用チャンネル ID
     pub write_channel_id: u64,
     /// 同期成功時にメッセージに付けるリアクション絵文字

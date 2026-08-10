@@ -42,11 +42,70 @@ fn parse_example_config() {
             url_rules: vec![],
             default_convert_to: vec!["link".to_string()],
             auto_close_enabled: false,
-            auto_close_hour: 8,
+            day_start_hour: 8,
             ogp_enabled: true,
             ogp_timeout: Duration::from_secs(10),
         },
     };
 
     assert_eq!(config, expected);
+}
+
+/// 日報設定だけを差し替えられる最小の設定 TOML を作る。
+fn minimal_config_toml(diary_extra: &str) -> String {
+    format!(
+        r#"
+servers = []
+
+[discord]
+token = "token"
+status_channel_id = 1
+
+[status]
+
+[diary]
+database_url = "postgres://kgd:kgd@localhost:5432/kgd"
+notion_token = "secret"
+notion_database_id = "db"
+forum_channel_id = 1
+write_channel_id = 2
+{diary_extra}
+"#
+    )
+}
+
+/// day_start_hour を書かなければ既定値 8 になることを確認する。
+#[test]
+fn day_start_hour_defaults_to_eight() {
+    let config: Config = toml::from_str(&minimal_config_toml("")).expect("should parse");
+    assert_eq!(config.diary.day_start_hour, 8);
+}
+
+/// 旧名の auto_close_hour で書かれた設定でも day_start_hour として読めることを確認する。
+///
+/// 設定ファイルを書き換えなくても動くようにするため。
+#[test]
+fn day_start_hour_accepts_legacy_auto_close_hour_name() {
+    let config: Config =
+        toml::from_str(&minimal_config_toml("auto_close_hour = 7")).expect("should parse");
+    assert_eq!(config.diary.day_start_hour, 7);
+}
+
+/// day_start_hour が 0-23 の範囲内なら検証を通ることを確認する。
+#[test]
+fn validate_accepts_day_start_hour_in_range() {
+    let config: Config =
+        toml::from_str(&minimal_config_toml("day_start_hour = 23")).expect("should parse");
+    assert!(config.validate().is_ok());
+}
+
+/// day_start_hour が 24 以上なら検証で弾かれることを確認する。
+///
+/// 範囲外のまま動かすと全時刻が前日扱いになり、日報日が進まなくなるため。
+#[test]
+fn validate_rejects_day_start_hour_out_of_range() {
+    let config: Config =
+        toml::from_str(&minimal_config_toml("day_start_hour = 24")).expect("should parse");
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("day_start_hour"));
 }

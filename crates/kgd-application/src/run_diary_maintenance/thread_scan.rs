@@ -3,8 +3,6 @@
 use anyhow::{Context as _, Result};
 use tracing::{error, info};
 
-use kgd_domain::today_in_timezone;
-
 use super::{DiaryThreadSyncReport, RunDiaryMaintenanceUseCase, THREAD_SYNC_BATCH_SIZE};
 
 impl RunDiaryMaintenanceUseCase {
@@ -88,7 +86,7 @@ impl RunDiaryMaintenanceUseCase {
 
     /// 直近 3 日分の日報スレッドを順番に再同期する。
     pub(super) async fn sync_recent_threads(&self) -> Result<()> {
-        let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
+        let today = self.settings.calendar.today(self.clock.now());
         // 当日を含めた 3 日分だけを定期同期の対象にする。
         let start_date = today - chrono::Duration::days(2);
         let entries = self

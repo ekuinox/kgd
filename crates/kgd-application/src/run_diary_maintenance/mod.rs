@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use kgd_domain::{
     DiaryHourlySyncSlot, HourlySyncDecision, SyncMessage, decide_hourly_sync,
-    should_attempt_auto_close, today_in_timezone,
+    should_attempt_auto_close,
 };
 
 use super::{
@@ -65,19 +65,18 @@ impl RunDiaryMaintenanceUseCase {
 
     /// 自動クローズのチェックを行い、必要ならボタン付きメッセージを送信する。
     pub async fn check_auto_close(&self) -> Result<()> {
-        let timezone = &self.settings.timezone;
+        let calendar = &self.settings.calendar;
         let now = self.clock.now();
-        let today = today_in_timezone(now, timezone);
-        let today_local = now.with_timezone(timezone).date_naive();
+        let today = calendar.today(now);
+        let today_local = calendar.local_date(now);
 
-        // IO を呼ぶ前のゲート判定（機能無効・指定時刻前・本日通知済み）
+        // IO を呼ぶ前のゲート判定（機能無効・同じ日報日に通知済み）
         {
             let last_notified = *self.last_auto_close_notification_date.lock().await;
             if !should_attempt_auto_close(
                 now,
-                timezone,
+                calendar,
                 self.settings.auto_close_enabled,
-                self.settings.auto_close_hour,
                 last_notified,
             ) {
                 return Ok(());
@@ -127,7 +126,8 @@ impl RunDiaryMaintenanceUseCase {
     ///
     /// 起動直後は現在の時間帯だけ記録し、次の時間帯に切り替わるまでは同期しない。
     pub async fn check_hourly_sync(&self) -> Result<()> {
-        let current_slot = DiaryHourlySyncSlot::from(self.clock.now(), &self.settings.timezone);
+        let current_slot =
+            DiaryHourlySyncSlot::from(self.clock.now(), self.settings.calendar.timezone());
 
         {
             let mut last_hourly_sync_slot = self.last_hourly_sync_slot.lock().await;

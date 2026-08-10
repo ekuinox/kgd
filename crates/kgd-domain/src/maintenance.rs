@@ -5,6 +5,8 @@
 use chrono::{DateTime, NaiveDate, Timelike as _, Utc};
 use chrono_tz::Tz;
 
+use crate::DiaryCalendar;
+
 /// 毎時同期の実行済み時間帯を表す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiaryHourlySyncSlot {
@@ -52,22 +54,18 @@ pub fn decide_hourly_sync(
 
 /// 自動クローズ通知を送信する前段（IO を呼ぶ前）のゲート判定を行う純粋関数。
 ///
-/// 機能無効・指定時刻前・本日通知済みのいずれかなら `false` を返す。
+/// 機能無効・同じ日報日に通知済みのいずれかなら `false` を返す。
+/// 日報日の切り替わり時刻は [`DiaryCalendar`] が持つため、時刻の比較はここでは行わない。
 pub fn should_attempt_auto_close(
     now: DateTime<Utc>,
-    timezone: &Tz,
+    calendar: &DiaryCalendar,
     auto_close_enabled: bool,
-    auto_close_hour: u32,
     last_notified: Option<NaiveDate>,
 ) -> bool {
     if !auto_close_enabled {
         return false;
     }
-    let local = now.with_timezone(timezone);
-    if local.hour() < auto_close_hour {
-        return false;
-    }
-    last_notified.is_none_or(|date| date != local.date_naive())
+    last_notified.is_none_or(|date| date != calendar.local_date(now))
 }
 
 #[cfg(test)]
@@ -130,57 +128,68 @@ mod tests {
         );
     }
 
-    /// 自動クローズ機能が無効な場合は、時刻や未通知でも
-    /// false を返すことを確認する。
+    /// 自動クローズ機能が無効な場合は、未通知でも false を返すことを確認する。
     #[test]
     fn should_attempt_auto_close_false_when_disabled() {
+        let calendar = DiaryCalendar::new(chrono_tz::UTC, 8);
         assert!(!should_attempt_auto_close(
             utc(2025, 1, 1, 10, 0),
-            &chrono_tz::UTC,
+            &calendar,
             false,
-            8,
             None,
         ));
     }
 
-    /// 機能が有効でも現在時（7時）が自動クローズ時刻（8時）より前なら
-    /// false を返し、早すぎる通知を防ぐことを確認する。
+    /// 同じ日報日に通知済みなら false を返し、重複通知を防ぐことを確認する。
     #[test]
-    fn should_attempt_auto_close_false_before_hour() {
-        assert!(!should_attempt_auto_close(
-            utc(2025, 1, 1, 7, 0),
-            &chrono_tz::UTC,
-            true,
-            8,
-            None,
-        ));
-    }
-
-    /// 機能が有効で時刻を満たしていても、本日すでに通知済みなら
-    /// false を返し、重複通知を防ぐことを確認する。
-    #[test]
-    fn should_attempt_auto_close_false_when_already_notified_today() {
+    fn should_attempt_auto_close_false_when_already_notified_for_diary_day() {
+        let calendar = DiaryCalendar::new(chrono_tz::UTC, 8);
         let now = utc(2025, 1, 1, 9, 0);
-        let today = now.date_naive();
         assert!(!should_attempt_auto_close(
             now,
-            &chrono_tz::UTC,
+            &calendar,
             true,
-            8,
-            Some(today),
+            Some(calendar.local_date(now)),
         ));
     }
 
-    /// 機能が有効・時刻到達済み（9時≧8時）・本日未通知の条件が揃った場合に
-    /// true を返すことを確認する。
+    /// 一度も通知していなければ true を返すことを確認する。
     #[test]
-    fn should_attempt_auto_close_true_when_due_and_not_notified() {
+    fn should_attempt_auto_close_true_when_never_notified() {
+        let calendar = DiaryCalendar::new(chrono_tz::UTC, 8);
         assert!(should_attempt_auto_close(
             utc(2025, 1, 1, 9, 0),
-            &chrono_tz::UTC,
+            &calendar,
             true,
-            8,
             None,
+        ));
+    }
+
+    /// 前日の日報日に通知済みでも、day_start_hour を跨いでいなければ
+    /// まだ同じ日報日なので false を返すことを確認する。
+    #[test]
+    fn should_attempt_auto_close_false_before_day_start_hour() {
+        let calendar = DiaryCalendar::new(chrono_tz::UTC, 8);
+        let notified = calendar.local_date(utc(2025, 1, 1, 9, 0));
+        assert!(!should_attempt_auto_close(
+            utc(2025, 1, 2, 7, 59),
+            &calendar,
+            true,
+            Some(notified),
+        ));
+    }
+
+    /// day_start_hour を跨いで日報日が変わったら true を返し、
+    /// 新しい日報日の通知が送られることを確認する。
+    #[test]
+    fn should_attempt_auto_close_true_when_diary_day_changed() {
+        let calendar = DiaryCalendar::new(chrono_tz::UTC, 8);
+        let notified = calendar.local_date(utc(2025, 1, 1, 9, 0));
+        assert!(should_attempt_auto_close(
+            utc(2025, 1, 2, 8, 0),
+            &calendar,
+            true,
+            Some(notified),
         ));
     }
 }
