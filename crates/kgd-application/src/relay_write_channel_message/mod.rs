@@ -4,10 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
 use tracing::{error, info, warn};
 
-use kgd_domain::{RelayedMessage, SyncMessage, build_relay_content, today_in_timezone};
+use kgd_domain::{DiaryCalendar, RelayedMessage, SyncMessage, build_relay_content};
 
 use super::{
     SyncDiaryMessageUseCase,
@@ -22,8 +21,8 @@ pub use worker::{WriteChannelEvent, run_relay_worker};
 /// 転記ユースケースの設定。
 #[derive(Debug, Clone)]
 pub struct RelaySettings {
-    /// 日報の日付計算に使用するタイムゾーン
-    pub timezone: Tz,
+    /// 日報の日付計算に使用するカレンダー
+    pub calendar: DiaryCalendar,
     /// 同期成功時にメッセージに付けるリアクション絵文字
     pub sync_reaction: String,
 }
@@ -77,7 +76,7 @@ impl RelayWriteChannelMessageUseCase {
     /// 今日の日報が無い場合は、過去の日報に紛れ込むのを避けるため転記せず、
     /// 書き込み用チャンネルへその旨を通知する。
     pub async fn relay(&self, message: &SyncMessage) -> Result<()> {
-        let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
+        let today = self.settings.calendar.today(self.clock.now());
         let Some(entry) = self.repo.get_by_date(today).await? else {
             warn!(
                 message_id = message.message_id,

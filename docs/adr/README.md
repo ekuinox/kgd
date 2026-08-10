@@ -13,3 +13,4 @@
 | [0004](0004-minimal-scheduler-with-job-self-decision.md) | スケジューラは最小の固定間隔ランナー + ジョブ内自己判定 | 受理 |
 | [0005](0005-serialize-write-channel-relay.md) | 書き込みチャンネルの転記は単一ワーカーで直列化する | 受理 |
 | [0006](0006-retry-notion-requests-and-surface-failures.md) | Notion 通信は副作用の有無で再試行範囲を分け、失敗はユーザーへ見せる | 受理 |
+| [0007](0007-diary-day-starts-at-day-start-hour.md) | 日報の一日は day_start_hour から始まる | 受理 |

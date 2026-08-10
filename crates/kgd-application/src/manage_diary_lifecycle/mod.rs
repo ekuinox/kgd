@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use tracing::{info, warn};
 
-use kgd_domain::{DiaryEntry, format_date_in_timezone, today_in_timezone};
+use kgd_domain::DiaryEntry;
 
 use super::ports::{Clock, DiaryRepository, DiscordGateway, NotionApi};
 
@@ -53,8 +53,8 @@ impl ManageDiaryLifecycleUseCase {
 
     /// 今日の日報を作成する。既に存在する場合は再開を試みる。
     pub async fn create_or_reopen(&self) -> Result<DiaryCreateOutcome> {
-        let timezone = &self.settings.timezone;
-        let date = today_in_timezone(self.clock.now(), timezone);
+        let calendar = &self.settings.calendar;
+        let date = calendar.today(self.clock.now());
 
         // 既に今日の日報が存在する場合は再開を試みる
         if let Some(entry) = self.repo.get_by_date(date).await? {
@@ -87,7 +87,7 @@ impl ManageDiaryLifecycleUseCase {
         }
 
         // 日付を文字列に変換 (YYYY-MM-DD 形式、設定されたタイムゾーンで表示)
-        let date_str = format_date_in_timezone(date, timezone);
+        let date_str = calendar.format(date);
 
         let (page_id, page_url, reused_page) = self.ensure_page(&date_str).await?;
 

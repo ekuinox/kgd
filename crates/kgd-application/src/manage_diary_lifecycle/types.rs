@@ -1,12 +1,12 @@
 //! 日報ライフサイクル管理の設定・結果型。
 
-use chrono_tz::Tz;
+use kgd_domain::DiaryCalendar;
 
 /// ライフサイクル管理の設定。
 #[derive(Debug, Clone)]
 pub struct DiaryLifecycleSettings {
-    /// 日報の日付計算に使用するタイムゾーン
-    pub timezone: Tz,
+    /// 日報の日付計算に使用するカレンダー
+    pub calendar: DiaryCalendar,
     /// 日報スレッドを作成するフォーラムチャンネル ID
     pub forum_channel_id: u64,
     /// 日報の書き込み用チャンネル ID

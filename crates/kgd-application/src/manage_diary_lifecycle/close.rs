@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use tracing::{info, warn};
 
-use kgd_domain::{DiaryEntry, format_date_in_timezone, today_in_timezone};
+use kgd_domain::DiaryEntry;
 
 use super::{CloseAndNewPrecheck, DiaryCloseOutcome, ManageDiaryLifecycleUseCase};
 
@@ -21,7 +21,7 @@ impl ManageDiaryLifecycleUseCase {
             return Ok(CloseAndNewPrecheck::NotDiaryThread);
         }
 
-        let today = today_in_timezone(self.clock.now(), &self.settings.timezone);
+        let today = self.settings.calendar.today(self.clock.now());
         if let Some(today_entry) = self.repo.get_by_date(today).await? {
             return Ok(if today_entry.thread_id == current_channel_id {
                 CloseAndNewPrecheck::AlreadyLatest
@@ -39,9 +39,9 @@ impl ManageDiaryLifecycleUseCase {
     ///
     /// 事前に [`Self::close_and_new_precheck`] で `ReadyToCreate` を確認してから呼ぶこと。
     pub async fn close_and_create_new(&self, current_channel_id: u64) -> Result<u64> {
-        let timezone = &self.settings.timezone;
-        let today = today_in_timezone(self.clock.now(), timezone);
-        let date_str = format_date_in_timezone(today, timezone);
+        let calendar = &self.settings.calendar;
+        let today = calendar.today(self.clock.now());
+        let date_str = calendar.format(today);
 
         // クローズ対象のスレッドを決める
         // （書き込み用チャンネルの場合は最新の日報スレッド、日報スレッドの場合はそのスレッド）

@@ -1,6 +1,6 @@
 use std::{fs, path::Path, time::Duration};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, ensure};
 use chrono_tz::Tz;
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use defaults::*;
 pub fn open_config(path: impl AsRef<Path>) -> Result<Config> {
     let content = fs::read_to_string(path.as_ref()).context("Failed to read configuration file")?;
     let config: Config = toml::from_str(&content).context("Failed to parse configuration file")?;
+    config.validate()?;
     Ok(config)
 }
 
@@ -41,6 +42,18 @@ pub struct Config {
 }
 
 impl Config {
+    /// 設定値の整合性を検証する。
+    ///
+    /// 型では表せない値域の制約を、起動時にまとめて弾くために用意している。
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.diary.day_start_hour < 24,
+            "diary.day_start_hour must be in 0-23, but got {}",
+            self.diary.day_start_hour
+        );
+        Ok(())
+    }
+
     /// 監視・操作対象のサーバー一覧をドメイン型に変換して返す。
     pub fn server_targets(&self) -> Vec<ServerTarget> {
         self.servers
@@ -158,9 +171,12 @@ pub struct DiaryConfig {
     /// 自動クローズ機能を有効にするか（デフォルト: false）
     #[serde(default)]
     pub auto_close_enabled: bool,
-    /// 自動クローズの確認メッセージを送信する時刻（時）（デフォルト: 8）
-    #[serde(default = "default_auto_close_hour")]
-    pub auto_close_hour: u32,
+    /// 日報の一日が始まる時（0-23）（デフォルト: 8）
+    ///
+    /// 日付境界と自動クローズ通知の両方に使う。
+    /// 旧名 `auto_close_hour` で書かれた設定ファイルもそのまま読める。
+    #[serde(default = "default_day_start_hour", alias = "auto_close_hour")]
+    pub day_start_hour: u32,
     /// OGP メタデータ取得を有効にするか（デフォルト: true）
     #[serde(default = "default_ogp_enabled")]
     pub ogp_enabled: bool,

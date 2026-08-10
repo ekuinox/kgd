@@ -36,6 +36,40 @@ async fn create_reopens_existing_thread() {
     assert_eq!(outcome, DiaryCreateOutcome::Reopened { thread_id: 100 });
 }
 
+/// day_start_hour より前（深夜）に日報作成を実行した場合、新しいスレッドを作らず(times(0))
+/// 同じ日報日にあたる既存スレッドを再開することを確認する。
+#[tokio::test]
+async fn create_reopens_the_same_diary_day_before_day_start_hour() {
+    let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 7);
+    // 2026-08-10 03:00 JST。day_start_hour(7時)より前なので日報日は 2026-08-09
+    let now = utc(2026, 8, 9, 18, 0);
+    // 2026-08-09 00:00 JST
+    let diary_day = utc(2026, 8, 8, 15, 0);
+
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_by_date()
+        .with(eq(diary_day))
+        .times(1)
+        .returning(move |_| Ok(Some(entry(100, diary_day))));
+    let notion = MockNotionApi::new(); // Notion は呼ばれない
+    let mut gateway = MockDiscordGateway::new();
+    gateway
+        .expect_reopen_thread()
+        .with(eq(100u64))
+        .times(1)
+        .returning(|_| Ok(true));
+    gateway
+        .expect_has_close_and_new_button()
+        .times(1)
+        .returning(|_, _| Ok(true));
+    gateway.expect_create_diary_forum_post().times(0);
+
+    let l = lifecycle_with(calendar, repo, notion, gateway, fixed_clock(now));
+    let outcome = l.create_or_reopen().await.unwrap();
+
+    assert_eq!(outcome, DiaryCreateOutcome::Reopened { thread_id: 100 });
+}
+
 /// 今日の日報が無く、同名の Notion ページが既存の場合、create_diary_page を呼ばず(times(0))
 /// 既存ページを再利用してスレッドを作成・登録し、reused_page=true の Created を返すことを確認する。
 #[tokio::test]

@@ -10,14 +10,20 @@ use crate::test_support::{empty_sync_service, entry, fixed_clock, utc};
 
 use super::*;
 
-/// 自動クローズ判定の閾値時刻(08:00)より前(07:00)の場合、get_latest_entry すら呼ばず
-/// (times(0))に何もしないことを確認する。
+/// 一日の始まり(08:00)より前(07:00)の場合、最新エントリはまだ同じ日報日なので
+/// ボタンを一切送らない(times(0))ことを確認する。
 #[tokio::test]
-async fn auto_close_skips_before_hour() {
+async fn auto_close_skips_before_day_start_hour() {
     let mut repo = MockDiaryRepository::new();
-    repo.expect_get_latest_entry().times(0);
-    let gateway = MockDiscordGateway::new();
-    // 08:00 より前なので何もしない
+    // 2025-01-01 の日報が最新。2025-01-02 07:00 はまだ 2025-01-01 の日報日
+    repo.expect_get_latest_entry()
+        .times(1)
+        .returning(|| Ok(Some(entry(100, utc(2025, 1, 1, 0, 0)))));
+    let mut gateway = MockDiscordGateway::new();
+    gateway.expect_send_close_and_new_button().times(0);
+    gateway
+        .expect_send_write_channel_new_diary_button()
+        .times(0);
     let clock = fixed_clock(utc(2025, 1, 2, 7, 0));
 
     let m = maintenance(repo, gateway, clock, empty_sync_service());
