@@ -12,6 +12,24 @@ pub(super) fn plain_text_json(text: &str) -> serde_json::Value {
     })
 }
 
+/// プレーンテキストを Notion の上限に収まる複数の rich_text JSON に分割する。
+///
+/// Notion は rich_text 1 要素あたり 2000 文字までしか受け付けない。
+/// Discord は Nitro で 4000 文字まで投稿できるため、そのまま送ると
+/// append_blocks が 400 validation_error で失敗する。
+/// 切り詰めると本文が失われるので、分割して全文を保持する。
+pub(super) fn plain_text_chunks_json(text: &str) -> Vec<serde_json::Value> {
+    if text.chars().count() <= NOTION_RICH_TEXT_MAX_CHARS {
+        return vec![plain_text_json(text)];
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .chunks(NOTION_RICH_TEXT_MAX_CHARS)
+        .map(|chunk| plain_text_json(&chunk.iter().collect::<String>()))
+        .collect()
+}
+
 /// インラインリンクの rich_text JSON を生成する。
 pub(super) fn inline_link_json(url: &str) -> serde_json::Value {
     serde_json::json!({
