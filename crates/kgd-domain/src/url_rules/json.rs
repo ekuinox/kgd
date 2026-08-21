@@ -58,13 +58,31 @@ pub fn apply_ogp_to_bookmark(block_json: &mut serde_json::Value, ogp: &OgpMetada
     }
 }
 
+/// キャプションのタイトル・説明それぞれの最大文字数。
+const CAPTION_PART_MAX_CHARS: usize = 200;
+
+/// Notion の rich_text 1 要素あたりの最大文字数。
+const NOTION_RICH_TEXT_MAX_CHARS: usize = 2000;
+
+/// 文字列を指定文字数以内に切り詰める。超える場合は末尾を "..." にする。
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars.saturating_sub(3)).collect();
+    format!("{head}...")
+}
+
 /// OGP メタデータからブックマークキャプションを構築する。
+///
+/// Instagram のように og:title へ本文全体を入れるサイトがあるため、
+/// タイトルと説明の両方を切り詰め、最終的に Notion の上限にも収める。
 fn build_bookmark_caption(ogp: &OgpMetadata) -> Vec<serde_json::Value> {
     let mut parts = Vec::new();
 
     // タイトルを追加
     if let Some(title) = &ogp.title {
-        parts.push(title.clone());
+        parts.push(truncate_chars(title, CAPTION_PART_MAX_CHARS));
     }
 
     // 説明を追加（タイトルがある場合は改行で区切る）
@@ -72,20 +90,14 @@ fn build_bookmark_caption(ogp: &OgpMetadata) -> Vec<serde_json::Value> {
         if !parts.is_empty() {
             parts.push("\n".to_string());
         }
-        // 説明が長すぎる場合は切り詰める
-        let truncated = if description.chars().count() > 200 {
-            format!("{}...", description.chars().take(197).collect::<String>())
-        } else {
-            description.clone()
-        };
-        parts.push(truncated);
+        parts.push(truncate_chars(description, CAPTION_PART_MAX_CHARS));
     }
 
     if parts.is_empty() {
         return vec![];
     }
 
-    let content = parts.join("");
+    let content = truncate_chars(&parts.join(""), NOTION_RICH_TEXT_MAX_CHARS);
     vec![serde_json::json!({
         "type": "text",
         "text": {
