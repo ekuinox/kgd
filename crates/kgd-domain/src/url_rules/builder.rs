@@ -2,7 +2,9 @@
 
 use regex::Regex;
 
-use super::json::{bookmark_block_json, embed_block_json, inline_link_json, plain_text_json};
+use super::json::{
+    bookmark_block_json, embed_block_json, inline_link_json, plain_text_chunks_json,
+};
 use super::matcher::{CompiledUrlRules, UrlBlockType};
 
 /// URL 解析結果のブロック。出現順に並ぶ。
@@ -27,12 +29,7 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
         match segment {
             TextSegment::Plain(s) => {
                 if !s.is_empty() {
-                    pending_rich_text.push(serde_json::json!({
-                        "type": "text",
-                        "text": {
-                            "content": s
-                        }
-                    }));
+                    pending_rich_text.extend(plain_text_chunks_json(&s));
                 }
             }
             TextSegment::Url(url) => {
@@ -67,7 +64,7 @@ pub fn build_rich_text_and_url_blocks(text: &str, compiled: &CompiledUrlRules) -
 
                 // いずれの変換も行われない場合のみプレーンテキストとして URL を表示
                 if block_types.is_empty() {
-                    pending_rich_text.push(plain_text_json(&url));
+                    pending_rich_text.extend(plain_text_chunks_json(&url));
                 }
             }
         }

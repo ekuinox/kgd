@@ -133,3 +133,38 @@ fn test_apply_ogp_to_bookmark_long_description_truncated() {
     let description_part = content.strip_prefix("Title\n").unwrap();
     assert_eq!(description_part.chars().count(), 200);
 }
+
+/// タイトルが長すぎる場合も切り詰められることを確認する。
+///
+/// Instagram のように og:title へ投稿本文全体が入るサイトがあり、
+/// 切り詰めないと Notion の caption 上限 (2000 文字) を超えて 400 になる。
+#[test]
+fn test_apply_ogp_to_bookmark_long_title_truncated() {
+    let mut block = serde_json::json!({
+        "object": "block",
+        "type": "bookmark",
+        "bookmark": {
+            "url": "https://www.instagram.com/p/DcQylQzn4Wx/",
+            "caption": []
+        }
+    });
+
+    let ogp = OgpMetadata {
+        title: Some("あ".repeat(2900)),
+        description: Some("い".repeat(250)),
+    };
+
+    apply_ogp_to_bookmark(&mut block, &ogp);
+
+    let caption = block["bookmark"]["caption"].as_array().unwrap();
+    let content = caption[0]["text"]["content"].as_str().unwrap();
+    assert!(
+        content.chars().count() <= 2000,
+        "caption は Notion の上限 2000 文字以内に収まるべき: {}",
+        content.chars().count()
+    );
+
+    let title_part = content.split('\n').next().unwrap();
+    assert_eq!(title_part.chars().count(), 200);
+    assert!(title_part.ends_with("..."));
+}

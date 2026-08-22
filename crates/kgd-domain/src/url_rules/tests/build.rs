@@ -124,3 +124,32 @@ fn test_build_embed_rule() {
         "https://youtube.com/watch?v=abc"
     );
 }
+
+/// 2000 文字を超える本文が、Notion の rich_text 上限に収まる複数の要素に
+/// 分割されることを確認する。
+///
+/// Discord は Nitro で 4000 文字まで投稿できるため、分割しないと
+/// append_blocks が 400 validation_error で失敗する。
+#[test]
+fn test_build_long_text_split_into_rich_text_chunks() {
+    let compiled = compiled_with_default(vec![], vec![UrlBlockType::Link]);
+    let text = "あ".repeat(4500);
+    let result = build_rich_text_and_url_blocks(&text, &compiled);
+
+    let mut restored = String::new();
+    for (block_json, block_type) in &result.blocks {
+        assert_eq!(block_type, "text");
+        for rich_text in block_json["paragraph"]["rich_text"].as_array().unwrap() {
+            let content = rich_text["text"]["content"].as_str().unwrap();
+            assert!(
+                content.chars().count() <= 2000,
+                "rich_text 要素は 2000 文字以内であるべき: {}",
+                content.chars().count()
+            );
+            restored.push_str(content);
+        }
+    }
+
+    // 分割しても内容は失われない
+    assert_eq!(restored, text);
+}
