@@ -21,14 +21,6 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 id = "RUSTSEC-2024-0436"
 reason = "paste はメンテナンス終了 (未保守の通知のみで脆弱性ではない)。image -> rav1e 経由で引き込まれるビルド時 proc-macro で実行時影響なし。修正版なし、上流更新待ち"
 
-# rustls-pemfile はメンテナンス終了 (脆弱性ではなく未保守の通知)。
-# 依存経路: rustls-pemfile -> reqwest 0.11 -> notion-client -> kgd。
-# notion-client が古い reqwest 0.11 を使用しているため引き込まれる。
-# 既知の脆弱性はなく、notion-client が reqwest を更新するのを待つ。
-[[advisories.ignore]]
-id = "RUSTSEC-2025-0134"
-reason = "rustls-pemfile はメンテナンス終了 (未保守の通知のみで脆弱性ではない)。notion-client -> reqwest 0.11 経由で引き込まれる。既知の脆弱性なし、notion-client の更新待ち"
-
 # rustls-webpki 0.102.x の CRL 照合ロジックの不具合。
 # 依存経路: rustls-webpki 0.102.8 -> rustls 0.22.4 -> tokio-tungstenite 0.21
 #   -> serenity 0.12.5 -> kgd (Discord 接続の TLS クライアント)。
