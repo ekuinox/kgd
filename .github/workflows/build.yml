@@ -98,6 +98,13 @@ jobs:
       contents: read
       packages: write
 
+    # master への push が並行すると latest タグの push 順が入れ替わり、
+    # 古いコミットのイメージが latest として残ることがあるため直列化する。
+    # pull_request では古い run を打ち切って良い。
+    concurrency:
+      group: ${{ github.workflow }}-build-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
     steps:
       - uses: actions/checkout@v4
         with:
