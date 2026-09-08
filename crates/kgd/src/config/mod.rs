@@ -174,6 +174,7 @@ pub struct DiaryConfig {
     /// 日報の一日が始まる時（0-23）（デフォルト: 8）
     ///
     /// 日付境界と自動クローズ通知の両方に使う。
+    /// この時刻より前にクローズ & 新規作成ボタンを押すと、次の日報日を早出しできる。
     /// 旧名 `auto_close_hour` で書かれた設定ファイルもそのまま読める。
     #[serde(default = "default_day_start_hour", alias = "auto_close_hour")]
     pub day_start_hour: u32,

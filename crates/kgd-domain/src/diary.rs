@@ -80,11 +80,20 @@ impl DiaryCalendar {
     /// 戻り値は日報日の暦日 0 時をタイムゾーン基準で表した UTC 時刻であり、
     /// `day_start_hour` を変えても表現は変わらない（永続化済みの日付と互換）。
     pub fn today(&self, now: DateTime<Utc>) -> DateTime<Utc> {
-        self.local_date(now)
-            .and_time(NaiveTime::MIN)
-            .and_local_timezone(self.timezone)
-            .unwrap()
-            .to_utc()
+        self.start_of(self.local_date(now))
+    }
+
+    /// 日報日がまだ暦日に追いついていないとき、暦日にあたる次の日報日を UTC で返す。
+    ///
+    /// 0 時から `day_start_hour` までの間だけ `Some` を返す。この時間帯は
+    /// [`Self::today`] が前日を指すため、ここで返す日報日はまだ始まっていない。
+    /// `day_start_hour` が 0 なら該当する時間帯が無く、常に `None` を返す。
+    pub fn early_next_day(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let local = now.with_timezone(&self.timezone);
+        if local.hour() >= self.day_start_hour {
+            return None;
+        }
+        Some(self.start_of(local.date_naive()))
     }
 
     /// 指定された時刻が属する日報日をタイムゾーン基準の暦日として返す。
@@ -106,6 +115,14 @@ impl DiaryCalendar {
         date.with_timezone(&self.timezone)
             .format("%Y-%m-%d")
             .to_string()
+    }
+
+    /// 日報日の暦日 0 時をタイムゾーン基準で表した UTC 時刻を返す。
+    fn start_of(&self, date: NaiveDate) -> DateTime<Utc> {
+        date.and_time(NaiveTime::MIN)
+            .and_local_timezone(self.timezone)
+            .unwrap()
+            .to_utc()
     }
 }
 
@@ -176,6 +193,40 @@ mod tests {
             calendar.local_date(jst(2026, 8, 10, 3, 0)),
             NaiveDate::from_ymd_opt(2026, 8, 9).unwrap()
         );
+    }
+
+    /// 一日の始まりより前なら、暦日にあたる次の日報日を返すことを確認する。
+    #[test]
+    fn early_next_day_returns_calendar_date_before_day_start_hour() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 9);
+        assert_eq!(
+            calendar.early_next_day(jst(2026, 8, 10, 3, 0)),
+            Some(jst(2026, 8, 10, 0, 0))
+        );
+    }
+
+    /// 一日の始まり以降は早出しの窓の外なので None を返すことを確認する。
+    #[test]
+    fn early_next_day_returns_none_at_or_after_day_start_hour() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 9);
+        assert_eq!(calendar.early_next_day(jst(2026, 8, 10, 9, 0)), None);
+        assert_eq!(calendar.early_next_day(jst(2026, 8, 10, 23, 59)), None);
+    }
+
+    /// day_start_hour が 0 のときは早出しの窓が無く、常に None を返すことを確認する。
+    #[test]
+    fn early_next_day_returns_none_when_day_start_hour_is_zero() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 0);
+        assert_eq!(calendar.early_next_day(jst(2026, 8, 10, 0, 0)), None);
+    }
+
+    /// 早出しの窓では today の翌日が返ることを、月をまたぐ場合で確認する。
+    #[test]
+    fn early_next_day_handles_month_boundary() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 9);
+        let now = jst(2026, 9, 1, 3, 0);
+        assert_eq!(calendar.today(now), jst(2026, 8, 31, 0, 0));
+        assert_eq!(calendar.early_next_day(now), Some(jst(2026, 9, 1, 0, 0)));
     }
 
     /// format が日報日をタイムゾーン基準の "YYYY-MM-DD" で返すことを確認する。

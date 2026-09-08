@@ -7,6 +7,7 @@ use tracing::{info, warn};
 
 use kgd_domain::DiaryEntry;
 
+use super::diary_lookup::find_current_entry;
 use super::ports::{Clock, DiaryRepository, DiscordGateway, NotionApi};
 
 mod close;
@@ -54,10 +55,12 @@ impl ManageDiaryLifecycleUseCase {
     /// 今日の日報を作成する。既に存在する場合は再開を試みる。
     pub async fn create_or_reopen(&self) -> Result<DiaryCreateOutcome> {
         let calendar = &self.settings.calendar;
-        let date = calendar.today(self.clock.now());
+        let now = self.clock.now();
+        let date = calendar.today(now);
 
-        // 既に今日の日報が存在する場合は再開を試みる
-        if let Some(entry) = self.repo.get_by_date(date).await? {
+        // 既に現在の日報が存在する場合は再開を試みる
+        // （早出しで次の日報日を始めていれば、前日ではなくそちらを再開する）
+        if let Some(entry) = find_current_entry(self.repo.as_ref(), calendar, now).await? {
             let reopened = self.gateway.reopen_thread(entry.thread_id).await?;
 
             if let Err(error) = self.ensure_close_and_new_button(entry.thread_id).await {
@@ -69,10 +72,10 @@ impl ManageDiaryLifecycleUseCase {
             }
 
             info!(
-                date = %date,
+                date = %entry.date,
                 thread_id = entry.thread_id,
                 reopened,
-                "Diary thread already exists for today"
+                "Diary thread already exists for the current diary day"
             );
 
             return Ok(if reopened {

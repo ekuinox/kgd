@@ -10,6 +10,7 @@ use kgd_domain::{DiaryCalendar, RelayedMessage, SyncMessage, build_relay_content
 
 use super::{
     SyncDiaryMessageUseCase,
+    diary_lookup::find_current_entry,
     ports::{Clock, DiaryRepository, DiscordGateway},
 };
 
@@ -75,9 +76,14 @@ impl RelayWriteChannelMessageUseCase {
     ///
     /// 今日の日報が無い場合は、過去の日報に紛れ込むのを避けるため転記せず、
     /// 書き込み用チャンネルへその旨を通知する。
+    ///
+    /// 早出しで次の日報日の日報を作ってある場合は、そちらを転記先にする。
     pub async fn relay(&self, message: &SyncMessage) -> Result<()> {
-        let today = self.settings.calendar.today(self.clock.now());
-        let Some(entry) = self.repo.get_by_date(today).await? else {
+        let now = self.clock.now();
+        let calendar = &self.settings.calendar;
+        // 早出しで次の日報日を始めていれば、深夜の投稿もそちらへ転記する
+        let Some(entry) = find_current_entry(self.repo.as_ref(), calendar, now).await? else {
+            let today = calendar.today(now);
             warn!(
                 message_id = message.message_id,
                 date = %today,

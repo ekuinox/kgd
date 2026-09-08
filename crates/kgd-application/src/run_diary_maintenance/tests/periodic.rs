@@ -100,6 +100,56 @@ async fn auto_close_skips_archived_thread() {
     m.check_auto_close().await.unwrap();
 }
 
+/// 早出しの窓では、毎時同期の対象範囲の終端を次の日報日まで広げ、
+/// 早出しした日報スレッドも再同期の対象になることを確認する。
+#[tokio::test]
+async fn recent_thread_sync_covers_early_started_next_day() {
+    let mut repo = MockDiaryRepository::new();
+    // day_start_hour(8時)より前なので日報日は 1/1。終端は次の日報日 1/2 まで広げる
+    repo.expect_get_entries_in_date_range()
+        .withf(|start, end| *start == utc(2024, 12, 30, 0, 0) && *end == utc(2025, 1, 2, 0, 0))
+        .times(1)
+        .returning(|_, _| Ok(vec![]));
+    let clock = fixed_clock(utc(2025, 1, 2, 3, 0));
+
+    let m = maintenance(repo, MockDiscordGateway::new(), clock, empty_sync_service());
+    m.sync_recent_threads().await.unwrap();
+}
+
+/// 早出しの窓の外では、毎時同期の対象範囲が従来どおり今の日報日までであることを確認する。
+#[tokio::test]
+async fn recent_thread_sync_ends_at_today_outside_early_window() {
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_entries_in_date_range()
+        .withf(|start, end| *start == utc(2024, 12, 31, 0, 0) && *end == utc(2025, 1, 2, 0, 0))
+        .times(1)
+        .returning(|_, _| Ok(vec![]));
+    let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
+
+    let m = maintenance(repo, MockDiscordGateway::new(), clock, empty_sync_service());
+    m.sync_recent_threads().await.unwrap();
+}
+
+/// 早出しで次の日報日の日報を作ってあれば、day_start_hour を跨いでも
+/// 自動クローズのボタンを送らないことを確認する。
+#[tokio::test]
+async fn auto_close_skips_after_early_started_next_day() {
+    let mut repo = MockDiaryRepository::new();
+    // 早出しで作った 1/2 の日報が最新
+    repo.expect_get_latest_entry()
+        .times(1)
+        .returning(|| Ok(Some(entry(400, utc(2025, 1, 2, 0, 0)))));
+    let mut gateway = MockDiscordGateway::new();
+    gateway.expect_send_close_and_new_button().times(0);
+    gateway
+        .expect_send_write_channel_new_diary_button()
+        .times(0);
+    let clock = fixed_clock(utc(2025, 1, 2, 9, 0));
+
+    let m = maintenance(repo, gateway, clock, empty_sync_service());
+    m.check_auto_close().await.unwrap();
+}
+
 /// 毎時同期は初回呼び出しでは現在スロットを記録するだけで同期せず、同一スロットでもスキップし、
 /// スロットが変わった時に初めて 1 回だけ同期(get_entries_in_date_range times(1))することを確認する。
 #[tokio::test]

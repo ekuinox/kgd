@@ -86,12 +86,16 @@ impl RunDiaryMaintenanceUseCase {
 
     /// 直近 3 日分の日報スレッドを順番に再同期する。
     pub(super) async fn sync_recent_threads(&self) -> Result<()> {
-        let today = self.settings.calendar.today(self.clock.now());
+        let calendar = &self.settings.calendar;
+        let now = self.clock.now();
+        let today = calendar.today(now);
         // 当日を含めた 3 日分だけを定期同期の対象にする。
         let start_date = today - chrono::Duration::days(2);
+        // 早出しで次の日報日を始めていれば、その日報スレッドも対象に含める。
+        let end_date = calendar.early_next_day(now).unwrap_or(today);
         let entries = self
             .repo
-            .get_entries_in_date_range(start_date, today)
+            .get_entries_in_date_range(start_date, end_date)
             .await?;
 
         let mut total = DiaryThreadSyncReport::default();
