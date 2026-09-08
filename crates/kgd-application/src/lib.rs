@@ -4,6 +4,7 @@
 //! 外部 IO はすべて [`ports`] の trait 経由で扱い、テストでは mockall のモックを使う。
 
 mod check_server_status;
+mod diary_lookup;
 mod manage_diary_lifecycle;
 pub mod ports;
 mod relay_write_channel_message;

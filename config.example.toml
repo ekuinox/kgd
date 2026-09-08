@@ -88,6 +88,8 @@ write_channel_id = 123456789012345678
 # Hour of the day (0-23) when a diary day starts (default: 8)
 # Posts made before this hour belong to the previous day's diary, and the
 # auto-close button is sent once the diary day changes at this hour.
+# Pressing the close-and-new button before this hour starts the next diary day
+# ahead of time; posts after that are relayed to the new diary.
 # The old name auto_close_hour is still accepted.
 # day_start_hour = 8
 

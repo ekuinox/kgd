@@ -43,6 +43,40 @@ async fn relay_syncs_posts_and_records_mapping() {
     relay.relay(&message(10, "hello")).await.unwrap();
 }
 
+/// 早出しで次の日報日の日報を作ってあれば、深夜の投稿が前日ではなく
+/// 早出しした日報スレッドへ転記されることを確認する。
+#[tokio::test]
+async fn relay_posts_to_early_started_next_day() {
+    let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 7);
+    // 2026-08-10 00:12 JST。day_start_hour(7時)より前なので日報日は 2026-08-09
+    let now = utc(2026, 8, 9, 15, 12);
+    // 2026-08-10 00:00 JST
+    let next_day = utc(2026, 8, 9, 15, 0);
+
+    let mut repo = MockDiaryRepository::new();
+    repo.expect_get_by_date()
+        .with(eq(next_day))
+        .times(1)
+        .returning(move |_| Ok(Some(entry(400, next_day))));
+    repo.expect_upsert_relayed_message()
+        .withf(|relayed| relayed.thread_id == 400)
+        .times(1)
+        .returning(|_| Ok(()));
+    let mut gateway = MockDiscordGateway::new();
+    gateway
+        .expect_send_text()
+        .withf(|thread_id, _| *thread_id == 400)
+        .times(1)
+        .returning(|_, _| Ok(900));
+    gateway
+        .expect_add_reaction()
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+
+    let relay = relay_use_case_at(now, calendar, repo, gateway, text_sync_service(1));
+    relay.relay(&message(10, "hello")).await.unwrap();
+}
+
 /// day_start_hour より前（深夜）の投稿が、暦日で前日にあたる日報スレッドへ
 /// 転記されることを確認する。
 ///
@@ -56,6 +90,11 @@ async fn relay_posts_before_day_start_hour_to_the_same_diary_day() {
     let diary_day = utc(2026, 8, 8, 15, 0);
 
     let mut repo = MockDiaryRepository::new();
+    // 早出しした日報は無いので、次の日報日は転記先にならない
+    repo.expect_get_by_date()
+        .with(eq(utc(2026, 8, 9, 15, 0)))
+        .times(1)
+        .returning(|_| Ok(None));
     repo.expect_get_by_date()
         .with(eq(diary_day))
         .times(1)

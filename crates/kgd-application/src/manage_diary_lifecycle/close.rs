@@ -1,6 +1,7 @@
 //! 日報スレッドのクローズ・クローズ & 新規作成処理。
 
 use anyhow::{Context as _, Result};
+use chrono::{DateTime, Utc};
 use tracing::{info, warn};
 
 use kgd_domain::DiaryEntry;
@@ -21,8 +22,8 @@ impl ManageDiaryLifecycleUseCase {
             return Ok(CloseAndNewPrecheck::NotDiaryThread);
         }
 
-        let today = self.settings.calendar.today(self.clock.now());
-        if let Some(today_entry) = self.repo.get_by_date(today).await? {
+        let target_date = self.new_diary_date();
+        if let Some(today_entry) = self.repo.get_by_date(target_date).await? {
             return Ok(if today_entry.thread_id == current_channel_id {
                 CloseAndNewPrecheck::AlreadyLatest
             } else {
@@ -39,9 +40,8 @@ impl ManageDiaryLifecycleUseCase {
     ///
     /// 事前に [`Self::close_and_new_precheck`] で `ReadyToCreate` を確認してから呼ぶこと。
     pub async fn close_and_create_new(&self, current_channel_id: u64) -> Result<u64> {
-        let calendar = &self.settings.calendar;
-        let today = calendar.today(self.clock.now());
-        let date_str = calendar.format(today);
+        let target_date = self.new_diary_date();
+        let date_str = self.settings.calendar.format(target_date);
 
         // クローズ対象のスレッドを決める
         // （書き込み用チャンネルの場合は最新の日報スレッド、日報スレッドの場合はそのスレッド）
@@ -75,7 +75,7 @@ impl ManageDiaryLifecycleUseCase {
             thread_id: new_thread_id,
             page_id,
             page_url,
-            date: today,
+            date: target_date,
             created_at: self.clock.now(),
         };
         self.repo.insert(&new_entry).await?;
@@ -122,5 +122,17 @@ impl ManageDiaryLifecycleUseCase {
         info!(thread_id, "Diary thread closed");
 
         Ok(DiaryCloseOutcome::Closed)
+    }
+
+    /// クローズ & 新規作成で対象にする日報日を返す。
+    ///
+    /// 一日の始まりより前ならまだ始まっていない次の日報日を対象にし、
+    /// 深夜のうちに翌日の日報を始められるようにする。
+    fn new_diary_date(&self) -> DateTime<Utc> {
+        let calendar = &self.settings.calendar;
+        let now = self.clock.now();
+        calendar
+            .early_next_day(now)
+            .unwrap_or_else(|| calendar.today(now))
     }
 }

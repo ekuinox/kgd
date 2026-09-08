@@ -4,6 +4,10 @@
 
 受理 (2026-08-10, 0 時を過ぎた投稿が転記されなかった障害への対応)
 
+結果のうち「深夜にボタンを押しても新規作成されない」は
+[ADR-0008](0008-start-next-diary-day-before-day-start-hour.md) で改めた。
+日付境界の定義そのものは有効である。
+
 ## 文脈
 
 2026-08-08 のデプロイ ([ADR-0006](0006-retry-notion-requests-and-surface-failures.md)) で、
