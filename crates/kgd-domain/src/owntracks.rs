@@ -90,15 +90,23 @@ pub fn parse_owntracks_message(
         batt: rounded_i32(object.get("batt")).and_then(|v| i16::try_from(v).ok()),
         trigger_type: object.get("t").and_then(Value::as_str).map(str::to_string),
         motion,
-        payload: payload.clone(),
+        payload,
     })
 }
 
 /// 数値を i32 に丸める。整数でも小数でも受け取れるようにする。
+///
+/// i32 の範囲外の値は None を返す。端末由来の壊れた値が飽和キャストで
+/// 「もっともらしい境界値」に化けて集計へ混ざるのを防ぐため。
 fn rounded_i32(value: Option<&Value>) -> Option<i32> {
     let number = value?.as_f64()?;
     if number.is_finite() {
-        Some(number.round() as i32)
+        let rounded = number.round();
+        if rounded >= i32::MIN as f64 && rounded <= i32::MAX as f64 {
+            Some(rounded as i32)
+        } else {
+            None
+        }
     } else {
         None
     }
@@ -193,5 +201,19 @@ mod tests {
         assert_eq!(sanitize_identifier(Some("oh/tori\n"), "unknown"), "ohtori");
         assert_eq!(sanitize_identifier(Some("///"), "unknown"), "unknown");
         assert_eq!(sanitize_identifier(None, "unknown"), "unknown");
+    }
+
+    /// i32 に収まらない値は欠損として扱うことを確認する。
+    ///
+    /// 端末由来の壊れた値が、飽和キャストで「もっともらしい境界値」に
+    /// 化けて集計へ混ざるのを防ぐため。
+    #[test]
+    fn parse_owntracks_message_drops_out_of_range_numbers() {
+        let payload = json!({ "_type": "location", "acc": 1e20, "alt": -1e20 });
+
+        let message = parse_owntracks_message("u", "d", payload).expect("should parse");
+
+        assert_eq!(message.acc, None);
+        assert_eq!(message.alt, None);
     }
 }
