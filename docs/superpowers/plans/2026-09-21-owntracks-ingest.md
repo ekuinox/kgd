@@ -692,7 +692,7 @@ impl DiaryStore {
 //! OwnTracks の受信メッセージを永続化するストア。
 
 use anyhow::{Context as _, Result};
-use sqlx::{PgPool, QueryBuilder, Postgres};
+use sqlx::{PgPool, Postgres, QueryBuilder, types::Json};
 
 use kgd_application::ports::LocationRepository;
 use kgd_domain::OwnTracksMessage;
@@ -736,7 +736,7 @@ impl LocationRepository for LocationStore {
                 .push_bind(message.batt)
                 .push_bind(&message.trigger_type)
                 .push_bind(&message.motion)
-                .push_bind(&message.payload);
+                .push_bind(Json(&message.payload));
         });
 
         builder.push(" ON CONFLICT (user_id, device_id, msg_type, tst) DO NOTHING");
@@ -957,7 +957,7 @@ base64 = "0.23"
 tower = "0.5"
 ```
 
-`crates/kgd-presentation/Cargo.toml` の `[dependencies]` に `axum.workspace = true`、`base64.workspace = true`、`serde_json.workspace = true` を追加し、`[dev-dependencies]` に `tower.workspace = true` と `tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }` を追加する。
+`crates/kgd-presentation/Cargo.toml` の `[dependencies]` に `axum.workspace = true`、`base64.workspace = true`、`serde.workspace = true`、`serde_json.workspace = true` を追加する (`serde` はクエリの `Deserialize` derive に要る)。`[dev-dependencies]` に `async-trait.workspace = true`、`tower.workspace = true`、`tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }` を追加する。
 
 - [ ] **Step 2: 認証の失敗するテストを書く**
 
@@ -1052,18 +1052,30 @@ use axum::{
 };
 use tower::ServiceExt as _;
 
-use kgd_application::{RecordLocationUseCase, ports::MockLocationRepository};
+use anyhow::Result;
+use kgd_application::{RecordLocationUseCase, ports::LocationRepository};
+use kgd_domain::OwnTracksMessage;
 
 use super::*;
 
+/// 常に成功するリポジトリのスタブ。
+///
+/// kgd-application のモックは `#[cfg(test)]` で生成されるためクレート外からは
+/// 参照できない。ルータの検証に必要なのは「保存が成功する」ことだけなので、
+/// ここでは手書きのスタブを置く。
+struct StubLocationRepository;
+
+#[async_trait::async_trait]
+impl LocationRepository for StubLocationRepository {
+    async fn insert_messages(&self, messages: &[OwnTracksMessage]) -> Result<usize> {
+        Ok(messages.len())
+    }
+}
+
 /// テスト用のルータを作る。保存は常に成功する。
 fn test_router() -> axum::Router {
-    let mut repo = MockLocationRepository::new();
-    repo.expect_insert_messages()
-        .returning(|messages| Ok(messages.len()));
-
     owntracks_router(
-        Arc::new(RecordLocationUseCase::new(Arc::new(repo))),
+        Arc::new(RecordLocationUseCase::new(Arc::new(StubLocationRepository))),
         OwnTracksControllerSettings {
             username: "ekuinox".to_string(),
             password: "secret".to_string(),
