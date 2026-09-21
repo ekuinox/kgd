@@ -8,6 +8,7 @@ mod diary;
 mod maintenance;
 mod message;
 mod ogp;
+mod owntracks;
 mod relay;
 mod server;
 mod url_rules;
@@ -25,6 +26,7 @@ pub use maintenance::{
 };
 pub use message::{SyncAttachment, SyncMessage, ThreadState, merge_forwarded_content};
 pub use ogp::{OgpMetadata, parse_ogp_metadata};
+pub use owntracks::{OwnTracksMessage, parse_owntracks_message, sanitize_identifier};
 pub use relay::{
     DISCORD_MESSAGE_CONTENT_LIMIT, assemble_relay_content, build_relay_content, message_link,
 };
