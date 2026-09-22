@@ -17,22 +17,29 @@ pub struct DiaryStore {
     pool: PgPool,
 }
 
+/// データベースへ接続し、マイグレーションを実行したプールを返す。
+///
+/// プールは日報と位置情報のストアで共有する。マイグレーションのパスは
+/// このクレートの manifest 基準で解決されるため、実行はここに置く。
+pub async fn connect_pool(database_url: &str) -> Result<PgPool> {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(database_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("Failed to run migrations")?;
+
+    Ok(pool)
+}
+
 impl DiaryStore {
-    /// データベースに接続し、マイグレーションを実行する。
-    pub async fn connect(database_url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(database_url)
-            .await
-            .context("Failed to connect to database")?;
-
-        // マイグレーションを実行
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .context("Failed to run migrations")?;
-
-        Ok(Self { pool })
+    /// 既存のプールからストアを作る。
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
     }
 }
 

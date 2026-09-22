@@ -23,7 +23,7 @@ use kgd_application::{
 use kgd_domain::{DiaryCalendar, ServerStatus, compile_url_rules};
 use kgd_infrastructure::{
     DiaryStore, HeifConverter, NotionClient, OgpFetcher, ReqwestDownloader, Scheduler,
-    SerenityGateway, SystemClock, UdpWolSender,
+    SerenityGateway, SystemClock, UdpWolSender, connect_pool,
 };
 use kgd_presentation::{
     DiscordController, DiscordControllerSettings, StatusNotifier, VersionInfo, run_status_receiver,
@@ -44,11 +44,10 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let url_rules = compile_url_rules(&diary_config.url_rules, &diary_config.default_convert_to)
         .context("Invalid URL rules in configuration")?;
 
-    let diary_store: Arc<dyn DiaryRepository> = Arc::new(
-        DiaryStore::connect(&diary_config.database_url)
-            .await
-            .context("Failed to connect to database")?,
-    );
+    let pool = connect_pool(&diary_config.database_url)
+        .await
+        .context("Failed to connect to database")?;
+    let diary_store: Arc<dyn DiaryRepository> = Arc::new(DiaryStore::new(pool));
     let notion_client: Arc<dyn NotionApi> = Arc::new(
         NotionClient::new(
             &diary_config.notion_token,
