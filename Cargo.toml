@@ -88,3 +88,11 @@ async-trait = "0.1"
 tempfile = "3.14"
 mockall = "0.13"
 
+# HTTP server (OwnTracks receiver)
+axum = "0.8"
+
+# Basic auth decoding
+base64 = "0.23"
+
+# HTTP service testing
+tower = "0.5"
