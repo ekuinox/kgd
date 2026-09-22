@@ -1,6 +1,6 @@
 //! 設定値のデフォルトを返す関数群。
 
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use chrono_tz::Tz;
 
@@ -34,4 +34,8 @@ pub(super) fn default_ogp_enabled() -> bool {
 
 pub(super) fn default_ogp_timeout() -> Duration {
     Duration::from_secs(10)
+}
+
+pub(super) fn default_location_listen() -> SocketAddr {
+    SocketAddr::from(([0, 0, 0, 0], 8081))
 }
