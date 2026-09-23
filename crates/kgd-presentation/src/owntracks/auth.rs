@@ -19,7 +19,23 @@ pub fn is_valid_basic_auth(header: Option<&str>, username: &str, password: &str)
         return false;
     };
 
-    user == username && pass == password
+    // 通常の `==` は不一致が見つかった時点で早期リターンするため、
+    // 資格情報の長さや内容が実行時間差から漏れうる (タイミング攻撃)。
+    // このエンドポイントは Cloudflare Access を意図的に使わず Basic 認証のみが
+    // 防御線のため、ユーザー名・パスワードの双方を必ず最後まで比較したうえで
+    // ビット AND で結合する。`&&` に「簡略化」しないこと。
+    let user_ok = ct_eq(user, username);
+    let pass_ok = ct_eq(pass, password);
+    user_ok & pass_ok
+}
+
+/// 早期リターンなしで 2 つの文字列を比較する。
+///
+/// 長さの違いは早期に分かってしまうが、これは標準的な定数時間比較ライブラリ
+/// でも同様であり許容する。守りたいのは内容差による時間差の漏えい。
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 #[cfg(test)]

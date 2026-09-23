@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::{
     body::{Body, to_bytes},
@@ -12,24 +12,40 @@ use kgd_domain::OwnTracksMessage;
 
 use super::*;
 
-/// 常に成功するリポジトリのスタブ。
+/// 呼び出し引数を記録しつつ、設定した結果を返すリポジトリのスタブ。
 ///
 /// kgd-application のモックは `#[cfg(test)]` で生成されるためクレート外からは
-/// 参照できない。ルータの検証に必要なのは「保存が成功する」ことだけなので、
-/// ここでは手書きのスタブを置く。
-struct StubLocationRepository;
+/// 参照できない。ここで検証したいのはハンドラがユースケースへ渡す
+/// `user_id`/`device_id` の導出結果とメッセージの中身なので、手書きのスタブに
+/// 呼び出し引数を記録する。
+struct StubLocationRepository {
+    /// 呼び出しごとに渡されたメッセージ一覧
+    calls: Arc<Mutex<Vec<Vec<OwnTracksMessage>>>>,
+    /// `insert_messages` を失敗させるかどうか
+    should_fail: bool,
+}
 
 #[async_trait::async_trait]
 impl LocationRepository for StubLocationRepository {
     async fn insert_messages(&self, messages: &[OwnTracksMessage]) -> Result<usize> {
+        self.calls.lock().unwrap().push(messages.to_vec());
+        if self.should_fail {
+            return Err(anyhow::anyhow!("stub: insert_messages failed"));
+        }
         Ok(messages.len())
     }
 }
 
-/// テスト用のルータを作る。保存は常に成功する。
-fn test_router() -> axum::Router {
+/// 呼び出し引数を記録するルータを作る。
+///
+/// `should_fail` が true の場合、リポジトリの保存は常に失敗する。
+fn test_router_with(
+    calls: Arc<Mutex<Vec<Vec<OwnTracksMessage>>>>,
+    should_fail: bool,
+) -> axum::Router {
+    let repo = StubLocationRepository { calls, should_fail };
     owntracks_router(
-        Arc::new(RecordLocationUseCase::new(Arc::new(StubLocationRepository))),
+        Arc::new(RecordLocationUseCase::new(Arc::new(repo))),
         OwnTracksControllerSettings {
             username: "ekuinox".to_string(),
             password: "secret".to_string(),
@@ -37,11 +53,19 @@ fn test_router() -> axum::Router {
     )
 }
 
-/// 認証付きの POST に 200 と空の JSON 配列を返すことを確認する。
+/// テスト用のルータを作る。保存は常に成功し、呼び出し引数は検証しない。
+fn test_router() -> axum::Router {
+    test_router_with(Arc::new(Mutex::new(Vec::new())), false)
+}
+
+/// 認証付きの POST に 200 と空の JSON 配列を返し、
+/// `X-Limit-U`/`X-Limit-D` ヘッダの値がそのまま user_id/device_id に
+/// 使われることを確認する。
 ///
 /// 応答が空ボディや非配列だと OwnTracks が送信失敗と解釈するため。
 #[tokio::test]
-async fn post_pub_returns_empty_json_array() {
+async fn post_pub_returns_empty_json_array_and_uses_header_identifiers() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
     let request = Request::builder()
         .method("POST")
         .uri("/pub")
@@ -54,11 +78,75 @@ async fn post_pub_returns_empty_json_array() {
         ))
         .unwrap();
 
-    let response = test_router().oneshot(request).await.unwrap();
+    let response = test_router_with(calls.clone(), false)
+        .oneshot(request)
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     assert_eq!(&body[..], b"[]");
+
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].len(), 1);
+    assert_eq!(recorded[0][0].user_id, "ekuinox");
+    assert_eq!(recorded[0][0].device_id, "ohtori");
+}
+
+/// `X-Limit-U`/`X-Limit-D` ヘッダが無い場合、`?u=&d=` クエリの値が
+/// user_id/device_id に使われることを確認する。
+///
+/// OwnTracks はヘッダではなくクエリで名乗ることがあるため。
+#[tokio::test]
+async fn post_pub_uses_query_identifiers_when_headers_are_absent() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/pub?u=foo&d=bar")
+        .header("Authorization", "Basic ZWt1aW5veDpzZWNyZXQ=")
+        .header("Content-Type", "application/json")
+        .body(Body::from(r#"{"_type":"location","tst":1}"#))
+        .unwrap();
+
+    let response = test_router_with(calls.clone(), false)
+        .oneshot(request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].len(), 1);
+    assert_eq!(recorded[0][0].user_id, "foo");
+    assert_eq!(recorded[0][0].device_id, "bar");
+}
+
+/// リポジトリへの保存が失敗しても 200 と空の JSON 配列を返すことを確認する。
+///
+/// 端末に再送させても直らないため、記録に失敗しても送信成功として扱う。
+/// これは仕様の「常に 200」を保証する要のふるまい。
+#[tokio::test]
+async fn post_pub_returns_empty_json_array_when_repository_fails() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/pub")
+        .header("Authorization", "Basic ZWt1aW5veDpzZWNyZXQ=")
+        .header("Content-Type", "application/json")
+        .body(Body::from(r#"{"_type":"location","tst":1}"#))
+        .unwrap();
+
+    let response = test_router_with(calls.clone(), true)
+        .oneshot(request)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&body[..], b"[]");
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 /// 認証ヘッダが無い POST を 401 で弾き、WWW-Authenticate を返すことを確認する。
@@ -111,9 +199,12 @@ async fn post_pub_rejects_oversized_body() {
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
-/// 壊れた JSON を 400 で弾くことを確認する。
+/// 壊れた JSON でも 200 と空の JSON 配列を返すことを確認する。
+///
+/// 仕様上、`401` (認証失敗) と `413` (ボディ超過) 以外は常に `200` + `[]` を
+/// 返すことが必須要件のため、JSON の解釈に失敗しても送信成功として扱う。
 #[tokio::test]
-async fn post_pub_rejects_invalid_json() {
+async fn post_pub_returns_empty_json_array_for_invalid_json() {
     let request = Request::builder()
         .method("POST")
         .uri("/pub")
@@ -124,7 +215,9 @@ async fn post_pub_rejects_invalid_json() {
 
     let response = test_router().oneshot(request).await.unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&body[..], b"[]");
 }
 
 /// 死活確認の GET が 200 を返すことを確認する。

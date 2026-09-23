@@ -100,8 +100,10 @@ async fn handle_pub(
     }
 
     let Ok(value) = serde_json::from_slice::<Value>(&body) else {
+        // 端末に再送させても直らないため、解釈できないボディでも 200 を返す。
+        // 応答が空ボディや非配列だと端末が送信失敗と解釈するため。
         warn!("Rejected malformed OwnTracks payload");
-        return StatusCode::BAD_REQUEST.into_response();
+        return Json(Vec::<Value>::new()).into_response();
     };
 
     let payloads = match value {
