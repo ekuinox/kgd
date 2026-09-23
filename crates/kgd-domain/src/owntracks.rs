@@ -19,6 +19,12 @@ pub struct OwnTracksMessage {
     pub msg_type: String,
     /// 端末が位置を取得した時刻 (tst)
     pub tst: Option<DateTime<Utc>>,
+    /// サーバーが受信した時刻 (_received_at)
+    ///
+    /// JSONL 取り込み時は元の受信時刻 `_received_at` を優先し、
+    /// 無ければ `tst` を代用する。両方無ければ `None` とし、
+    /// 保存時に現在時刻へフォールバックする。
+    pub received_at: Option<DateTime<Utc>>,
     /// 緯度
     pub lat: Option<f64>,
     /// 経度
@@ -65,10 +71,11 @@ pub fn parse_owntracks_message(
     let object = payload.as_object()?;
     let msg_type = object.get("_type")?.as_str()?.to_string();
 
-    let tst = object
-        .get("tst")
-        .and_then(Value::as_i64)
-        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single());
+    let tst = parse_epoch_seconds(object.get("tst"));
+    // 受信時刻は HTTP 受け口では常に「今」だが、JSONL 取り込みでは
+    // 受信当時の Python 実装が書き残した _received_at を優先する。
+    // 無ければ tst で代用し、それも無ければ保存時に現在時刻へ委ねる。
+    let received_at = parse_epoch_seconds(object.get("_received_at")).or(tst);
 
     let motion = object
         .get("motionactivities")
@@ -82,6 +89,7 @@ pub fn parse_owntracks_message(
         device_id: device_id.to_string(),
         msg_type,
         tst,
+        received_at,
         lat: object.get("lat").and_then(Value::as_f64),
         lon: object.get("lon").and_then(Value::as_f64),
         acc: rounded_i32(object.get("acc")),
@@ -92,6 +100,15 @@ pub fn parse_owntracks_message(
         motion,
         payload,
     })
+}
+
+/// UNIX 時間 (秒) を表す JSON 数値を `DateTime<Utc>` に変換する。
+///
+/// `tst` と `_received_at` はどちらも同じ形式 (秒単位の整数) で来るため共有する。
+fn parse_epoch_seconds(value: Option<&Value>) -> Option<DateTime<Utc>> {
+    value?
+        .as_i64()
+        .and_then(|seconds| Utc.timestamp_opt(seconds, 0).single())
 }
 
 /// 数値を i32 に丸める。整数でも小数でも受け取れるようにする。
@@ -142,6 +159,10 @@ mod tests {
         assert_eq!(message.device_id, "ohtori");
         assert_eq!(message.msg_type, "location");
         assert_eq!(message.tst, Some(Utc.timestamp_opt(1789266896, 0).unwrap()));
+        assert_eq!(
+            message.received_at,
+            Some(Utc.timestamp_opt(1789266896, 0).unwrap())
+        );
         assert_eq!(message.lat, Some(34.710452));
         assert_eq!(message.lon, Some(135.471914));
         assert_eq!(message.acc, Some(8));
@@ -164,6 +185,48 @@ mod tests {
         assert_eq!(message.msg_type, "waypoints");
         assert_eq!(message.tst, None);
         assert_eq!(message.lat, None);
+    }
+
+    /// `_received_at` があればそれを `received_at` に採用することを確認する。
+    ///
+    /// JSONL 取り込みでは受信当時の Python 実装が書き残した `_received_at` の
+    /// ほうが実際の受信時刻に近いため、`tst` より優先する。
+    #[test]
+    fn parse_owntracks_message_prefers_received_at_over_tst() {
+        let payload = json!({ "_type": "location", "tst": 100, "_received_at": 200 });
+
+        let message = parse_owntracks_message("u", "d", payload).expect("should parse");
+
+        assert_eq!(message.tst, Some(Utc.timestamp_opt(100, 0).unwrap()));
+        assert_eq!(
+            message.received_at,
+            Some(Utc.timestamp_opt(200, 0).unwrap())
+        );
+    }
+
+    /// `_received_at` が無ければ `tst` を代用することを確認する。
+    #[test]
+    fn parse_owntracks_message_falls_back_to_tst_when_received_at_missing() {
+        let payload = json!({ "_type": "location", "tst": 100 });
+
+        let message = parse_owntracks_message("u", "d", payload).expect("should parse");
+
+        assert_eq!(
+            message.received_at,
+            Some(Utc.timestamp_opt(100, 0).unwrap())
+        );
+    }
+
+    /// `_received_at` も `tst` も無ければ `None` のままにすることを確認する。
+    ///
+    /// 保存時に現在時刻へフォールバックする判断はストア側に委ねる。
+    #[test]
+    fn parse_owntracks_message_leaves_received_at_none_without_either_timestamp() {
+        let payload = json!({ "_type": "waypoints", "waypoints": [] });
+
+        let message = parse_owntracks_message("u", "d", payload).expect("should parse");
+
+        assert_eq!(message.received_at, None);
     }
 
     /// _type を持たない JSON は取り込まないことを確認する。
