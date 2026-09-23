@@ -130,15 +130,18 @@ async fn handle_pub(
                 skipped = outcome.skipped,
                 "Recorded OwnTracks messages"
             );
+            Json(Vec::<Value>::new()).into_response()
         }
         Err(error) => {
-            // 端末側に再送させても直らないため、記録に失敗しても 200 を返す。
-            // 失われるのは 1 バッチぶんで、端末のキューは次の送信で流れる。
+            // DB 接続やプール枯渇など一時的な障害であり、再送すれば保存できる
+            // 見込みが高い。ここで 200 を返すと端末はキューから消してしまい
+            // データが失われるため、失敗を伝えて端末側の再送に委ねる。
+            // ボディは端末の「配列以外は失敗扱い」という期待に合わせて空配列
+            // のままにする。ペイロードや資格情報はログに含めない。
             warn!(?error, "Failed to record OwnTracks messages");
+            (StatusCode::SERVICE_UNAVAILABLE, Json(Vec::<Value>::new())).into_response()
         }
     }
-
-    Json(Vec::<Value>::new()).into_response()
 }
 
 /// ヘッダを優先し、無ければクエリの値を使う。

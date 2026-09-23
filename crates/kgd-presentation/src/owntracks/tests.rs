@@ -123,12 +123,13 @@ async fn post_pub_uses_query_identifiers_when_headers_are_absent() {
     assert_eq!(recorded[0][0].device_id, "bar");
 }
 
-/// リポジトリへの保存が失敗しても 200 と空の JSON 配列を返すことを確認する。
+/// リポジトリへの保存が失敗した場合に 503 と空の JSON 配列を返すことを確認する。
 ///
-/// 端末に再送させても直らないため、記録に失敗しても送信成功として扱う。
-/// これは仕様の「常に 200」を保証する要のふるまい。
+/// DB 接続やプール枯渇は一時的な障害で再送すれば保存できる見込みが高い。
+/// ここで 200 を返すと端末がキューから消してしまいデータを失うため、
+/// 失敗を伝えて端末側の再送に委ねる (ボディは配列のまま)。
 #[tokio::test]
-async fn post_pub_returns_empty_json_array_when_repository_fails() {
+async fn post_pub_returns_service_unavailable_when_repository_fails() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let request = Request::builder()
         .method("POST")
@@ -143,7 +144,7 @@ async fn post_pub_returns_empty_json_array_when_repository_fails() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     assert_eq!(&body[..], b"[]");
     assert_eq!(calls.lock().unwrap().len(), 1);
