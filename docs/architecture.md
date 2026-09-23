@@ -11,7 +11,7 @@ kgd はクリーンアーキテクチャに沿って、ワークスペースを�
 graph TD
     subgraph outer["外側 (フレームワーク・IO)"]
         BIN["kgd (binary)<br>main / config / version /<br>bootstrap (Composition Root)"]
-        PRES["kgd-presentation<br>Controller (DiscordController) / Presenter"]
+        PRES["kgd-presentation<br>Controller (DiscordController / owntracks_router) / Presenter"]
         INFRA["kgd-infrastructure<br>ポートの実装 (アダプタ)<br>serenity / sqlx / reqwest / notion-client"]
     end
     APP["kgd-application<br>ユースケース / ポート (trait) / 入出力 DTO"]
@@ -40,7 +40,7 @@ graph TD
 | kgd-domain | エンティティ (DiaryEntry, SyncMessage など)、純粋関数 (URL 解析、OGP 解析、自動クローズ判定、転記本文の組み立て) | IO ライブラリへの依存すべて (serenity / sqlx / reqwest / tokio) |
 | kgd-application | ユースケース (Interactor)、ポート (trait)、設定 DTO、ScheduledJob | ポートの実装、serenity / sqlx / reqwest への依存 |
 | kgd-infrastructure | ポートの実装 (アダプタ)、マイグレーション、Scheduler ランナー | ビジネスロジック・判断ロジック |
-| kgd-presentation | Discord イベントを受ける Controller (DiscordController)、結果を文言・embed に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
+| kgd-presentation | Discord イベントを受ける Controller (DiscordController)、OwnTracks の HTTP 受け口 (owntracks_router)、結果を文言・embed に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
 | kgd (binary) | 設定の読み込み、各層の組み立てと配線 (bootstrap) | 上記以外のロジック |
 
 新しいコードを足すときの判断基準:
@@ -62,6 +62,7 @@ graph TD
 | Clock | SystemClock | MockClock |
 | WolSender | UdpWolSender | MockWolSender |
 | ServerProber | SurgeProber (ICMP ping) | MockServerProber |
+| LocationRepository | LocationStore (sqlx / PostgreSQL) | MockLocationRepository |
 
 モックは `#[cfg_attr(test, mockall::automock)]` による自動生成。
 ユースケースの単体テストは `cargo test -p kgd-application` で、serenity / sqlx / libheif を
@@ -77,6 +78,7 @@ graph TD
 | RunDiaryMaintenanceUseCase | 自動クローズ確認、毎時の未同期メッセージ走査 |
 | WakeServerUseCase | Wake-on-LAN パケットの送信 |
 | CheckServerStatusUseCase | サーバー死活確認 |
+| RecordLocationUseCase | OwnTracks から受信したメッセージを解釈して保存する |
 
 ## 代表的な処理フロー
 
