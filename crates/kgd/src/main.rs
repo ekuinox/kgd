@@ -1,11 +1,12 @@
 mod bootstrap;
 mod config;
+mod import;
 mod version;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use kgd_application::CheckServerStatusUseCase;
 use kgd_domain::ServerStatus;
 use kgd_infrastructure::SurgeProber;
@@ -25,6 +26,20 @@ struct Args {
 
     #[arg(long)]
     init: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// 常駐以外の実行モード。
+#[derive(Subcommand)]
+enum Command {
+    /// OwnTracks の JSONL をデータベースへ取り込む
+    ImportOwntracks {
+        /// 取り込む JSONL ファイルまたはディレクトリ
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -48,6 +63,10 @@ async fn main() -> Result<()> {
 
     let config = open_config(&args.config).context("Failed to load configuration")?;
     info!(servers = config.servers.len(), "Configuration loaded");
+
+    if let Some(Command::ImportOwntracks { paths }) = &args.command {
+        return import::run_import(&config, paths).await;
+    }
 
     let (status_tx, status_rx) = mpsc::channel(1);
 
