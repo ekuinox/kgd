@@ -24,7 +24,7 @@ use kgd_application::{
 use kgd_domain::{DiaryCalendar, ServerStatus, compile_url_rules};
 use kgd_infrastructure::{
     DiaryStore, HeifConverter, LocationStore, NotionClient, OgpFetcher, ReqwestDownloader,
-    Scheduler, SerenityGateway, SystemClock, UdpWolSender, connect_pool, serve_http,
+    Scheduler, SerenityGateway, SystemClock, UdpWolSender, bind_http, connect_pool, serve_http,
 };
 use kgd_presentation::{
     DiscordController, DiscordControllerSettings, OwnTracksControllerSettings, StatusNotifier,
@@ -171,6 +171,10 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     info!(interval = ?diary_interval, "Diary periodic tasks started");
 
     // 位置情報の受け口。設定が無ければ起動しない。
+    // bind は起動処理内で同期的に行い、失敗を `?` で起動失敗として伝搬させる。
+    // `[location]` を書くこと自体が受け口を動かす意思表示であり、他の起動時
+    // 前提条件 (DB 接続や URL ルールの検証など) と同様に、ポート衝突などは
+    // デーモン全体を落として気づけるようにする。
     if let Some(location_config) = config.location.clone() {
         let location_store: Arc<dyn LocationRepository> =
             Arc::new(LocationStore::new(pool.clone()));
@@ -182,13 +186,14 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
                 password: location_config.password.clone(),
             },
         );
-        let listen = location_config.listen;
+        let listener = bind_http(location_config.listen)
+            .await
+            .context("Failed to start OwnTracks HTTP receiver")?;
         tokio::spawn(async move {
-            if let Err(error) = serve_http(listen, router).await {
+            if let Err(error) = serve_http(listener, router).await {
                 tracing::error!(?error, "OwnTracks HTTP server stopped");
             }
         });
-        info!(%listen, "OwnTracks receiver started");
     }
 
     info!("Starting bot");
