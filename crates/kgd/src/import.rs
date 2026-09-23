@@ -50,6 +50,26 @@ pub fn parse_jsonl_line(line: &str) -> Option<Value> {
     serde_json::from_str(trimmed).ok()
 }
 
+/// `_received_at` が無ければ `tst` を書き込んで補う。
+///
+/// 「`_received_at` があればそれを `received_at` に使い、無ければ `tst` で
+/// 代用する」という要件は JSONL 取り込みだけのものであり、HTTP 受信とも
+/// 共有する `kgd_domain::parse_owntracks_message` には持ち込まない
+/// (ライブ受信では `_received_at` が存在しないため、その関数は常に
+/// `None` を返し保存時に現在時刻へフォールバックするのが正しい)。
+/// そのため取り込み経路であるここで値を補ってから同じ変換に渡す。
+fn with_received_at_fallback(mut payload: Value) -> Value {
+    let Some(object) = payload.as_object_mut() else {
+        return payload;
+    };
+    if !object.contains_key("_received_at")
+        && let Some(tst) = object.get("tst").cloned()
+    {
+        object.insert("_received_at".to_string(), tst);
+    }
+    payload
+}
+
 /// JSONL を読み込んでデータベースへ取り込む。
 ///
 /// 実体は薄いシェルで、実際の永続化先を組み立てて [`import_files`] に委ねる。
@@ -118,7 +138,7 @@ async fn import_file(use_case: &RecordLocationUseCase, file: &Path) -> Result<Re
     for line in reader.lines() {
         let line = line.with_context(|| format!("Failed to read {}", file.display()))?;
         match parse_jsonl_line(&line) {
-            Some(value) => payloads.push(value),
+            Some(value) => payloads.push(with_received_at_fallback(value)),
             None => line_skipped += 1,
         }
     }
@@ -164,17 +184,20 @@ mod tests {
     use std::{fs, sync::Mutex};
 
     use kgd_domain::OwnTracksMessage;
+    use serde_json::json;
 
     use super::*;
 
     /// 呼び出しを記録するだけの偽リポジトリ。
     ///
     /// `insert_messages` に渡された先頭メッセージの `user_id` / `device_id` と
-    /// 件数を記録する。実データベースなしで「識別子が正しい順で record() に
-    /// 届くか」「複数ファイルの件数が正しく合算されるか」を確認するため。
+    /// 件数、および渡された全メッセージそのものを記録する。実データベース
+    /// なしで「識別子が正しい順で record() に届くか」「複数ファイルの件数が
+    /// 正しく合算されるか」「received_at が想定通りかどうか」を確認するため。
     #[derive(Default)]
     struct RecordingRepository {
         calls: Mutex<Vec<(String, String, usize)>>,
+        messages: Mutex<Vec<OwnTracksMessage>>,
     }
 
     #[async_trait::async_trait]
@@ -187,6 +210,7 @@ mod tests {
                     messages.len(),
                 ));
             }
+            self.messages.lock().unwrap().extend_from_slice(messages);
             // 重複が無いものとして扱う (このテストの関心は識別子と集計)。
             Ok(messages.len())
         }
@@ -331,5 +355,95 @@ mod tests {
                 ("bob".to_string(), "phone2".to_string(), 1),
             ]
         );
+    }
+
+    /// `_received_at` を持たない JSON には `tst` を書き込むことを確認する。
+    #[test]
+    fn with_received_at_fallback_fills_missing_received_at_from_tst() {
+        let value = json!({ "_type": "location", "tst": 100 });
+
+        let filled = with_received_at_fallback(value);
+
+        assert_eq!(filled["_received_at"], json!(100));
+    }
+
+    /// 既に `_received_at` がある JSON は上書きしないことを確認する。
+    #[test]
+    fn with_received_at_fallback_keeps_existing_received_at() {
+        let value = json!({ "_type": "location", "tst": 100, "_received_at": 200 });
+
+        let filled = with_received_at_fallback(value);
+
+        assert_eq!(filled["_received_at"], json!(200));
+    }
+
+    /// オブジェクトでない JSON はそのまま返すことを確認する。
+    ///
+    /// `parse_owntracks_message` 側で弾かれるので、ここで壊す必要はない。
+    #[test]
+    fn with_received_at_fallback_leaves_non_object_untouched() {
+        let value = json!([1, 2, 3]);
+
+        assert_eq!(with_received_at_fallback(value.clone()), value);
+    }
+
+    /// `_received_at` を持たない JSONL 行は、`tst` を代用した `received_at` で
+    /// `record()` (ひいては `insert_messages`) に届くことを確認する。
+    ///
+    /// 設計仕様の「`_received_at` が無ければ `tst` で代用する」は JSONL 取り込み
+    /// だけの要件であり、HTTP 受信とも共有する `kgd_domain::parse_owntracks_message`
+    /// には持ち込んでいない (ライブ受信は _received_at を持たないため常に
+    /// `None` を返し、ストア側の `COALESCE(..., NOW())` で受信時刻になるのが正しい)。
+    /// そのフォールバックが取り込み経路側で効いていることをここで確認する。
+    #[tokio::test]
+    async fn import_file_uses_tst_as_received_at_when_missing_from_jsonl() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("ekuinox-ohtori");
+        fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("2026-09-13.jsonl");
+        fs::write(&file, r#"{"_type":"location","tst":100}"#).unwrap();
+
+        let repo = Arc::new(RecordingRepository::default());
+        let use_case = RecordLocationUseCase::new(repo.clone());
+
+        import_file(&use_case, &file).await.unwrap();
+
+        let messages = repo.messages.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].received_at.is_some());
+        assert_eq!(messages[0].received_at, messages[0].tst);
+    }
+
+    /// JSONL 行に `_received_at` が既にあれば、`tst` と異なっていてもそちらを
+    /// 優先して `record()` に届くことを確認する。
+    #[tokio::test]
+    async fn import_file_keeps_received_at_already_present_in_jsonl() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("ekuinox-ohtori");
+        fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("2026-09-13.jsonl");
+        fs::write(
+            &file,
+            r#"{"_type":"location","tst":100,"_received_at":200}"#,
+        )
+        .unwrap();
+
+        let repo = Arc::new(RecordingRepository::default());
+        let use_case = RecordLocationUseCase::new(repo.clone());
+
+        import_file(&use_case, &file).await.unwrap();
+
+        let messages = repo.messages.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        // 直接 DateTime を組み立てず、同じ変換関数 (_received_at をそのまま
+        // 読むだけ) に通した期待値と比較することで chrono への依存を増やさない。
+        let expected = kgd_domain::parse_owntracks_message(
+            "ekuinox",
+            "ohtori",
+            json!({ "_type": "location", "_received_at": 200 }),
+        )
+        .unwrap();
+        assert_eq!(messages[0].received_at, expected.received_at);
+        assert_ne!(messages[0].received_at, messages[0].tst);
     }
 }

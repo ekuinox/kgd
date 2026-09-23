@@ -21,9 +21,11 @@ pub struct OwnTracksMessage {
     pub tst: Option<DateTime<Utc>>,
     /// サーバーが受信した時刻 (_received_at)
     ///
-    /// JSONL 取り込み時は元の受信時刻 `_received_at` を優先し、
-    /// 無ければ `tst` を代用する。両方無ければ `None` とし、
-    /// 保存時に現在時刻へフォールバックする。
+    /// `_received_at` が無ければ `None` のままにする。ライブ受信 (HTTP) は
+    /// この項目を持たないため常に `None` になり、保存時に現在時刻へ
+    /// フォールバックする (これが正しい: サーバーは実際に「今」受信している)。
+    /// JSONL 取り込みで `tst` を代用する判断は、取り込み経路側の責務とし
+    /// ここでは行わない。
     pub received_at: Option<DateTime<Utc>>,
     /// 緯度
     pub lat: Option<f64>,
@@ -72,10 +74,11 @@ pub fn parse_owntracks_message(
     let msg_type = object.get("_type")?.as_str()?.to_string();
 
     let tst = parse_epoch_seconds(object.get("tst"));
-    // 受信時刻は HTTP 受け口では常に「今」だが、JSONL 取り込みでは
-    // 受信当時の Python 実装が書き残した _received_at を優先する。
-    // 無ければ tst で代用し、それも無ければ保存時に現在時刻へ委ねる。
-    let received_at = parse_epoch_seconds(object.get("_received_at")).or(tst);
+    // _received_at が無ければ None のままにする。tst で代用する判断は
+    // JSONL 取り込み側の責務であり、ここ (HTTP 受信とも共有される変換) では
+    // 行わない。HTTP 受信では _received_at 自体が存在しないため常に None
+    // になり、保存時に現在時刻へフォールバックするのが正しい挙動になる。
+    let received_at = parse_epoch_seconds(object.get("_received_at"));
 
     let motion = object
         .get("motionactivities")
@@ -159,10 +162,9 @@ mod tests {
         assert_eq!(message.device_id, "ohtori");
         assert_eq!(message.msg_type, "location");
         assert_eq!(message.tst, Some(Utc.timestamp_opt(1789266896, 0).unwrap()));
-        assert_eq!(
-            message.received_at,
-            Some(Utc.timestamp_opt(1789266896, 0).unwrap())
-        );
+        // _received_at を持たない (HTTP 受信相当) ペイロードなので None のまま。
+        // tst を代用する判断は JSONL 取り込み側の責務であり、ここでは行わない。
+        assert_eq!(message.received_at, None);
         assert_eq!(message.lat, Some(34.710452));
         assert_eq!(message.lon, Some(135.471914));
         assert_eq!(message.acc, Some(8));
@@ -189,10 +191,10 @@ mod tests {
 
     /// `_received_at` があればそれを `received_at` に採用することを確認する。
     ///
-    /// JSONL 取り込みでは受信当時の Python 実装が書き残した `_received_at` の
-    /// ほうが実際の受信時刻に近いため、`tst` より優先する。
+    /// `tst` と値が異なっていても `tst` に引きずられず `_received_at` を
+    /// そのまま読むことを確認する (両者を混同しないことの回帰テスト)。
     #[test]
-    fn parse_owntracks_message_prefers_received_at_over_tst() {
+    fn parse_owntracks_message_reads_received_at_independently_of_tst() {
         let payload = json!({ "_type": "location", "tst": 100, "_received_at": 200 });
 
         let message = parse_owntracks_message("u", "d", payload).expect("should parse");
@@ -204,17 +206,20 @@ mod tests {
         );
     }
 
-    /// `_received_at` が無ければ `tst` を代用することを確認する。
+    /// `_received_at` が無ければ `tst` があっても `None` のままにすることを確認する。
+    ///
+    /// `tst` を代用する判断は JSONL 取り込み側の責務であり、HTTP 受信とも
+    /// 共有されるこの変換関数では行わない。ライブ受信では `_received_at` が
+    /// 存在しないため常にここを通り、保存時に現在時刻へフォールバックする
+    /// (デバイスは圏外復帰後に最大 4160 秒遅れて再送することがあり、
+    /// `tst` をそのまま使うと実際の受信時刻とずれてしまう)。
     #[test]
-    fn parse_owntracks_message_falls_back_to_tst_when_received_at_missing() {
+    fn parse_owntracks_message_leaves_received_at_none_when_only_tst_present() {
         let payload = json!({ "_type": "location", "tst": 100 });
 
         let message = parse_owntracks_message("u", "d", payload).expect("should parse");
 
-        assert_eq!(
-            message.received_at,
-            Some(Utc.timestamp_opt(100, 0).unwrap())
-        );
+        assert_eq!(message.received_at, None);
     }
 
     /// `_received_at` も `tst` も無ければ `None` のままにすることを確認する。
