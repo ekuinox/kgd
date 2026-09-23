@@ -291,11 +291,14 @@ silence_threshold = "30m"
 
 ### 名前付きトンネルへの切り替え
 
-1. `cloudflared tunnel login` (ブラウザでの認証が必要なため利用者が実施する)
-2. `cloudflared tunnel create kgd-owntracks`
-3. `cloudflared tunnel route dns kgd-owntracks <サブドメイン>`
-4. ingress 設定で `<サブドメイン>` を `http://localhost:8081` に向ける
-5. cloudflared を systemd user サービスとして常駐させる (linger は設定済み)
+cloudflared は systemd user サービスではなく compose に同梱する。kgd と同じ再起動ポリシーで揃い、常駐プロセスの管理先が 1 つ減るため。
+
+1. Cloudflare Zero Trust ダッシュボードでトンネルを作成する (ブラウザでの操作が必要なため利用者が実施する)
+2. 発行されたコネクタトークンを `.env` の `CLOUDFLARE_TUNNEL_TOKEN` に設定する (`.env` は git 管理外)
+3. ダッシュボードの ingress 設定で `<サブドメイン>` を `http://localhost:8081` に向ける
+4. `docker compose --profile tunnel up -d` で kgd・PostgreSQL・cloudflared をまとめて起動する
+
+ingress 設定はダッシュボード側に保存されるため、リポジトリには残らない。再構築時はダッシュボードを参照する。
 
 **Cloudflare Access は使わない。** OwnTracks はブラウザではないため Access のログイン画面を通過できない。認証は Basic 認証を継続する。
 

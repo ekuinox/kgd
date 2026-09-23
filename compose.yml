@@ -30,5 +30,22 @@ services:
       timeout: 5s
       retries: 5
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: kgd-tunnel
+    restart: unless-stopped
+    # kgd が WoL のため host ネットワークで待ち受けるので、
+    # 同じ名前空間から localhost:8081 へ流す。
+    network_mode: host
+    # トークンは環境変数で渡す。command に書くとホスト上の ps から見えてしまう。
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: tunnel --no-autoupdate run
+    # 本番でのみ起動する。ローカル開発ではトンネルを張らない。
+    profiles:
+      - tunnel
+    depends_on:
+      - kgd
+
 volumes:
   pgdata:

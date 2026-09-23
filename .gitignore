@@ -3,6 +3,7 @@
 
 # Configuration (contains secrets)
 config.toml
+.env
 
 # IDE
 .vscode/

@@ -47,6 +47,22 @@ password = "CHANGE_ME"
 
 指定した `listen` に bind できない場合、kgd は起動処理を中断してエラー終了する（bind 後の実行時エラーはログに記録して動作を継続する）。OwnTracks アプリの endpoint には `http://<host>:8081/pub` を設定し、同じ username/password を Basic 認証として登録する。
 
+### インターネットからの到達 (Cloudflare トンネル)
+
+端末が外出先から受け口へ届くように、Cloudflare の名前付きトンネルを compose に同梱している。Zero Trust ダッシュボードでトンネルを作成するとコネクタトークンが発行されるので、`.env.example` を `.env` にコピーして `CLOUDFLARE_TUNNEL_TOKEN` に設定する。`.env` は git 管理外。
+
+```bash
+cp .env.example .env
+# CLOUDFLARE_TUNNEL_TOKEN に発行されたトークンを書く
+docker compose --profile tunnel up -d
+```
+
+トンネルは `tunnel` プロファイルに属するため、プロファイルを指定しない `docker compose up` では起動しない。トークンを持たない環境でも、プロファイルを省けば kgd と PostgreSQL は通常どおり起動する。トークンが未設定のままプロファイルを指定した場合は、cloudflared が `Provided Tunnel token is not valid.` を出して終了する。
+
+公開ホスト名をどこへ流すか (`http://localhost:8081`) の設定はダッシュボード側に保存される。トンネルの ingress 設定はリポジトリには無いため、再構築時はダッシュボードを参照すること。
+
+Cloudflare Access は使わない。OwnTracks はブラウザではないため Access のログイン画面を通過できない。公開 URL を守るのは `[location]` の Basic 認証のみになる。
+
 それとは別に、以前運用していた HTTP 受け口が書き溜めた JSONL ログを取り込むには `import-owntracks` サブコマンドを使う。
 
 ```bash
