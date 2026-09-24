@@ -1,0 +1,27 @@
+# cloudflared の ingress 設定の雛形。
+# cloudflared/ ディレクトリを作ってこのファイルを config.yml として置き、
+# トンネルの認証情報 JSON を同じディレクトリに入れる。cloudflared/ は
+# 認証情報を含むため git 管理外。
+#
+#   mkdir -p cloudflared
+#   cp cloudflared.example/config.yml cloudflared/config.yml
+#   cp ~/.cloudflared/<TUNNEL_ID>.json cloudflared/
+#   chmod 750 cloudflared && chmod 640 cloudflared/*
+#
+# ディレクトリのグループ GID を .env の CLOUDFLARED_GID に設定する。
+
+# `cloudflared tunnel create <名前>` が出力した UUID。
+tunnel: 00000000-0000-0000-0000-000000000000
+# コンテナ内から見たパス。ホスト側の cloudflared/ が /etc/cloudflared にマウントされる。
+credentials-file: /etc/cloudflared/00000000-0000-0000-0000-000000000000.json
+
+# 既定の QUIC (UDP 7844) が塞がれているネットワークでは接続できないため
+# http2 (TCP) に固定する。通る環境ならこの行は外してよい。
+protocol: http2
+
+ingress:
+  # `cloudflared tunnel route dns <名前> <ホスト名>` で割り当てたホスト名を、
+  # kgd の [location] listen が待ち受けるポートへ向ける。
+  - hostname: owntracks.example.com
+    service: http://127.0.0.1:8081
+  - service: http_status:404

@@ -49,17 +49,31 @@ password = "CHANGE_ME"
 
 ### インターネットからの到達 (Cloudflare トンネル)
 
-端末が外出先から受け口へ届くように、Cloudflare の名前付きトンネルを compose に同梱している。Zero Trust ダッシュボードでトンネルを作成するとコネクタトークンが発行されるので、`.env.example` を `.env` にコピーして `CLOUDFLARE_TUNNEL_TOKEN` に設定する。`.env` は git 管理外。
+端末が外出先から受け口へ届くように、Cloudflare の名前付きトンネルを compose に同梱している。トンネルの作成には `cloudflared tunnel login` 済みのマシンが要る。
 
 ```bash
+cloudflared tunnel create kgd-owntracks
+cloudflared tunnel route dns kgd-owntracks <ホスト名>
+```
+
+作成すると `~/.cloudflared/<UUID>.json` に認証情報が出力される。これと ingress 設定を、kgd を動かすホストの `cloudflared/` ディレクトリに置く。
+
+```bash
+mkdir -p cloudflared
+cp cloudflared.example/config.yml cloudflared/config.yml
+cp ~/.cloudflared/<UUID>.json cloudflared/
+# config.yml の tunnel / credentials-file / hostname を実際の値に書き換える
+chmod 750 cloudflared && chmod 640 cloudflared/*
 cp .env.example .env
-# CLOUDFLARE_TUNNEL_TOKEN に発行されたトークンを書く
+# CLOUDFLARED_GID に `stat -c '%g' cloudflared` の値を書く
 docker compose --profile tunnel up -d
 ```
 
-トンネルは `tunnel` プロファイルに属するため、プロファイルを指定しない `docker compose up` では起動しない。トークンを持たない環境でも、プロファイルを省けば kgd と PostgreSQL は通常どおり起動する。トークンが未設定のままプロファイルを指定した場合は、cloudflared が `Provided Tunnel token is not valid.` を出して終了する。
+`cloudflared/` は認証情報を含むため git 管理外。コンテナはイメージ既定の nonroot ユーザー (65532) のまま動き、グループだけホストに合わせて設定を読む。`CLOUDFLARED_GID` がホストの GID と合っていないと `permission denied` で起動に失敗する。
 
-公開ホスト名をどこへ流すか (`http://localhost:8081`) の設定はダッシュボード側に保存される。トンネルの ingress 設定はリポジトリには無いため、再構築時はダッシュボードを参照すること。
+トンネルは `tunnel` プロファイルに属するため、プロファイルを指定しない `docker compose up` では起動しない。トンネルを使わない環境でも、プロファイルを省けば kgd と PostgreSQL は通常どおり起動する。
+
+ingress 設定をダッシュボードではなくファイルで持つのは、`cloudflared tunnel create` で作ったトンネルがダッシュボードから ingress を受け取れないため。設定が無いと全てのリクエストに 503 を返す。
 
 Cloudflare Access は使わない。OwnTracks はブラウザではないため Access のログイン画面を通過できない。公開 URL を守るのは `[location]` の Basic 認証のみになる。
 
