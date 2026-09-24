@@ -4,6 +4,8 @@
 # Configuration (contains secrets)
 config.toml
 .env
+# cloudflared のトンネル認証情報と ingress 設定 (ホスト固有)
+cloudflared/
 
 # IDE
 .vscode/

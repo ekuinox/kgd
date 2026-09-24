@@ -37,12 +37,17 @@ services:
     # kgd が WoL のため host ネットワークで待ち受けるので、
     # 同じ名前空間から localhost:8081 へ流す。
     network_mode: host
-    # トークンは環境変数で渡す。command に書くとホスト上の ps から見えてしまう。
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    # 既定の QUIC (UDP 7844) がこのネットワークでは塞がれているため http2 (TCP) に固定する。
-    # 同じ理由で door-lock のトンネルも http2 に固定している (~/.cloudflared/config.yml)。
-    command: tunnel --no-autoupdate --protocol http2 run
+    # コンテナ既定の nonroot(65532) のまま、グループだけホスト側に合わせる。
+    # 認証情報を世界読み取り可にせず、root でも動かさないため。
+    # GID はホスト依存なので .env の CLOUDFLARED_GID で指定する。
+    user: "65532:${CLOUDFLARED_GID:-1000}"
+    # ingress 設定と認証情報はローカルのファイルで持つ。cloudflared tunnel create で
+    # 作ったトンネルはダッシュボードから ingress を受け取れず、設定が無いと全ての
+    # リクエストに 503 を返すため。protocol も config.yml 側で http2 に固定する
+    # (既定の QUIC (UDP 7844) が塞がれているネットワークがあるため)。
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     # 本番でのみ起動する。ローカル開発ではトンネルを張らない。
     profiles:
       - tunnel
