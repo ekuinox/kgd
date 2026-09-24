@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use super::*;
 
 /// 同梱の config.example.toml を Config にパースし、
@@ -46,6 +48,7 @@ fn parse_example_config() {
             ogp_enabled: true,
             ogp_timeout: Duration::from_secs(10),
         },
+        location: None,
     };
 
     assert_eq!(config, expected);
@@ -108,4 +111,46 @@ fn validate_rejects_day_start_hour_out_of_range() {
         toml::from_str(&minimal_config_toml("day_start_hour = 24")).expect("should parse");
     let error = config.validate().expect_err("should be rejected");
     assert!(error.to_string().contains("day_start_hour"));
+}
+
+/// [location] を書かなければ None になり、既存の設定ファイルがそのまま読めることを確認する。
+#[test]
+fn location_is_optional() {
+    let config: Config = toml::from_str(&minimal_config_toml("")).expect("should parse");
+    assert_eq!(config.location, None);
+}
+
+/// [location] を書くと待ち受けアドレスと資格情報が読めることを確認する。
+#[test]
+fn location_parses_listen_and_credentials() {
+    let toml_text = format!(
+        "{}\n[location]\nlisten = \"0.0.0.0:8081\"\nusername = \"ekuinox\"\npassword = \"secret\"\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+    let location = config.location.expect("should be present");
+
+    assert_eq!(
+        location.listen,
+        "0.0.0.0:8081".parse::<SocketAddr>().unwrap()
+    );
+    assert_eq!(location.username, "ekuinox");
+    assert_eq!(location.password, "secret");
+}
+
+/// listen を省略すると既定の 0.0.0.0:8081 になることを確認する。
+#[test]
+fn location_listen_defaults_to_8081() {
+    let toml_text = format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+
+    assert_eq!(
+        config.location.unwrap().listen,
+        "0.0.0.0:8081".parse::<SocketAddr>().unwrap()
+    );
 }

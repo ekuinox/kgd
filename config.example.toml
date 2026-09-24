@@ -123,3 +123,13 @@ write_channel_id = 123456789012345678
 # convert_to = ["bookmark"]
 # expect_matches = ["https://github.com/ekuinox/kgd"]
 # expect_no_matches = ["https://gitlab.com/user/repo"]
+
+# Location Tracking Configuration (OwnTracks)
+# Receives location messages over HTTP and stores them in the diary database.
+# Omit this section entirely to disable the feature.
+# [location]
+# Listen address for the HTTP receiver (default: 0.0.0.0:8081)
+# listen = "0.0.0.0:8081"
+# Basic auth credentials. Must match UserID / Password in the OwnTracks app.
+# username = "ekuinox"
+# password = "CHANGE_ME"

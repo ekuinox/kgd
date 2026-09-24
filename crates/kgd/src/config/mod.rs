@@ -1,4 +1,4 @@
-use std::{fs, path::Path, time::Duration};
+use std::{fs, net::SocketAddr, path::Path, time::Duration};
 
 use anyhow::{Context as _, Result, ensure};
 use chrono_tz::Tz;
@@ -39,6 +39,9 @@ pub struct Config {
     pub status: StatusConfig,
     /// 日報機能の設定
     pub diary: DiaryConfig,
+    /// 位置情報の受信設定 (省略時は機能を無効にする)
+    #[serde(default)]
+    pub location: Option<LocationConfig>,
 }
 
 impl Config {
@@ -184,6 +187,20 @@ pub struct DiaryConfig {
     /// OGP メタデータ取得のタイムアウト（デフォルト: 10秒）
     #[serde(default = "default_ogp_timeout", with = "humantime_serde")]
     pub ogp_timeout: Duration,
+}
+
+/// 位置情報 (OwnTracks) の受信設定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct LocationConfig {
+    /// HTTP 受け口の待ち受けアドレス（デフォルト: 0.0.0.0:8081）
+    ///
+    /// 移行期間中は 8080 の既存受け口と併存させるため 8081 を既定とする。
+    #[serde(default = "default_location_listen")]
+    pub listen: SocketAddr,
+    /// Basic 認証のユーザー名
+    pub username: String,
+    /// Basic 認証のパスワード
+    pub password: String,
 }
 
 #[cfg(test)]
