@@ -40,7 +40,9 @@ services:
     # トークンは環境変数で渡す。command に書くとホスト上の ps から見えてしまう。
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    command: tunnel --no-autoupdate run
+    # 既定の QUIC (UDP 7844) がこのネットワークでは塞がれているため http2 (TCP) に固定する。
+    # 同じ理由で door-lock のトンネルも http2 に固定している (~/.cloudflared/config.yml)。
+    command: tunnel --no-autoupdate --protocol http2 run
     # 本番でのみ起動する。ローカル開発ではトンネルを張らない。
     profiles:
       - tunnel
