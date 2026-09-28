@@ -117,9 +117,39 @@ impl DiaryCalendar {
             .to_string()
     }
 
+    /// 指定された時刻から見た、1 つ前の日報日を返す。
+    ///
+    /// 日報日が切り替わった直後に前日分を処理するジョブが使う。
+    pub fn previous_date(&self, now: DateTime<Utc>) -> NaiveDate {
+        self.local_date(now)
+            .pred_opt()
+            .expect("diary date underflowed the representable range")
+    }
+
+    /// 日報日の開始時刻と終了時刻 (終了は含まない) を UTC で返す。
+    ///
+    /// 開始は `date` の `day_start_hour`、終了は翌日の `day_start_hour` とする。
+    pub fn day_range(&self, date: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
+        let next = date
+            .succ_opt()
+            .expect("diary date overflowed the representable range");
+        (self.at_day_start(date), self.at_day_start(next))
+    }
+
     /// 日報日の暦日 0 時をタイムゾーン基準で表した UTC 時刻を返す。
-    fn start_of(&self, date: NaiveDate) -> DateTime<Utc> {
+    ///
+    /// 日報エントリの `date` 列はこの表現で保存されている。
+    pub fn start_of(&self, date: NaiveDate) -> DateTime<Utc> {
         date.and_time(NaiveTime::MIN)
+            .and_local_timezone(self.timezone)
+            .unwrap()
+            .to_utc()
+    }
+
+    /// 指定した暦日の `day_start_hour` をタイムゾーン基準で表した UTC 時刻を返す。
+    fn at_day_start(&self, date: NaiveDate) -> DateTime<Utc> {
+        date.and_hms_opt(self.day_start_hour, 0, 0)
+            .expect("day_start_hour is validated to be in 0-23")
             .and_local_timezone(self.timezone)
             .unwrap()
             .to_utc()
@@ -235,5 +265,57 @@ mod tests {
         let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 7);
         let today = calendar.today(jst(2026, 8, 10, 3, 0));
         assert_eq!(calendar.format(today), "2026-08-09");
+    }
+
+    /// 日報日の範囲が、その日の day_start_hour から翌日の day_start_hour までになることを確認する。
+    ///
+    /// 位置ログのレポートは日報と同じ区切りで集計するため。
+    #[test]
+    fn day_range_spans_from_day_start_hour_to_next_day_start_hour() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 8);
+        let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+
+        let (start, end) = calendar.day_range(date);
+
+        assert_eq!(start, jst(2026, 9, 28, 8, 0));
+        assert_eq!(end, jst(2026, 9, 29, 8, 0));
+    }
+
+    /// day_start_hour が 0 のとき、日報日の範囲が暦日と一致することを確認する。
+    #[test]
+    fn day_range_matches_calendar_day_when_day_starts_at_midnight() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 0);
+        let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+
+        let (start, end) = calendar.day_range(date);
+
+        assert_eq!(start, jst(2026, 9, 28, 0, 0));
+        assert_eq!(end, jst(2026, 9, 29, 0, 0));
+    }
+
+    /// day_start_hour より前は 2 日前、以降は 1 日前が「前の日報日」になることを確認する。
+    ///
+    /// 定時レポートは日報日が切り替わってから前日分を投稿するため。
+    #[test]
+    fn previous_date_switches_at_day_start_hour() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 8);
+
+        assert_eq!(
+            calendar.previous_date(jst(2026, 9, 29, 7, 59)),
+            NaiveDate::from_ymd_opt(2026, 9, 27).unwrap()
+        );
+        assert_eq!(
+            calendar.previous_date(jst(2026, 9, 29, 8, 0)),
+            NaiveDate::from_ymd_opt(2026, 9, 28).unwrap()
+        );
+    }
+
+    /// start_of が日報エントリの date 列と同じ表現 (暦日 0 時) を返すことを確認する。
+    #[test]
+    fn start_of_returns_local_midnight_of_the_date() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 8);
+        let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+
+        assert_eq!(calendar.start_of(date), jst(2026, 9, 28, 0, 0));
     }
 }
