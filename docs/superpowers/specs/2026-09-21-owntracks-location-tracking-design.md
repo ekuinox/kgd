@@ -150,6 +150,10 @@ CREATE TABLE owntracks_report_posts (
 
 ## 日次レポート
 
+> この節と「死活監視」の節、`owntracks_report_posts` テーブルは実装されていない。
+> 日次レポートは [位置ログの日次レポートと日報への投稿 設計](2026-09-29-location-daily-report-design.md) で置き換えた。
+> 死活監視は別の設計書で改めて扱う。
+
 ### 投稿のタイミング
 
 `DailyLocationReportJob` を `ScheduledJob` として登録する ([ADR-0004](../../adr/0004-minimal-scheduler-with-job-self-decision.md) の方針どおり、60 秒 tick のランナーに相乗りし、実行可否はジョブ側で判定する)。
