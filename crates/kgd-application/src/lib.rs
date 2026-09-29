@@ -5,6 +5,7 @@
 
 mod build_location_report;
 mod check_server_status;
+mod daily_location_report;
 mod diary_lookup;
 mod manage_diary_lifecycle;
 pub mod ports;
@@ -22,6 +23,7 @@ pub use build_location_report::{
     BuildLocationReportUseCase, LocationReport, LocationReportSettings,
 };
 pub use check_server_status::CheckServerStatusUseCase;
+pub use daily_location_report::DailyLocationReportJob;
 pub use manage_diary_lifecycle::{
     CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycleUseCase,
 };
