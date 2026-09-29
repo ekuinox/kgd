@@ -30,9 +30,9 @@ pub struct DailyLocationReportJob {
     /// 直近に作ったが、まだ投稿し終えていないレポート。
     ///
     /// publish が失敗し続ける間、tick のたびにレポートを作り直すと、失敗した
-    /// 地図タイルを OSM へ何度も再要求してしまう。キーが変わらない間はこれを
-    /// 使い回し、投稿が完了するか日付が変わったら捨てる。await をまたいで
-    /// ロックを保持しないよう、参照する文は 1 文だけにする。
+    /// 地図タイルを OSM へ何度も再要求してしまう。作った直後に書き込み、
+    /// 投稿が成功するか日付が変わるまで使い回す。await をまたいでロックを
+    /// 保持しないよう、参照する文は 1 文だけにする。
     pending: Mutex<Option<DiaryPost>>,
 }
 
@@ -68,25 +68,26 @@ impl ScheduledJob for DailyLocationReportJob {
             return Ok(());
         }
 
-        let cached = self.pending.lock().unwrap().take().filter(|p| p.key == key);
+        let cached = self
+            .pending
+            .lock()
+            .unwrap()
+            .clone()
+            .filter(|p| p.key == key);
         let post = match cached {
             Some(post) => post,
             None => {
                 let report = self.build.build(date, None).await?;
-                to_diary_post(key, &report, *self.calendar.timezone())
+                let post = to_diary_post(key, &report, *self.calendar.timezone());
+                *self.pending.lock().unwrap() = Some(post.clone());
+                post
             }
         };
 
-        match self.publish.publish(post.clone()).await {
-            Ok(outcome) => {
-                info!(%date, ?outcome, "Daily location report handled");
-                Ok(())
-            }
-            Err(error) => {
-                *self.pending.lock().unwrap() = Some(post);
-                Err(error)
-            }
-        }
+        let outcome = self.publish.publish(post).await?;
+        self.pending.lock().unwrap().take();
+        info!(%date, ?outcome, "Daily location report handled");
+        Ok(())
     }
 }
 
@@ -120,6 +121,9 @@ fn to_diary_post(key: String, report: &LocationReport, timezone: Tz) -> DiaryPos
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
+    use anyhow::anyhow;
     use chrono::{DateTime, TimeDelta, TimeZone as _, Utc};
 
     use kgd_domain::{DiaryPostRecord, LocationSummary};
@@ -272,18 +276,19 @@ mod tests {
     /// tick() は自身の clock.now() を 1 回しか呼ばないため、同じジョブに対して
     /// tick ごとに異なる「現在時刻」を与えるテストで使う。
     struct SequenceClock {
-        values: std::sync::Mutex<std::collections::VecDeque<DateTime<Utc>>>,
+        /// 返す時刻を先頭から順に取り出すキュー
+        values: Mutex<VecDeque<DateTime<Utc>>>,
     }
 
     impl SequenceClock {
         fn new(values: Vec<DateTime<Utc>>) -> Self {
             Self {
-                values: std::sync::Mutex::new(values.into()),
+                values: Mutex::new(values.into()),
             }
         }
     }
 
-    impl crate::ports::Clock for SequenceClock {
+    impl Clock for SequenceClock {
         fn now(&self) -> DateTime<Utc> {
             self.values
                 .lock()
@@ -314,7 +319,7 @@ mod tests {
         notion
             .expect_append_blocks()
             .times(2)
-            .returning(|_, _| Err(anyhow::anyhow!("notion is down")));
+            .returning(|_, _| Err(anyhow!("notion is down")));
         let discord = MockDiscordGateway::new();
         let job = DailyLocationReportJob::new(
             build_use_case(repo),
@@ -353,7 +358,7 @@ mod tests {
         notion
             .expect_append_blocks()
             .times(2)
-            .returning(|_, _| Err(anyhow::anyhow!("notion is down")));
+            .returning(|_, _| Err(anyhow!("notion is down")));
         let discord = MockDiscordGateway::new();
         let clock = Arc::new(SequenceClock::new(vec![jst(29, 9, 0), jst(30, 9, 0)]));
         let job = DailyLocationReportJob::new(
