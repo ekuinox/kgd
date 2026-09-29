@@ -2,7 +2,7 @@
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{PgPool, migrate::Migrator, postgres::PgPoolOptions};
 
 use kgd_application::ports::DiaryRepository;
 use kgd_domain::{DiaryEntry, MessageBlock, RelayedMessage};
@@ -17,6 +17,11 @@ pub struct DiaryStore {
     pool: PgPool,
 }
 
+/// 起動時に適用するマイグレーション。
+///
+/// パスはこのクレートの manifest 基準で解決される。
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+
 /// データベースへ接続し、マイグレーションを実行したプールを返す。
 ///
 /// プールは日報と位置情報のストアで共有する。マイグレーションのパスは
@@ -28,7 +33,7 @@ pub async fn connect_pool(database_url: &str) -> Result<PgPool> {
         .await
         .context("Failed to connect to database")?;
 
-    sqlx::migrate!("./migrations")
+    MIGRATOR
         .run(&pool)
         .await
         .context("Failed to run migrations")?;
@@ -255,5 +260,24 @@ impl DiaryRepository for DiaryStore {
         .context("Failed to delete relayed message")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// マイグレーションのバージョンが重複していないことを確認する。
+    ///
+    /// sqlx はファイル名の最初の `_` より前をバージョンとして扱う。同じ日付で
+    /// 2 つ目を足すと、適用済みの 1 つ目と「中身が変わった」と判定されて起動に失敗する。
+    #[test]
+    fn migrations_have_unique_versions() {
+        let mut versions: Vec<i64> = MIGRATOR.iter().map(|migration| migration.version).collect();
+        let total = versions.len();
+        versions.sort_unstable();
+        versions.dedup();
+
+        assert_eq!(versions.len(), total, "duplicate migration versions");
     }
 }
