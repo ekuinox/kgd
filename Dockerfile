@@ -63,6 +63,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -r -s /bin/false kgd
 
+# 地図タイルのキャッシュ先。名前付きボリュームに kgd ユーザーの所有を引き継がせる
+RUN mkdir -p /var/cache/kgd/tiles && chown -R kgd /var/cache/kgd
+
 WORKDIR /app
 
 # ========================================

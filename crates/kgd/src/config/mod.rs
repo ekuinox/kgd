@@ -1,4 +1,9 @@
-use std::{fs, net::SocketAddr, path::Path, time::Duration};
+use std::{
+    fs,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context as _, Result, ensure};
 use chrono_tz::Tz;
@@ -54,6 +59,14 @@ impl Config {
             "diary.day_start_hour must be in 0-23, but got {}",
             self.diary.day_start_hour
         );
+        if let Some(location) = &self.location {
+            ensure!(
+                location.image_width > 0 && location.image_height > 0,
+                "location.image_width and location.image_height must be positive, but got {}x{}",
+                location.image_width,
+                location.image_height
+            );
+        }
         Ok(())
     }
 
@@ -201,6 +214,21 @@ pub struct LocationConfig {
     pub username: String,
     /// Basic 認証のパスワード
     pub password: String,
+    /// 前の日報日のレポートを日報へ自動で載せるか（デフォルト: true）
+    #[serde(default = "default_daily_report_enabled")]
+    pub daily_report_enabled: bool,
+    /// これを超える水平精度 (メートル) の点をレポートから除く（デフォルト: 200）
+    #[serde(default = "default_max_accuracy_m")]
+    pub max_accuracy_m: i32,
+    /// 地図画像の幅 (ピクセル)（デフォルト: 1024）
+    #[serde(default = "default_image_size")]
+    pub image_width: u32,
+    /// 地図画像の高さ (ピクセル)（デフォルト: 1024）
+    #[serde(default = "default_image_size")]
+    pub image_height: u32,
+    /// 地図タイルのキャッシュ先（デフォルト: /var/cache/kgd/tiles）
+    #[serde(default = "default_tile_cache_dir")]
+    pub tile_cache_dir: PathBuf,
 }
 
 #[cfg(test)]

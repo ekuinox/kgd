@@ -133,3 +133,13 @@ write_channel_id = 123456789012345678
 # Basic auth credentials. Must match UserID / Password in the OwnTracks app.
 # username = "ekuinox"
 # password = "CHANGE_ME"
+# Post the previous diary day's location report to the diary thread and Notion page
+# (default: true)
+# daily_report_enabled = true
+# Drop points whose horizontal accuracy exceeds this many meters (default: 200)
+# max_accuracy_m = 200
+# Map image size in pixels (default: 1024 x 1024)
+# image_width = 1024
+# image_height = 1024
+# Directory to cache OpenStreetMap tiles (default: /var/cache/kgd/tiles)
+# tile_cache_dir = "/var/cache/kgd/tiles"
