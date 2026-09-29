@@ -18,7 +18,7 @@ pub(super) fn plain_text_json(text: &str) -> serde_json::Value {
 /// Discord は Nitro で 4000 文字まで投稿できるため、そのまま送ると
 /// append_blocks が 400 validation_error で失敗する。
 /// 切り詰めると本文が失われるので、分割して全文を保持する。
-pub(super) fn plain_text_chunks_json(text: &str) -> Vec<serde_json::Value> {
+pub(crate) fn plain_text_chunks_json(text: &str) -> Vec<serde_json::Value> {
     if text.chars().count() <= NOTION_RICH_TEXT_MAX_CHARS {
         return vec![plain_text_json(text)];
     }
