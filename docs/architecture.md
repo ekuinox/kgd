@@ -48,6 +48,7 @@ graph TD
 - 外部サービスや OS への入出力 → ポートを kgd-application に定義し、実装を kgd-infrastructure に置く
 - 判断・変換のロジック → 可能な限り kgd-domain の純粋関数として書き、単体テストを付ける
 - ユーザーへ見せる文言 → kgd-presentation の Presenter (純粋関数としてテスト可能に)
+- ただし application のジョブと presentation の両方が使う文言 (位置ログのレポートの `format_location_report` など) は、両者が依存できる kgd-domain の純粋関数に置く
 
 ## ポートと実装の対応
 
@@ -63,6 +64,8 @@ graph TD
 | WolSender | UdpWolSender | MockWolSender |
 | ServerProber | SurgeProber (ICMP ping) | MockServerProber |
 | LocationRepository | LocationStore (sqlx / PostgreSQL) | MockLocationRepository |
+| DiaryPostRepository | DiaryPostStore (sqlx / PostgreSQL) | MockDiaryPostRepository |
+| MapRenderer | TileMapRenderer (reqwest + tiny-skia, OSM タイル) | MockMapRenderer |
 
 モックは `#[cfg_attr(test, mockall::automock)]` による自動生成。
 ユースケースの単体テストは `cargo test -p kgd-application` で、serenity / sqlx / libheif を
@@ -79,6 +82,8 @@ graph TD
 | WakeServerUseCase | Wake-on-LAN パケットの送信 |
 | CheckServerStatusUseCase | サーバー死活確認 |
 | RecordLocationUseCase | OwnTracks から受信したメッセージを解釈して保存する |
+| BuildLocationReportUseCase | 日報日の位置ログから地図画像と集計値を作る (届け先は知らない) |
+| PublishDiaryPostUseCase | bot が作った内容を日報日のスレッドと Notion ページへ載せ、段ごとに完了を記録する |
 
 ## 代表的な処理フロー
 
@@ -130,7 +135,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant SC as Scheduler<br>(infrastructure)
-    participant J as ScheduledJob<br>(AutoCloseJob / HourlySyncJob)
+    participant J as ScheduledJob<br>(AutoCloseJob / HourlySyncJob / DailyLocationReportJob)
     participant M as RunDiaryMaintenanceUseCase
 
     loop 60 秒ごと
