@@ -5,6 +5,7 @@
 mod attachment;
 mod blocks;
 mod diary;
+mod location;
 mod maintenance;
 mod message;
 mod ogp;
@@ -21,6 +22,7 @@ pub use blocks::{file_block_json, image_block_json, toggle_block_json};
 pub use diary::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryCalendar, DiaryEntry, MessageBlock, RelayedMessage,
 };
+pub use location::{Activity, TrackPoint, TrackSegment, filter_accurate, split_segments};
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,
 };
