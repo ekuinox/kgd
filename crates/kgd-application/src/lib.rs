@@ -8,6 +8,7 @@ mod check_server_status;
 mod diary_lookup;
 mod manage_diary_lifecycle;
 pub mod ports;
+mod publish_diary_post;
 mod record_location;
 mod relay_write_channel_message;
 mod run_diary_maintenance;
@@ -24,6 +25,7 @@ pub use check_server_status::CheckServerStatusUseCase;
 pub use manage_diary_lifecycle::{
     CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycleUseCase,
 };
+pub use publish_diary_post::{PublishDiaryPostUseCase, PublishOutcome};
 pub use record_location::{RecordLocationUseCase, RecordOutcome};
 pub use relay_write_channel_message::{
     RelaySettings, RelayWriteChannelMessageUseCase, WriteChannelEvent, run_relay_worker,
