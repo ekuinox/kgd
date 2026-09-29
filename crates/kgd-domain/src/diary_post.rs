@@ -39,7 +39,7 @@ pub struct DiaryPostRecord {
     pub thread_message_id: Option<u64>,
     /// スレッドへ投稿した時刻
     pub thread_posted_at: Option<DateTime<Utc>>,
-    /// 日報が無いためスキップした時刻
+    /// これ以上載せないと決めた時刻 (日報が無い、またはスレッドがクローズ済みか見つからない)
     pub skipped_at: Option<DateTime<Utc>>,
 }
 

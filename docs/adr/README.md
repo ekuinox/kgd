@@ -17,4 +17,5 @@
 | [0008](0008-start-next-diary-day-before-day-start-hour.md) | 一日の始まりより前でも次の日報を開始できるようにする | 受理 |
 | [0009](0009-render-maps-with-tiny-skia.md) | 地図描画に staticmap を採用せず tiny-skia を直接使う | 受理 |
 | [0010](0010-do-not-impute-missing-motion.md) | 移動種別の欠損を補完しない | 受理 |
-| [0011](0011-publish-bot-posts-to-diary.md) | bot が作った内容は PublishDiaryPostUseCase を通して日報へ載せる | 受理 |
+| [0011](0011-publish-bot-posts-to-diary.md) | bot が作った内容は PublishDiaryPostUseCase を通して日報へ載せる | 受理 (決定の一部を 0012 が更新) |
+| [0012](0012-leave-closed-diary-threads-untouched.md) | クローズ済みの日報スレッドには触れず Notion だけに載せる | 受理 |
