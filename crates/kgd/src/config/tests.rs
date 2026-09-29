@@ -190,3 +190,19 @@ fn validate_rejects_zero_image_size() {
     let error = config.validate().expect_err("should be rejected");
     assert!(error.to_string().contains("image_width"));
 }
+
+/// 地図画像の大きさに上限 (2048) を超える値を書くと検証で弾かれることを確認する。
+///
+/// 上限が無いと、巨大なピクマップの確保と OSM への大量のタイル要求が
+/// 1 回の描画で発生してしまうため。
+#[test]
+fn validate_rejects_too_large_image_size() {
+    let toml_text = format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\nimage_height = 4096\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("image_width"));
+}
