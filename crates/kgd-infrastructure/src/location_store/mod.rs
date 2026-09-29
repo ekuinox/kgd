@@ -110,6 +110,11 @@ impl LocationRepository for LocationStore {
 }
 
 /// 位置の点として読み出す行 (tst, lat, lon, acc, motion)。
+///
+/// tst/lat/lon は列としては NULL 許容だが、上の WHERE 句 (tst >= $1 AND tst < $2 は
+/// NULL を暗黙に、lat/lon IS NOT NULL は明示的に除外する) がそれらを常に非 NULL に
+/// 絞り込んでいるため、ここでは Option を挟まず直接デコードできる。WHERE 句の条件を
+/// 外すとデコードに失敗するようになる。
 type LocationRow = (DateTime<Utc>, f64, f64, Option<i32>, Option<String>);
 
 /// 読み出した行を軌跡の点へ変換する。
