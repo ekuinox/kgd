@@ -4,22 +4,30 @@
 //! すべての trait は `#[cfg_attr(test, mockall::automock)]` を付与しており、
 //! テストでは `MockNotionApi` などの自動生成モックを使用できる。
 
+mod diary_post;
 mod discord;
 mod location;
+mod map;
 mod misc;
 mod notion;
 mod repository;
 
+pub use diary_post::DiaryPostRepository;
 pub use discord::DiscordGateway;
 pub use location::LocationRepository;
+pub use map::MapRenderer;
 pub use misc::{AttachmentDownloader, Clock, ImageConverter, OgpClient, ServerProber, WolSender};
 pub use notion::NotionApi;
 pub use repository::DiaryRepository;
 
 #[cfg(test)]
+pub use diary_post::MockDiaryPostRepository;
+#[cfg(test)]
 pub use discord::MockDiscordGateway;
 #[cfg(test)]
 pub use location::MockLocationRepository;
+#[cfg(test)]
+pub use map::MockMapRenderer;
 #[cfg(test)]
 pub use misc::{
     MockAttachmentDownloader, MockClock, MockImageConverter, MockOgpClient, MockServerProber,

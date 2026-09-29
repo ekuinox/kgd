@@ -11,24 +11,26 @@ use tokio::sync::mpsc;
 use tracing::info;
 
 use kgd_application::{
-    AutoCloseJob, DiaryLifecycleSettings, DiaryMaintenanceSettings, HourlySyncJob,
-    ManageDiaryLifecycleUseCase, RecordLocationUseCase, RelaySettings,
-    RelayWriteChannelMessageUseCase, RunDiaryMaintenanceUseCase, SyncDiaryMessageUseCase,
-    WakeServerUseCase,
+    AutoCloseJob, BuildLocationReportUseCase, DailyLocationReportJob, DiaryLifecycleSettings,
+    DiaryMaintenanceSettings, HourlySyncJob, LocationReportSettings, ManageDiaryLifecycleUseCase,
+    PublishDiaryPostUseCase, RecordLocationUseCase, RelaySettings, RelayWriteChannelMessageUseCase,
+    RunDiaryMaintenanceUseCase, SyncDiaryMessageUseCase, WakeServerUseCase,
     ports::{
-        AttachmentDownloader, Clock, DiaryRepository, DiscordGateway, ImageConverter,
-        LocationRepository, NotionApi, OgpClient, WolSender,
+        AttachmentDownloader, Clock, DiaryPostRepository, DiaryRepository, DiscordGateway,
+        ImageConverter, LocationRepository, MapRenderer, NotionApi, OgpClient, WolSender,
     },
     run_relay_worker,
 };
 use kgd_domain::{DiaryCalendar, ServerStatus, compile_url_rules};
 use kgd_infrastructure::{
-    DiaryStore, HeifConverter, LocationStore, NotionClient, OgpFetcher, ReqwestDownloader,
-    Scheduler, SerenityGateway, SystemClock, UdpWolSender, bind_http, connect_pool, serve_http,
+    DiaryPostStore, DiaryStore, HeifConverter, LocationStore, NotionClient, OgpFetcher,
+    ReqwestDownloader, Scheduler, SerenityGateway, SystemClock, TileMapRenderer, UdpWolSender,
+    bind_http, connect_pool, serve_http,
 };
 use kgd_presentation::{
-    DiscordController, DiscordControllerSettings, OwnTracksControllerSettings, StatusNotifier,
-    VersionInfo, owntracks_router, run_status_receiver,
+    DiscordController, DiscordControllerSettings, LocationReportCommand,
+    OwnTracksControllerSettings, StatusNotifier, VersionInfo, owntracks_router,
+    run_status_receiver,
 };
 
 use crate::{config::Config, version};
@@ -85,6 +87,49 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     // 日報日の区切り方は全ユースケースで共有する
     let calendar = DiaryCalendar::new(diary_config.timezone, diary_config.day_start_hour);
+
+    // 位置ログのレポート。`[location]` が無ければ作らない。
+    // スラッシュコマンドと定時ジョブの両方が同じユースケースを使う。
+    let mut location_report: Option<Arc<BuildLocationReportUseCase>> = None;
+    let mut location_report_job: Option<Arc<DailyLocationReportJob>> = None;
+    if let Some(location_config) = &config.location {
+        let location_store: Arc<dyn LocationRepository> =
+            Arc::new(LocationStore::new(pool.clone()));
+        // OSM のタイル利用規約は識別可能な User-Agent を求める
+        let user_agent = format!("kgd/{} (+https://github.com/ekuinox/kgd)", version::VERSION);
+        let renderer: Arc<dyn MapRenderer> = Arc::new(
+            TileMapRenderer::new(&user_agent, &location_config.tile_cache_dir)
+                .context("Failed to create map renderer")?,
+        );
+        let build = Arc::new(BuildLocationReportUseCase::new(
+            location_store,
+            renderer,
+            LocationReportSettings {
+                calendar,
+                max_accuracy_m: location_config.max_accuracy_m,
+                image_width: location_config.image_width,
+                image_height: location_config.image_height,
+            },
+        ));
+        if location_config.daily_report_enabled {
+            let publish = Arc::new(PublishDiaryPostUseCase::new(
+                diary_store.clone(),
+                Arc::new(DiaryPostStore::new(pool.clone())) as Arc<dyn DiaryPostRepository>,
+                notion_client.clone(),
+                gateway.clone(),
+                clock.clone(),
+                calendar,
+            ));
+            location_report_job = Some(Arc::new(DailyLocationReportJob::new(
+                build.clone(),
+                publish,
+                clock.clone(),
+                calendar,
+            )));
+        }
+        location_report = Some(build);
+    }
+
     let maintenance = Arc::new(RunDiaryMaintenanceUseCase::new(
         diary_store.clone(),
         gateway.clone(),
@@ -147,6 +192,11 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         lifecycle,
         relay_tx,
         wake_server,
+        location_report.map(|build| LocationReportCommand {
+            build,
+            calendar,
+            clock: Arc::new(SystemClock) as Arc<dyn Clock>,
+        }),
     );
 
     let mut client = Client::builder(&config.discord.token, intents)
@@ -167,6 +217,9 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     let mut scheduler = Scheduler::new(diary_interval);
     scheduler.register(Arc::new(AutoCloseJob(maintenance.clone())));
     scheduler.register(Arc::new(HourlySyncJob(maintenance)));
+    if let Some(job) = location_report_job {
+        scheduler.register(job);
+    }
     tokio::spawn(scheduler.run());
     info!(interval = ?diary_interval, "Diary periodic tasks started");
 

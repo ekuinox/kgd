@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use serenity::all::{
-    ChannelId, ChannelType, CreateForumPost, CreateMessage, EditMessage, EditThread, GetMessages,
-    Http, MessageId, ReactionType,
+    ChannelId, ChannelType, CreateAttachment, CreateForumPost, CreateMessage, EditMessage,
+    EditThread, GetMessages, Http, MessageId, ReactionType,
 };
 use tracing::warn;
 
 use kgd_application::ports::DiscordGateway;
-use kgd_domain::{SyncMessage, ThreadState};
+use kgd_domain::{DiaryPostImage, SyncMessage, ThreadState};
 
 mod buttons;
 mod conversion;
@@ -114,6 +114,23 @@ impl DiscordGateway for SerenityGateway {
             .send_message(&self.http, message)
             .await
             .context("Failed to send message")?;
+        Ok(sent.id.get())
+    }
+
+    async fn send_text_with_images(
+        &self,
+        channel_id: u64,
+        content: &str,
+        images: &[DiaryPostImage],
+    ) -> Result<u64> {
+        let files = images
+            .iter()
+            .map(|image| CreateAttachment::bytes(image.bytes.clone(), image.filename.clone()));
+        let message = CreateMessage::new().content(content).add_files(files);
+        let sent = ChannelId::new(channel_id)
+            .send_message(&self.http, message)
+            .await
+            .context("Failed to send message with images")?;
         Ok(sent.id.get())
     }
 

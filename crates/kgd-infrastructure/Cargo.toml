@@ -25,12 +25,16 @@ serde_json.workspace = true
 serenity.workspace = true
 sqlx.workspace = true
 surge-ping.workspace = true
-tokio = { workspace = true, features = ["net"] }
+tiny-skia.workspace = true
+tokio = { workspace = true, features = ["fs", "net"] }
 tracing.workspace = true
 wake-on-lan.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 heif.path = "../heif"
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["openssl"]

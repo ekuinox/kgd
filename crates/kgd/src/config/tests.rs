@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use super::*;
 
@@ -153,4 +153,56 @@ fn location_listen_defaults_to_8081() {
         config.location.unwrap().listen,
         "0.0.0.0:8081".parse::<SocketAddr>().unwrap()
     );
+}
+
+/// [location] にレポートの項目を書かなければ既定値になることを確認する。
+#[test]
+fn location_report_settings_have_defaults() {
+    let toml_text = format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+    let location = config.location.expect("should be present");
+
+    assert!(location.daily_report_enabled);
+    assert_eq!(location.max_accuracy_m, 200);
+    assert_eq!(location.image_width, 1024);
+    assert_eq!(location.image_height, 1024);
+    assert_eq!(
+        location.tile_cache_dir,
+        PathBuf::from("/var/cache/kgd/tiles")
+    );
+}
+
+/// 地図画像の大きさに 0 を書くと検証で弾かれることを確認する。
+///
+/// 0 のままだと描画のたびに失敗し、定時ジョブが毎分エラーになるため。
+#[test]
+fn validate_rejects_zero_image_size() {
+    let toml_text = format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\nimage_width = 0\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("image_width"));
+}
+
+/// 地図画像の大きさに上限 (2048) を超える値を書くと検証で弾かれることを確認する。
+///
+/// 上限が無いと、巨大なピクマップの確保と OSM への大量のタイル要求が
+/// 1 回の描画で発生してしまうため。
+#[test]
+fn validate_rejects_too_large_image_size() {
+    let toml_text = format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\nimage_height = 4096\n",
+        minimal_config_toml("")
+    );
+
+    let config: Config = toml::from_str(&toml_text).expect("should parse");
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("image_width"));
 }

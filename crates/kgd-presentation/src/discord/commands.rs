@@ -35,6 +35,7 @@ impl DiscordController {
             "servers" => self.handle_servers(ctx, command).await,
             "version" => self.handle_version(ctx, command).await,
             "diary" => self.handle_diary(ctx, command).await,
+            "location" => self.handle_location(ctx, command).await,
             _ => Ok(()),
         }
     }

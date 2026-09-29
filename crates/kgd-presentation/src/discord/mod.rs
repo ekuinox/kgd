@@ -5,10 +5,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use kgd_application::{
-    ManageDiaryLifecycleUseCase, RunDiaryMaintenanceUseCase, SyncDiaryMessageUseCase,
-    WakeServerUseCase, WriteChannelEvent, ports::DiaryRepository,
+    BuildLocationReportUseCase, ManageDiaryLifecycleUseCase, RunDiaryMaintenanceUseCase,
+    SyncDiaryMessageUseCase, WakeServerUseCase, WriteChannelEvent,
+    ports::{Clock, DiaryRepository},
 };
-use kgd_domain::ServerTarget;
+use kgd_domain::{DiaryCalendar, ServerTarget};
 
 use crate::presenter::VersionInfo;
 
@@ -16,6 +17,7 @@ mod commands;
 mod components;
 mod diary_commands;
 mod events;
+mod location_commands;
 mod messages;
 mod status;
 mod write_channel;
@@ -45,6 +47,19 @@ pub struct DiscordControllerSettings {
     pub write_channel_id: u64,
 }
 
+/// `/location report` に必要な依存。
+///
+/// `[location]` が無いときは作らず、コマンドも登録しない。
+#[derive(Clone)]
+pub struct LocationReportCommand {
+    /// レポートを作るユースケース
+    pub build: Arc<BuildLocationReportUseCase>,
+    /// 日報日の区切り方
+    pub calendar: DiaryCalendar,
+    /// 時刻ポート
+    pub clock: Arc<dyn Clock>,
+}
+
 /// Discord イベントを処理するハンドラー。
 #[derive(Clone)]
 pub struct DiscordController {
@@ -62,10 +77,15 @@ pub struct DiscordController {
     pub(crate) relay_tx: mpsc::Sender<WriteChannelEvent>,
     /// WOL ユースケース
     pub(crate) wake_server: Arc<WakeServerUseCase>,
+    /// 位置ログのレポートコマンド (未設定なら None)
+    pub(crate) location_report: Option<LocationReportCommand>,
 }
 
 impl DiscordController {
     /// 新しい DiscordController を作成する。
+    // 各ユースケースを個別の依存として受け取っており、この lint を避けるためだけに
+    // まとめて構造体にすると、意味のある単位ではない引数の入れ物が増えるだけになる。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         settings: DiscordControllerSettings,
         diary_store: Arc<dyn DiaryRepository>,
@@ -74,6 +94,7 @@ impl DiscordController {
         lifecycle: Arc<ManageDiaryLifecycleUseCase>,
         relay_tx: mpsc::Sender<WriteChannelEvent>,
         wake_server: Arc<WakeServerUseCase>,
+        location_report: Option<LocationReportCommand>,
     ) -> Self {
         Self {
             settings,
@@ -83,6 +104,7 @@ impl DiscordController {
             lifecycle,
             relay_tx,
             wake_server,
+            location_report,
         }
     }
 }

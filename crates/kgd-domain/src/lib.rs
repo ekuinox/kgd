@@ -5,6 +5,8 @@
 mod attachment;
 mod blocks;
 mod diary;
+mod diary_post;
+mod location;
 mod maintenance;
 mod message;
 mod ogp;
@@ -17,9 +19,16 @@ pub use attachment::{
     FileType, classify_file, guess_content_type, is_spoiler_attachment, replace_extension,
     spoiler_summary,
 };
-pub use blocks::{file_block_json, image_block_json, toggle_block_json};
+pub use blocks::{file_block_json, image_block_json, paragraph_block_json, toggle_block_json};
 pub use diary::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryCalendar, DiaryEntry, MessageBlock, RelayedMessage,
+};
+pub use diary_post::{DiaryPost, DiaryPostImage, DiaryPostRecord};
+pub use location::{
+    Activity, LocationReportText, LocationSummary, OSM_ATTRIBUTION, TILE_SIZE, TilePlacement,
+    TrackPoint, TrackSegment, Viewport, filter_accurate, fit_viewport,
+    format_empty_location_report, format_location_report, haversine_m, split_segments, summarize,
+    world_pixel,
 };
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,

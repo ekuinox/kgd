@@ -15,3 +15,6 @@
 | [0006](0006-retry-notion-requests-and-surface-failures.md) | Notion 通信は副作用の有無で再試行範囲を分け、失敗はユーザーへ見せる | 受理 |
 | [0007](0007-diary-day-starts-at-day-start-hour.md) | 日報の一日は day_start_hour から始まる | 受理 (結果の一部を 0008 が更新) |
 | [0008](0008-start-next-diary-day-before-day-start-hour.md) | 一日の始まりより前でも次の日報を開始できるようにする | 受理 |
+| [0009](0009-render-maps-with-tiny-skia.md) | 地図描画に staticmap を採用せず tiny-skia を直接使う | 受理 |
+| [0010](0010-do-not-impute-missing-motion.md) | 移動種別の欠損を補完しない | 受理 |
+| [0011](0011-publish-bot-posts-to-diary.md) | bot が作った内容は PublishDiaryPostUseCase を通して日報へ載せる | 受理 |

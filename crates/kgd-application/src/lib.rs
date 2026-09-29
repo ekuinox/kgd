@@ -3,10 +3,13 @@
 //! このクレートは serenity / sqlx / reqwest などの IO ライブラリに依存してはならない。
 //! 外部 IO はすべて [`ports`] の trait 経由で扱い、テストでは mockall のモックを使う。
 
+mod build_location_report;
 mod check_server_status;
+mod daily_location_report;
 mod diary_lookup;
 mod manage_diary_lifecycle;
 pub mod ports;
+mod publish_diary_post;
 mod record_location;
 mod relay_write_channel_message;
 mod run_diary_maintenance;
@@ -16,10 +19,15 @@ mod sync_diary_message;
 mod test_support;
 mod wake_server;
 
+pub use build_location_report::{
+    BuildLocationReportUseCase, LocationReport, LocationReportSettings,
+};
 pub use check_server_status::CheckServerStatusUseCase;
+pub use daily_location_report::DailyLocationReportJob;
 pub use manage_diary_lifecycle::{
     CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycleUseCase,
 };
+pub use publish_diary_post::{PublishDiaryPostUseCase, PublishOutcome};
 pub use record_location::{RecordLocationUseCase, RecordOutcome};
 pub use relay_write_channel_message::{
     RelaySettings, RelayWriteChannelMessageUseCase, WriteChannelEvent, run_relay_worker,

@@ -96,3 +96,6 @@ base64 = "0.23"
 
 # HTTP service testing
 tower = "0.5"
+
+# Map rendering (location report)
+tiny-skia = "0.12"

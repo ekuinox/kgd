@@ -1,6 +1,6 @@
 //! 設定値のデフォルトを返す関数群。
 
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use chrono_tz::Tz;
 
@@ -38,4 +38,20 @@ pub(super) fn default_ogp_timeout() -> Duration {
 
 pub(super) fn default_location_listen() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], 8081))
+}
+
+pub(super) fn default_daily_report_enabled() -> bool {
+    true
+}
+
+pub(super) fn default_max_accuracy_m() -> i32 {
+    200
+}
+
+pub(super) fn default_image_size() -> u32 {
+    1024
+}
+
+pub(super) fn default_tile_cache_dir() -> PathBuf {
+    PathBuf::from("/var/cache/kgd/tiles")
 }

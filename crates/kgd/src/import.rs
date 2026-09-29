@@ -214,6 +214,14 @@ mod tests {
             // 重複が無いものとして扱う (このテストの関心は識別子と集計)。
             Ok(messages.len())
         }
+
+        async fn locations_between(
+            &self,
+            _start: chrono::DateTime<chrono::Utc>,
+            _end: chrono::DateTime<chrono::Utc>,
+        ) -> Result<Vec<kgd_domain::TrackPoint>> {
+            Ok(Vec::new())
+        }
     }
 
     /// ディレクトリを渡すと配下の .jsonl を再帰的に集め、

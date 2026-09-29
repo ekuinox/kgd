@@ -6,6 +6,7 @@ mod matcher;
 
 pub use builder::build_rich_text_and_url_blocks;
 pub use json::apply_ogp_to_bookmark;
+pub(crate) use json::plain_text_chunks_json;
 pub use matcher::{CompiledUrlRules, PatternConfig, UrlRuleConfig, compile_url_rules};
 
 #[cfg(test)]
