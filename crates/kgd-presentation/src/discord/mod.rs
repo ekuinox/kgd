@@ -83,6 +83,8 @@ pub struct DiscordController {
 
 impl DiscordController {
     /// 新しい DiscordController を作成する。
+    // 各ユースケースを個別の依存として受け取っており、この lint を避けるためだけに
+    // まとめて構造体にすると、意味のある単位ではない引数の入れ物が増えるだけになる。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         settings: DiscordControllerSettings,
