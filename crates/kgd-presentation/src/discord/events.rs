@@ -59,6 +59,26 @@ impl EventHandler for DiscordController {
                 )),
         );
 
+        // 位置ログのコマンドは [location] があるときだけ登録する
+        if self.location_report.is_some() {
+            commands.push(
+                CreateCommand::new("location")
+                    .description("位置ログ")
+                    .add_option(
+                        CreateCommandOption::new(
+                            CommandOptionType::SubCommand,
+                            "report",
+                            "日報日の位置ログのレポートを本人だけに表示する",
+                        )
+                        .add_sub_option(CreateCommandOption::new(
+                            CommandOptionType::String,
+                            "date",
+                            "日報日 (YYYY-MM-DD)。省略すると今の日報日",
+                        )),
+                    ),
+            );
+        }
+
         match serenity::all::Command::set_global_commands(&ctx.http, commands).await {
             Ok(commands) => {
                 let commands = commands

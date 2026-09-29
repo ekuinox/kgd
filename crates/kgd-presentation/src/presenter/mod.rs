@@ -204,5 +204,9 @@ pub fn render_embed(spec: &EmbedSpec) -> CreateEmbed {
     embed
 }
 
+mod location;
+
+pub(crate) use location::{present_location_report, resolve_report_date};
+
 #[cfg(test)]
 mod tests;

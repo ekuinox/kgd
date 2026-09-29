@@ -6,7 +6,8 @@ mod owntracks;
 mod presenter;
 
 pub use discord::{
-    DiscordController, DiscordControllerSettings, StatusNotifier, run_status_receiver,
+    DiscordController, DiscordControllerSettings, LocationReportCommand, StatusNotifier,
+    run_status_receiver,
 };
 pub use owntracks::{OwnTracksControllerSettings, owntracks_router};
 pub use presenter::VersionInfo;

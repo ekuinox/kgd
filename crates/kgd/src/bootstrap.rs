@@ -28,8 +28,9 @@ use kgd_infrastructure::{
     bind_http, connect_pool, serve_http,
 };
 use kgd_presentation::{
-    DiscordController, DiscordControllerSettings, OwnTracksControllerSettings, StatusNotifier,
-    VersionInfo, owntracks_router, run_status_receiver,
+    DiscordController, DiscordControllerSettings, LocationReportCommand,
+    OwnTracksControllerSettings, StatusNotifier, VersionInfo, owntracks_router,
+    run_status_receiver,
 };
 
 use crate::{config::Config, version};
@@ -89,8 +90,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
 
     // 位置ログのレポート。`[location]` が無ければ作らない。
     // スラッシュコマンドと定時ジョブの両方が同じユースケースを使う。
-    // (Task 15 でコマンドへ渡すまでは未使用のため、先頭に _ を付けておく)
-    let mut _location_report: Option<Arc<BuildLocationReportUseCase>> = None;
+    let mut location_report: Option<Arc<BuildLocationReportUseCase>> = None;
     let mut location_report_job: Option<Arc<DailyLocationReportJob>> = None;
     if let Some(location_config) = &config.location {
         let location_store: Arc<dyn LocationRepository> =
@@ -127,7 +127,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
                 calendar,
             )));
         }
-        _location_report = Some(build);
+        location_report = Some(build);
     }
 
     let maintenance = Arc::new(RunDiaryMaintenanceUseCase::new(
@@ -192,6 +192,11 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
         lifecycle,
         relay_tx,
         wake_server,
+        location_report.map(|build| LocationReportCommand {
+            build,
+            calendar,
+            clock: Arc::new(SystemClock) as Arc<dyn Clock>,
+        }),
     );
 
     let mut client = Client::builder(&config.discord.token, intents)
