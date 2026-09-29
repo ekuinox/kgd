@@ -1,6 +1,6 @@
 //! 前の日報日の位置ログのレポートを、その日の日報へ載せる定時ジョブ。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use chrono::NaiveDate;
@@ -27,6 +27,13 @@ pub struct DailyLocationReportJob {
     clock: Arc<dyn Clock>,
     /// 日報日の区切り方
     calendar: DiaryCalendar,
+    /// 直近に作ったが、まだ投稿し終えていないレポート。
+    ///
+    /// publish が失敗し続ける間、tick のたびにレポートを作り直すと、失敗した
+    /// 地図タイルを OSM へ何度も再要求してしまう。キーが変わらない間はこれを
+    /// 使い回し、投稿が完了するか日付が変わったら捨てる。await をまたいで
+    /// ロックを保持しないよう、参照する文は 1 文だけにする。
+    pending: Mutex<Option<DiaryPost>>,
 }
 
 impl DailyLocationReportJob {
@@ -42,6 +49,7 @@ impl DailyLocationReportJob {
             publish,
             clock,
             calendar,
+            pending: Mutex::new(None),
         }
     }
 }
@@ -56,14 +64,29 @@ impl ScheduledJob for DailyLocationReportJob {
         let date = self.calendar.previous_date(self.clock.now());
         let key = location_report_key(date);
         if self.publish.is_done(&key).await? {
+            self.pending.lock().unwrap().take();
             return Ok(());
         }
 
-        let report = self.build.build(date, None).await?;
-        let post = to_diary_post(key, &report, *self.calendar.timezone());
-        let outcome = self.publish.publish(post).await?;
-        info!(%date, ?outcome, "Daily location report handled");
-        Ok(())
+        let cached = self.pending.lock().unwrap().take().filter(|p| p.key == key);
+        let post = match cached {
+            Some(post) => post,
+            None => {
+                let report = self.build.build(date, None).await?;
+                to_diary_post(key, &report, *self.calendar.timezone())
+            }
+        };
+
+        match self.publish.publish(post.clone()).await {
+            Ok(outcome) => {
+                info!(%date, ?outcome, "Daily location report handled");
+                Ok(())
+            }
+            Err(error) => {
+                *self.pending.lock().unwrap() = Some(post);
+                Err(error)
+            }
+        }
     }
 }
 
@@ -242,6 +265,106 @@ mod tests {
         );
 
         job.tick().await.unwrap();
+    }
+
+    /// 呼ぶたびに違う時刻を順番に返す Clock。
+    ///
+    /// tick() は自身の clock.now() を 1 回しか呼ばないため、同じジョブに対して
+    /// tick ごとに異なる「現在時刻」を与えるテストで使う。
+    struct SequenceClock {
+        values: std::sync::Mutex<std::collections::VecDeque<DateTime<Utc>>>,
+    }
+
+    impl SequenceClock {
+        fn new(values: Vec<DateTime<Utc>>) -> Self {
+            Self {
+                values: std::sync::Mutex::new(values.into()),
+            }
+        }
+    }
+
+    impl crate::ports::Clock for SequenceClock {
+        fn now(&self) -> DateTime<Utc> {
+            self.values
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("SequenceClock ran out of values")
+        }
+    }
+
+    /// 投稿の失敗が続く間、2 回目の tick ではレポートを作り直さないことを確認する。
+    ///
+    /// 失敗するたびに毎分レポートを作り直すと、失敗した地図タイルを OSM へ
+    /// 何度も再要求してしまうため。
+    #[tokio::test]
+    async fn tick_reuses_the_built_post_while_publishing_fails() {
+        let mut posts = MockDiaryPostRepository::new();
+        posts.expect_get().returning(|_| Ok(None));
+        let mut repo = MockLocationRepository::new();
+        repo.expect_locations_between()
+            .times(1)
+            .returning(|_, _| Ok(vec![]));
+        let mut diary = MockDiaryRepository::new();
+        diary
+            .expect_get_by_date()
+            .returning(|d| Ok(Some(entry(10, d))));
+        let mut notion = MockNotionApi::new();
+        notion.expect_upload_file().times(0);
+        notion
+            .expect_append_blocks()
+            .times(2)
+            .returning(|_, _| Err(anyhow::anyhow!("notion is down")));
+        let discord = MockDiscordGateway::new();
+        let job = DailyLocationReportJob::new(
+            build_use_case(repo),
+            publish_use_case(diary, posts, notion, discord),
+            Arc::new(fixed_clock(jst(29, 9, 0))),
+            calendar(),
+        );
+
+        assert!(job.tick().await.is_err());
+        assert!(job.tick().await.is_err());
+    }
+
+    /// 前の tick が失敗していても、日報日が変わったら改めてレポートを作り直すことを確認する。
+    ///
+    /// キャッシュは同じキーの間だけ使い回すべきで、日付が変わったのに
+    /// 古いレポートを使い回してはいけないため。
+    #[tokio::test]
+    async fn tick_rebuilds_after_the_day_changes() {
+        let mut posts = MockDiaryPostRepository::new();
+        posts.expect_get().returning(|_| Ok(None));
+        let mut repo = MockLocationRepository::new();
+        repo.expect_locations_between()
+            .withf(|start, _| *start == jst(28, 8, 0))
+            .times(1)
+            .returning(|_, _| Ok(vec![]));
+        repo.expect_locations_between()
+            .withf(|start, _| *start == jst(29, 8, 0))
+            .times(1)
+            .returning(|_, _| Ok(vec![]));
+        let mut diary = MockDiaryRepository::new();
+        diary
+            .expect_get_by_date()
+            .returning(|d| Ok(Some(entry(10, d))));
+        let mut notion = MockNotionApi::new();
+        notion.expect_upload_file().times(0);
+        notion
+            .expect_append_blocks()
+            .times(2)
+            .returning(|_, _| Err(anyhow::anyhow!("notion is down")));
+        let discord = MockDiscordGateway::new();
+        let clock = Arc::new(SequenceClock::new(vec![jst(29, 9, 0), jst(30, 9, 0)]));
+        let job = DailyLocationReportJob::new(
+            build_use_case(repo),
+            publish_use_case(diary, posts, notion, discord),
+            clock,
+            calendar(),
+        );
+
+        assert!(job.tick().await.is_err());
+        assert!(job.tick().await.is_err());
     }
 
     /// 画像のあるレポートは、本文と PNG 1 枚の投稿に変換されることを確認する。
