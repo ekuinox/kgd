@@ -23,8 +23,8 @@ pub use diary::{
     DIARY_CLOSE_AND_NEW_BUTTON_ID, DiaryCalendar, DiaryEntry, MessageBlock, RelayedMessage,
 };
 pub use location::{
-    Activity, LocationSummary, TrackPoint, TrackSegment, filter_accurate, haversine_m,
-    split_segments, summarize,
+    Activity, LocationSummary, TILE_SIZE, TilePlacement, TrackPoint, TrackSegment, Viewport,
+    filter_accurate, fit_viewport, haversine_m, split_segments, summarize, world_pixel,
 };
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,
