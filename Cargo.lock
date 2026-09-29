@@ -1916,6 +1916,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "chrono-tz",
  "clap",
  "const_format",
@@ -2003,6 +2004,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.23.1",
+ "chrono",
  "humantime",
  "kgd-application",
  "kgd-domain",

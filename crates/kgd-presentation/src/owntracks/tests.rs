@@ -34,6 +34,14 @@ impl LocationRepository for StubLocationRepository {
         }
         Ok(messages.len())
     }
+
+    async fn locations_between(
+        &self,
+        _start: chrono::DateTime<chrono::Utc>,
+        _end: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<kgd_domain::TrackPoint>> {
+        Ok(Vec::new())
+    }
 }
 
 /// 呼び出し引数を記録するルータを作る。

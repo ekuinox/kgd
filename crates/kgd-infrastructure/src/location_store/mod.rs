@@ -1,10 +1,11 @@
 //! OwnTracks の受信メッセージを永続化するストア。
 
 use anyhow::{Context as _, Result};
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder, types::Json};
 
 use kgd_application::ports::LocationRepository;
-use kgd_domain::OwnTracksMessage;
+use kgd_domain::{Activity, OwnTracksMessage, TrackPoint};
 
 /// 1 回の INSERT に含めるメッセージ件数の上限。
 ///
@@ -80,6 +81,46 @@ impl LocationRepository for LocationStore {
         }
         Ok(affected)
     }
+
+    async fn locations_between(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<TrackPoint>> {
+        let rows: Vec<LocationRow> = sqlx::query_as(
+            r#"
+            SELECT tst, lat, lon, acc, motion
+            FROM owntracks_messages
+            WHERE msg_type = 'location'
+              AND tst >= $1
+              AND tst < $2
+              AND lat IS NOT NULL
+              AND lon IS NOT NULL
+            ORDER BY tst
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to fetch owntracks locations")?;
+
+        Ok(rows.into_iter().map(to_track_point).collect())
+    }
+}
+
+/// 位置の点として読み出す行 (tst, lat, lon, acc, motion)。
+type LocationRow = (DateTime<Utc>, f64, f64, Option<i32>, Option<String>);
+
+/// 読み出した行を軌跡の点へ変換する。
+fn to_track_point((at, lat, lon, accuracy_m, motion): LocationRow) -> TrackPoint {
+    TrackPoint {
+        at,
+        lat,
+        lon,
+        accuracy_m,
+        activity: motion.as_deref().and_then(Activity::from_motion),
+    }
 }
 
 /// バインドパラメータ上限に収まるチャンクへ分割する。
@@ -149,5 +190,22 @@ mod tests {
         let messages: Vec<OwnTracksMessage> = Vec::new();
 
         assert_eq!(chunk_messages(&messages).count(), 0);
+    }
+
+    /// 行の motion 文字列が移動種別へ変換され、精度がそのまま残ることを確認する。
+    #[test]
+    fn to_track_point_maps_motion_and_accuracy() {
+        use chrono::{TimeZone as _, Utc};
+        use kgd_domain::Activity;
+
+        let at = Utc.with_ymd_and_hms(2026, 9, 28, 0, 0, 0).unwrap();
+
+        let walking = to_track_point((at, 35.0, 139.0, Some(12), Some("walking".to_string())));
+        let missing = to_track_point((at, 35.0, 139.0, None, None));
+
+        assert_eq!(walking.activity, Some(Activity::Walking));
+        assert_eq!(walking.accuracy_m, Some(12));
+        assert_eq!(missing.activity, None);
+        assert_eq!(missing.accuracy_m, None);
     }
 }
