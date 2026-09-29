@@ -27,6 +27,8 @@ pub trait DiaryPostRepository: Send + Sync {
         at: DateTime<Utc>,
     ) -> Result<()>;
 
-    /// 日報が無いためスキップしたことを記録する。
+    /// これ以上載せないと決めたことを記録する。
+    ///
+    /// 日報が無い日と、スレッドがクローズ済みか見つからず Notion だけで終えた日に使う。
     async fn mark_skipped(&self, key: &str, date: NaiveDate, at: DateTime<Utc>) -> Result<()>;
 }
