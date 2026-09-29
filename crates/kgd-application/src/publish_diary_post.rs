@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, ensure};
+use anyhow::{Context as _, Result, anyhow};
 use chrono::NaiveDate;
 use tracing::{info, warn};
 
@@ -129,7 +129,10 @@ impl PublishDiaryPostUseCase {
     /// スレッドへ投稿し、メッセージ ID を返す。
     ///
     /// クローズ済みなら再開してから投稿し、投稿の成否にかかわらずクローズへ戻す。
-    /// 戻せなかった場合は警告に留める。失敗を返すと、次の呼び出しで二重に投稿してしまうため。
+    /// 再開が `Ok(false)` または `Err` に終わっても、サーバー側ではアーカイブ解除だけが
+    /// 適用されている可能性があるため、投稿せずにクローズへ戻すベストエフォートを行ってから
+    /// 失敗を返す。送信後の再クローズの失敗、および再開失敗後のクローズの失敗はいずれも
+    /// 警告に留める。失敗を返すと、次の呼び出しで二重に投稿してしまうため。
     async fn post_to_thread(&self, thread_id: u64, post: &DiaryPost) -> Result<u64> {
         let state = self
             .discord
@@ -137,12 +140,19 @@ impl PublishDiaryPostUseCase {
             .await?
             .with_context(|| format!("Diary thread {thread_id} is not accessible"))?;
 
-        let reopened = state.is_closed();
-        if reopened {
-            ensure!(
-                self.discord.reopen_thread(thread_id).await?,
-                "Failed to reopen diary thread {thread_id}"
-            );
+        let was_closed = state.is_closed();
+        if was_closed {
+            match self.discord.reopen_thread(thread_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.close_after_failed_reopen(thread_id).await;
+                    return Err(anyhow!("Failed to reopen diary thread {thread_id}"));
+                }
+                Err(error) => {
+                    self.close_after_failed_reopen(thread_id).await;
+                    return Err(error.context(format!("Failed to reopen diary thread {thread_id}")));
+                }
+            }
         }
 
         let sent = self
@@ -150,7 +160,7 @@ impl PublishDiaryPostUseCase {
             .send_text_with_images(thread_id, &post.text, &post.images)
             .await;
 
-        if reopened && let Err(error) = self.discord.close_thread(thread_id).await {
+        if was_closed && let Err(error) = self.discord.close_thread(thread_id).await {
             warn!(
                 ?error,
                 thread_id, "Failed to close diary thread again after posting"
@@ -158,6 +168,20 @@ impl PublishDiaryPostUseCase {
         }
 
         sent
+    }
+
+    /// 再開に失敗した後、サーバー側で一部適用されているかもしれないクローズ状態へ戻す。
+    ///
+    /// 再開の呼び出し自体が `Ok(false)` や `Err` に終わっても、アーカイブ解除だけが
+    /// サーバーへ反映されている可能性があるため、ベストエフォートでクローズへ戻す。
+    /// 戻せなくても警告に留め、呼び出し元へは元の再開失敗のエラーを返す。
+    async fn close_after_failed_reopen(&self, thread_id: u64) {
+        if let Err(error) = self.discord.close_thread(thread_id).await {
+            warn!(
+                ?error,
+                thread_id, "Failed to close diary thread after a failed reopen"
+            );
+        }
     }
 
     /// スレッドへの投稿を記録する。
@@ -236,29 +260,6 @@ mod tests {
         diary
     }
 
-    /// 画像 1 枚のアップロードと追記に成功する NotionApi。
-    fn notion_ok() -> MockNotionApi {
-        let mut notion = MockNotionApi::new();
-        notion
-            .expect_upload_file()
-            .withf(|filename, content_type, _| {
-                filename == "location-2026-09-28.png" && content_type == "image/png"
-            })
-            .times(1)
-            .returning(|_, _, _| Ok("upload-1".to_string()));
-        notion
-            .expect_append_blocks()
-            .withf(|page_id, children| {
-                page_id == format!("page-{THREAD_ID}")
-                    && children.len() == 2
-                    && children[0]["type"] == "paragraph"
-                    && children[1]["type"] == "image"
-            })
-            .times(1)
-            .returning(|_, _| Ok(vec!["b1".to_string(), "b2".to_string()]));
-        notion
-    }
-
     fn use_case(
         diary: MockDiaryRepository,
         posts: MockDiaryPostRepository,
@@ -275,12 +276,33 @@ mod tests {
         )
     }
 
-    /// 開いているスレッドへは再開もクローズもせずに投稿し、Notion、スレッドの順に記録することを確認する。
+    /// 開いているスレッドへは再開もクローズもせずに投稿し、Notion のアップロード→追記→記録、
+    /// スレッドへの送信→記録の順に呼び出すことを確認する。
     #[tokio::test]
     async fn publish_posts_to_notion_then_thread_and_records_both() {
         let mut seq = Sequence::new();
         let mut posts = MockDiaryPostRepository::new();
         posts.expect_get().returning(|_| Ok(None));
+        let mut notion = MockNotionApi::new();
+        notion
+            .expect_upload_file()
+            .withf(|filename, content_type, _| {
+                filename == "location-2026-09-28.png" && content_type == "image/png"
+            })
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok("upload-1".to_string()));
+        notion
+            .expect_append_blocks()
+            .withf(|page_id, children| {
+                page_id == format!("page-{THREAD_ID}")
+                    && children.len() == 2
+                    && children[0]["type"] == "paragraph"
+                    && children[1]["type"] == "image"
+            })
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _| Ok(vec!["b1".to_string(), "b2".to_string()]));
         posts
             .expect_mark_notion_posted()
             .times(1)
@@ -309,12 +331,42 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(|_, _, _, _| Ok(()));
 
-        let outcome = use_case(diary_with_entry(), posts, notion_ok(), discord)
+        let outcome = use_case(diary_with_entry(), posts, notion, discord)
             .publish(post())
             .await
             .unwrap();
 
         assert_eq!(outcome, PublishOutcome::Published);
+    }
+
+    /// Notion への追記に失敗したら、スレッドには一切触れず記録もしないことを確認する。
+    ///
+    /// Notion を先に載せる設計であり、そこで失敗したままスレッドへ投稿すると、
+    /// 次回の再試行でどちらの段からやり直すべきかが曖昧になってしまうため。
+    #[tokio::test]
+    async fn publish_does_not_touch_discord_when_notion_fails() {
+        let mut posts = MockDiaryPostRepository::new();
+        posts.expect_get().returning(|_| Ok(None));
+        posts.expect_mark_notion_posted().times(0);
+        posts.expect_mark_thread_posted().times(0);
+        let mut notion = MockNotionApi::new();
+        notion
+            .expect_upload_file()
+            .times(1)
+            .returning(|_, _, _| Ok("upload-1".to_string()));
+        notion
+            .expect_append_blocks()
+            .times(1)
+            .returning(|_, _| Err(anyhow!("notion is down")));
+        let mut discord = MockDiscordGateway::new();
+        discord.expect_thread_state().times(0);
+        discord.expect_send_text_with_images().times(0);
+
+        let result = use_case(diary_with_entry(), posts, notion, discord)
+            .publish(post())
+            .await;
+
+        assert!(result.is_err());
     }
 
     /// 完了済みの記録があれば、何も載せずに AlreadyDone を返すことを確認する。
@@ -407,6 +459,7 @@ mod tests {
             .returning(|_| Ok(Some(record(true, false))));
         posts
             .expect_mark_thread_posted()
+            .times(1)
             .returning(|_, _, _, _| Ok(()));
         let mut discord = MockDiscordGateway::new();
         discord
@@ -497,20 +550,52 @@ mod tests {
         assert_eq!(outcome, PublishOutcome::Published);
     }
 
-    /// 再開できなかったときは投稿せずに失敗を返すことを確認する。
+    /// 再開が `Ok(false)` で終わったときは投稿せずにクローズへ戻し、失敗を返すことを確認する。
+    ///
+    /// 再開の呼び出しがサーバー側で部分的に適用されている (アーカイブ解除だけが反映されている等)
+    /// おそれがあるため、閉じた状態へ戻しておく必要があるため。
     #[tokio::test]
     async fn publish_fails_without_posting_when_reopen_fails() {
         let mut posts = MockDiaryPostRepository::new();
         posts
             .expect_get()
             .returning(|_| Ok(Some(record(true, false))));
+        posts.expect_mark_thread_posted().times(0);
         let mut discord = MockDiscordGateway::new();
         discord
             .expect_thread_state()
             .returning(|_| Ok(Some(thread_state(true))));
         discord.expect_reopen_thread().returning(|_| Ok(false));
         discord.expect_send_text_with_images().times(0);
-        discord.expect_close_thread().times(0);
+        discord.expect_close_thread().times(1).returning(|_| Ok(()));
+
+        let result = use_case(diary_with_entry(), posts, MockNotionApi::new(), discord)
+            .publish(post())
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    /// 再開の呼び出し自体がエラーになったときも投稿せずにクローズへ戻し、失敗を返すことを確認する。
+    ///
+    /// エラーがネットワークの見かけ上の失敗であっても、リクエスト自体はサーバーに届いていて
+    /// アーカイブ解除が反映されている場合があるため、スレッドを開いたままにしないため。
+    #[tokio::test]
+    async fn publish_closes_thread_when_reopen_errors() {
+        let mut posts = MockDiaryPostRepository::new();
+        posts
+            .expect_get()
+            .returning(|_| Ok(Some(record(true, false))));
+        posts.expect_mark_thread_posted().times(0);
+        let mut discord = MockDiscordGateway::new();
+        discord
+            .expect_thread_state()
+            .returning(|_| Ok(Some(thread_state(true))));
+        discord
+            .expect_reopen_thread()
+            .returning(|_| Err(anyhow!("discord is down")));
+        discord.expect_send_text_with_images().times(0);
+        discord.expect_close_thread().times(1).returning(|_| Ok(()));
 
         let result = use_case(diary_with_entry(), posts, MockNotionApi::new(), discord)
             .publish(post())
