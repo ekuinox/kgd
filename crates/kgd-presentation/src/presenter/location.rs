@@ -1,6 +1,6 @@
 //! 位置ログのレポートの embed と、コマンドの日付入力の解釈。
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike as _, NaiveDate, Utc};
 
 use kgd_application::LocationReport;
 use kgd_domain::{DiaryCalendar, OSM_ATTRIBUTION, format_location_report};
@@ -41,6 +41,9 @@ pub fn resolve_report_date(
     };
     let date = NaiveDate::parse_from_str(input.trim(), "%Y-%m-%d")
         .map_err(|_| ReportDateError::InvalidFormat)?;
+    if !(2000..=9999).contains(&date.year()) {
+        return Err(ReportDateError::InvalidFormat);
+    }
     if date > current {
         return Err(ReportDateError::NotStarted);
     }
@@ -132,6 +135,22 @@ mod tests {
         );
         assert_eq!(
             resolve_report_date(Some("yesterday"), &calendar(), jst(29, 9, 0)),
+            Err(ReportDateError::InvalidFormat)
+        );
+    }
+
+    /// 極端な年を弾くことを確認する。
+    ///
+    /// 範囲外の年をそのまま受け付けると、DiaryCalendar::day_range の
+    /// succ_opt().expect(...) が chrono の表現できる範囲の端でパニックしうるため。
+    #[test]
+    fn resolve_report_date_rejects_out_of_range_year() {
+        assert_eq!(
+            resolve_report_date(Some("1999-12-31"), &calendar(), jst(29, 9, 0)),
+            Err(ReportDateError::InvalidFormat)
+        );
+        assert_eq!(
+            resolve_report_date(Some("+10000-01-01"), &calendar(), jst(29, 9, 0)),
             Err(ReportDateError::InvalidFormat)
         );
     }
