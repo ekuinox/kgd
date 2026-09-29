@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use kgd_domain::{SyncMessage, ThreadState};
+use kgd_domain::{DiaryPostImage, SyncMessage, ThreadState};
 
 /// Discord への操作を抽象化するポート。
 ///
@@ -32,6 +32,14 @@ pub trait DiscordGateway: Send + Sync {
 
     /// 平文メッセージを送信し、送信したメッセージ ID を返す。
     async fn send_text(&self, channel_id: u64, content: &str) -> Result<u64>;
+
+    /// 本文と画像を添付したメッセージを送信し、メッセージ ID を返す。
+    async fn send_text_with_images(
+        &self,
+        channel_id: u64,
+        content: &str,
+        images: &[DiaryPostImage],
+    ) -> Result<u64>;
 
     /// メッセージの本文を編集する。
     async fn edit_message_content(
