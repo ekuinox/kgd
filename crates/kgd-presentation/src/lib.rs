@@ -12,4 +12,4 @@ pub use discord::{
 };
 pub use owntracks::{OwnTracksControllerSettings, owntracks_router};
 pub use presenter::VersionInfo;
-pub use viewer::ViewerSettings;
+pub use viewer::{ViewerSettings, viewer_router};
