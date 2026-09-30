@@ -3,6 +3,7 @@
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use chrono_tz::Tz;
+use ipnet::IpNet;
 
 pub(super) fn default_interval() -> Duration {
     Duration::from_secs(300) // 5 minutes
@@ -54,4 +55,15 @@ pub(super) fn default_image_size() -> u32 {
 
 pub(super) fn default_tile_cache_dir() -> PathBuf {
     PathBuf::from("/var/cache/kgd/tiles")
+}
+
+pub(super) fn default_viewer_allowed_cidrs() -> Vec<IpNet> {
+    ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
+        .iter()
+        .map(|net| net.parse().expect("default CIDR must be valid"))
+        .collect()
+}
+
+pub(super) fn default_viewer_max_track_points() -> usize {
+    20000
 }

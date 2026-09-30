@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{Context as _, Result, ensure};
 use chrono_tz::Tz;
+use ipnet::IpNet;
 use macaddr::MacAddr6;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -68,6 +69,16 @@ impl Config {
                 location.image_width,
                 location.image_height
             );
+            if let Some(viewer) = &location.viewer {
+                ensure!(
+                    viewer.max_track_points > 0,
+                    "location.viewer.max_track_points must be at least 1"
+                );
+                ensure!(
+                    !viewer.allowed_cidrs.is_empty(),
+                    "location.viewer.allowed_cidrs must not be empty"
+                );
+            }
         }
         Ok(())
     }
@@ -231,6 +242,25 @@ pub struct LocationConfig {
     /// 地図タイルのキャッシュ先（デフォルト: /var/cache/kgd/tiles）
     #[serde(default = "default_tile_cache_dir")]
     pub tile_cache_dir: PathBuf,
+    /// ブラウザで位置ログを見るビューアの設定 (省略時はビューアを無効にする)
+    #[serde(default)]
+    pub viewer: Option<ViewerConfig>,
+}
+
+/// 位置ログのビューアの設定。
+///
+/// OwnTracks の受け口と同じ待ち受けで `/viewer/` 以下に置く。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct ViewerConfig {
+    /// ビューアに届いてよい送信元（デフォルト: LAN のプライベート帯。loopback は含まない）
+    ///
+    /// 同じホストの cloudflared は 127.0.0.1 から接続してくるため、loopback を含めると
+    /// トンネル経由のリクエストを送信元では拒否できなくなる。
+    #[serde(default = "default_viewer_allowed_cidrs")]
+    pub allowed_cidrs: Vec<IpNet>,
+    /// 地図に返す軌跡の点数の上限。超えたら形を保って間引く（デフォルト: 20000）
+    #[serde(default = "default_viewer_max_track_points")]
+    pub max_track_points: usize,
 }
 
 #[cfg(test)]

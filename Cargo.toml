@@ -99,3 +99,6 @@ tower = "0.5"
 
 # Map rendering (location report)
 tiny-skia = "0.12"
+
+# CIDR (location viewer allowlist)
+ipnet = { version = "2.12", features = ["serde"] }
