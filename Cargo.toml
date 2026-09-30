@@ -102,3 +102,6 @@ tiny-skia = "0.12"
 
 # CIDR (location viewer allowlist)
 ipnet = { version = "2.12", features = ["serde"] }
+
+# JSON Schema of the viewer API (valibot schemas are generated from it)
+schemars = { version = "1.2", features = ["chrono04"] }

@@ -186,7 +186,7 @@ GET /viewer/api/history?from=2026-09-01&to=2026-09-30
     "last_at": "2026-09-30T23:58:40Z"
   },
   "days": [
-    { "date": "2026-09-01", "distance_m": 4000.0, "...": "total と同じ項目" }
+    { "date": "2026-09-01", "summary": { "distance_m": 4000.0, "...": "total と同じ項目" } }
   ],
   "track": {
     "type": "FeatureCollection",
@@ -206,7 +206,7 @@ GET /viewer/api/history?from=2026-09-01&to=2026-09-30
 - `first_at` と `last_at` は点が無ければ `null` にする
 - `days` は範囲内のすべての日を日付順に並べる
 - `track` は GeoJSON の FeatureCollection で、区間ごとに 1 つの LineString を持つ。`activity` は `walking`、`cycling`、`automotive`、`stationary`、`unknown` のいずれかである。点が 1 つだけの区間は、同じ座標を 2 つ並べた LineString にする
-- `original_points` は精度で絞った後、間引く前の点数である
+- `original_points` は精度で絞った後、間引く前の点数である (区間の境目の点は両方の区間で数える)
 
 ### エラー
 

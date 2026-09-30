@@ -5,8 +5,12 @@
 
 use ipnet::IpNet;
 
+#[allow(dead_code)] // Task 7 で API のハンドラから使う
+mod dto;
 #[allow(dead_code)] // Task 7 で viewer_router から使う
 mod guard;
+#[allow(dead_code)] // Task 7 で API のハンドラから使う
+mod presenter;
 
 /// ビューアの設定。
 #[derive(Debug, Clone)]
