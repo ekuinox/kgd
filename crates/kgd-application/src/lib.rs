@@ -3,6 +3,7 @@
 //! このクレートは serenity / sqlx / reqwest などの IO ライブラリに依存してはならない。
 //! 外部 IO はすべて [`ports`] の trait 経由で扱い、テストでは mockall のモックを使う。
 
+mod browse_location_history;
 mod build_location_report;
 mod check_server_status;
 mod daily_location_report;
@@ -19,6 +20,9 @@ mod sync_diary_message;
 mod test_support;
 mod wake_server;
 
+pub use browse_location_history::{
+    BrowseLocationHistoryUseCase, DailyLocationSummary, LocationHistory, LocationHistorySettings,
+};
 pub use build_location_report::{
     BuildLocationReportUseCase, LocationReport, LocationReportSettings,
 };
