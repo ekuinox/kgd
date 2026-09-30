@@ -304,3 +304,27 @@ async fn pub_still_accepts_loopback_requests_when_merged() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, b"[]");
 }
+
+/// OwnTracks のルータと合わせたとき、未登録のパスへの loopback からのリクエストは
+/// ガードにかからず、素の 404 のままであることを確認する。
+///
+/// `.layer` だとルータ全体のフォールバックにもガードがかかり、cloudflared が届ける
+/// `/favicon.ico` のような未登録パスまで「ビューアへの拒否」として 403 になり、
+/// 誤解を招く warn ログも出てしまうため。
+#[tokio::test]
+async fn unmatched_paths_stay_not_found_when_merged_with_owntracks() {
+    let owntracks = owntracks_router(
+        Arc::new(RecordLocationUseCase::new(Arc::new(
+            StubLocationRepository::with_points(Vec::new()),
+        ))),
+        OwnTracksControllerSettings {
+            username: "ekuinox".to_string(),
+            password: "secret".to_string(),
+        },
+    );
+    let router = owntracks.merge(viewer(StubLocationRepository::with_points(Vec::new())));
+
+    let (status, _, _) = send(router, "127.0.0.1", get("/foo")).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
