@@ -86,7 +86,7 @@ cloudflared は host ネットワークから `127.0.0.1` で kgd に接続す�
 そこで、どれか 1 つの設定を誤っても他で止まるよう、独立したガードを重ねる。
 
 1. **明示的な有効化**：`[location.viewer]` を書いたときだけビューアのルートを登録する
-2. **送信元 IP の許可リスト**：ソケットの相手アドレス (axum の `ConnectInfo<SocketAddr>`) が `allowed_cidrs` に含まれるときだけ応答する。既定値に loopback を含めないため、同じホストの cloudflared から届くリクエストはこれだけで拒否される。`X-Forwarded-For` などのヘッダは判定に使わない
+2. **送信元 IP の許可リスト**：ソケットの相手アドレス (axum の `ConnectInfo<SocketAddr>`) が `allowed_cidrs` に含まれるときだけ応答する。既定値に loopback を含めないため、同じホストの cloudflared から届くリクエストはこれだけで拒否される。`X-Forwarded-For` などのヘッダは判定に使わない。`listen` を `[::]` にしたときは IPv4 の相手が `::ffff:192.168.1.10` のような IPv4 射影アドレスで届くため、IPv4 のアドレスに戻してから照合する
 3. **Cloudflare 経由の印による拒否**：`Cf-Connecting-IP`、`Cf-Ray`、`Cdn-Loop: cloudflare` のいずれかがあれば、送信元 IP によらず拒否する。これらは Cloudflare のエッジが付与し、インターネット側の利用者には取り除けない。cloudflared が別のホストへ移り、送信元が LAN のアドレスになってもトンネル経由のリクエストを止められる
 4. **cloudflared のパスの許可リスト**：`owntracks.` のホスト名の ingress に `path: ^/(pub|healthz)$` を付け、それ以外のパスを 404 にする。拒否リストではなく許可リストにするため、ビューアのパスが増えても cloudflared の設定を直す必要が無い
 5. **公開状態の確認コマンド**：`just check-exposure <URL>` で、外から `/viewer/` と `/viewer/api/history` が 404 か 403 になること、`/healthz` が 200 になることを確かめる。デプロイの後に実行する
@@ -153,7 +153,7 @@ Douglas-Peucker 法は許容する誤差を指定する方式であり、点数�
 - **ガードの判定**：送信元のアドレス、Cloudflare の印の有無、許可リストから、通すか拒否の理由を返す純粋関数として切り出す
 - **API のハンドラ**：クエリを検証してユースケースを呼び、結果を Presenter で DTO にする
 - **DTO と Presenter**：応答の型に `#[derive(Serialize, JsonSchema)]` を付ける。schemars への依存は kgd-presentation に閉じ、domain と application には持ち込まない
-- **画面の配信**：rust-embed で `web/dist` を埋め込み、`/viewer/` 以下のパスで返す。該当するファイルが無いパスには `index.html` を返す。`web/dist` が無い状態でビルドした場合は「画面が未ビルドです」のページだけを返す
+- **画面の配信**：rust-embed で `web/dist` を埋め込み、`/viewer/` 以下のパスで返す。`/viewer/api/` 以外で該当するファイルが無いパスには `index.html` を返す。`/viewer/api/` 以下の未知のパスは JSON の 404 にする。API のパスの誤りが HTML の 200 として返り、画面側で原因のわかりにくいスキーマ検証のエラーになるのを避けるためである。`web/dist` が無い状態でビルドした場合は「画面が未ビルドです」のページだけを返す
 
 ### kgd (bootstrap)
 
@@ -324,7 +324,8 @@ COPY web/ ./
 RUN aube run build
 ```
 
-builder の段では、`cargo build` の前に `COPY --from=web /web/dist web/dist` を行う。
+builder の段では、`cargo build` の前に `COPY --from=web /web/dist web/dist` を行い、続けて `RUN test -f web/dist/index.html` で画面のビルド結果があることを確かめる。
+rust-embed はフォルダが無くてもビルドを通すため、この確認が無いと、段の順序の誤りなどで画面を含まないイメージができても気づけない。
 実行用のイメージ (`runtime-base`) は変えず、Node は含めない。
 `.dockerignore` に `web/node_modules` と `web/dist` を足す。
 
@@ -377,13 +378,14 @@ mise で Node と aube を入れ、`aube ci`、型チェック、lint、テス�
 
 ### kgd-presentation
 
-- ガードの判定関数を、送信元のアドレスと Cloudflare の印の組み合わせの表でテストする
+- ガードの判定関数を、送信元のアドレスと Cloudflare の印の組み合わせの表でテストする。IPv4 射影アドレスで届いた LAN の相手を通すことも含める
 - ルータのテストでは、axum の `MockConnectInfo` で送信元を差し替え、次を確かめる
   - loopback からのリクエストは 403
   - LAN のアドレスでも Cloudflare の印があれば 403
   - LAN のアドレスからは 200
   - `/pub` はこれまでどおり `127.0.0.1` から Basic 認証で通る
   - `/viewer/` 以下の未知のパスに `index.html` を返す
+  - `/viewer/api/` 以下の未知のパスは JSON の 404
   - 日付の形式が不正なら 400
   - 画面が未ビルドのときは案内のページを返す
 - `schema.json` のスナップショットの一致
@@ -405,12 +407,14 @@ Vitest で、スキーマの変換 (対応する各キーワードと、未対�
 - 期間の長さに上限は無い。間引く前の点をすべてメモリに読むため、1 年ぶん (約 40 万点) で数十 MB 程度を見込む。数年ぶんを選ぶと重くなる可能性があり、問題になった時点で対処する
 - OpenFreeMap の提供が止まると地図の背景が表示されなくなる。軌跡と集計は表示される
 - 0 時をまたぐ 2 点の間隔は、どちらの日の集計にも数えない
+- ガード 2 と 3 は、前に立つのが cloudflared であることを前提にしている。Cloudflare 以外のリバースプロキシ (将来の aoi の一元管理の入口や、Docker のブリッジネットワーク上のコンテナなど) を kgd の前に置くと、送信元はプライベートなアドレスになり Cloudflare の印も付かないため、ビューアに認証なしで届く。既定の `172.16.0.0/12` は Docker のブリッジの範囲も含む。そのような入口を置くときは、許可リストをその入口だけに絞って入口側で認証するか、kgd 側に認証を足すかを改めて決める
+- 「今日」などの範囲のボタンは、ブラウザの現地の日付で計算する。サーバーは日付を `diary.timezone` で解釈するため、ブラウザと `diary.timezone` のタイムゾーンが違うと 1 日ずれる。今は両方とも日本時間なので対処しない
 
 ## 実装時に確認する事項
 
 設計時点で一次資料を確認できていないため、実装の最初に確かめる。
 
-- aube を Docker の段に入れる方法 (npm パッケージか mise か) と、linux/arm64 で動くこと
+- aube を Docker の段に入れる方法と、linux/arm64 で動くこと。aube のプロジェクト自身のインストール手順で確かめる。npm 上の同名に見えるパッケージが本物かは確かめられていないため、確認できるまではリポジトリで既に使っている mise で入れる方法を優先する
 - rust-embed で、埋め込むフォルダが無いときにビルドを失敗させない方法 (`allow_missing` のような指定の有無)
 - OpenFreeMap の利用条件と、日本の地名の表示言語
 - cloudflared の ingress の `path` の書式
