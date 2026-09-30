@@ -328,3 +328,65 @@ async fn unmatched_paths_stay_not_found_when_merged_with_owntracks() {
 
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// `/viewer` は `/viewer/` へ転送することを確認する。
+///
+/// Vite の `base` が `/viewer/` のため、末尾のスラッシュが無いと相対パスの読み込みがずれる。
+#[tokio::test]
+async fn viewer_without_trailing_slash_redirects() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+    let response = router
+        .layer(MockConnectInfo(SocketAddr::new(
+            "192.168.1.10".parse().unwrap(),
+            50000,
+        )))
+        .oneshot(get("/viewer"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(response.headers()[header::LOCATION], "/viewer/");
+}
+
+/// 画面のパスには、ビルド済みなら index.html を、未ビルドなら案内のページを HTML で返すことを確認する。
+///
+/// `web/dist` の有無は実行環境によって違うため、どちらでも HTML が返ることだけを確かめる。
+#[tokio::test]
+async fn viewer_pages_return_html() {
+    for uri in ["/viewer/", "/viewer/some/page"] {
+        let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+        let (status, _, content_type) = send(router, "192.168.1.10", get(uri)).await;
+
+        assert!(
+            status == StatusCode::OK || status == StatusCode::SERVICE_UNAVAILABLE,
+            "{uri}: {status}"
+        );
+        assert!(
+            content_type.is_some_and(|value| value.starts_with("text/html")),
+            "{uri}"
+        );
+    }
+}
+
+/// 画面のパスにもガードがかかることを確認する。
+#[tokio::test]
+async fn viewer_pages_reject_loopback_peers() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, _, _) = send(router, "127.0.0.1", get("/viewer/")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// 画面を配信するルートを足しても、`/viewer/api/` 以下の未知のパスは JSON の 404 のままであることを確認する。
+#[tokio::test]
+async fn unknown_api_paths_are_not_served_as_pages() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, _, content_type) =
+        send(router, "192.168.1.10", get("/viewer/api/nested/unknown")).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(content_type.as_deref(), Some("application/json"));
+}

@@ -14,6 +14,7 @@ use ipnet::IpNet;
 use kgd_application::BrowseLocationHistoryUseCase;
 
 mod api;
+mod assets;
 mod dto;
 mod guard;
 mod presenter;
@@ -30,8 +31,8 @@ pub struct ViewerSettings {
 
 /// ビューアのルータを組み立てる。
 ///
-/// ガードはこのルータに登録したルート (`/viewer/api/...`) にだけかかる。`.route_layer`
-/// を使うため、フォールバック (未登録のパス全般) には影響しない。OwnTracks のルータへ
+/// ガードはこのルータに登録したルート (`/viewer` および `/viewer/...`) にだけかかる。
+/// `.route_layer` を使うため、フォールバック (未登録のパス全般) には影響しない。OwnTracks のルータへ
 /// merge すると、そのルータのフォールバック (通常は素の 404) が全体のフォールバックに
 /// なるが、ここにガードはかからない。送信元を取るため、サーバーは
 /// `into_make_service_with_connect_info::<SocketAddr>()` で起動すること。
@@ -41,6 +42,9 @@ pub fn viewer_router(
 ) -> Router {
     let allowed: Arc<[IpNet]> = settings.allowed_cidrs.into();
     Router::new()
+        .route("/viewer", get(assets::redirect_to_index))
+        .route("/viewer/", get(assets::handle_index))
+        .route("/viewer/{*path}", get(assets::handle_asset))
         .route("/viewer/api/history", get(api::handle_history))
         .route("/viewer/api/{*rest}", any(api::handle_not_found))
         .with_state(use_case)
