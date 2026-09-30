@@ -4,6 +4,7 @@
 mod discord;
 mod owntracks;
 mod presenter;
+mod viewer;
 
 pub use discord::{
     DiscordController, DiscordControllerSettings, LocationReportCommand, StatusNotifier,
@@ -11,3 +12,4 @@ pub use discord::{
 };
 pub use owntracks::{OwnTracksControllerSettings, owntracks_router};
 pub use presenter::VersionInfo;
+pub use viewer::ViewerSettings;

@@ -2019,6 +2019,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "humantime",
+ "ipnet",
  "kgd-application",
  "kgd-domain",
  "kgd-infrastructure",
