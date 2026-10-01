@@ -6,7 +6,8 @@ export default defineConfig({
   base: '/viewer/',
   plugins: [react()],
   server: {
-    // 開発中は API を手元の kgd へ流す。kgd の allowed_cidrs に 127.0.0.1/32 を足しておくこと
+    // 開発中は API を手元の kgd へ流す。kgd の allowed_cidrs に 127.0.0.1/32 を、
+    // allowed_hosts に localhost を足しておくこと (Host は localhost:5173 のまま届く)
     proxy: { '/viewer/api': 'http://127.0.0.1:8081' },
   },
   build: {
