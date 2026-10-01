@@ -84,6 +84,11 @@ web-build:
 web-check:
     cd web && aube run typecheck && aube run lint && aube run test
 
+# Regenerate the viewer API schemas (Rust DTO -> web/src/api/schema.json -> schema.gen.ts)
+gen-api:
+    UPDATE_API_SCHEMA=1 cargo test -p kgd-presentation viewer::dto
+    cd web && aube run gen
+
 # Clean build artifacts
 clean:
     @echo "Cleaning build artifacts..."
