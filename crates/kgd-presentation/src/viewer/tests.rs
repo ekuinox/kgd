@@ -146,6 +146,20 @@ fn get_with_host(uri: &str, host: Option<&str>) -> Request<Body> {
     builder.body(Body::empty()).unwrap()
 }
 
+/// OwnTracks のルータにビューアのルータを merge した、本番と同じ形のルータを作る。
+fn merged(repo: StubLocationRepository) -> Router {
+    let owntracks = owntracks_router(
+        Arc::new(RecordLocationUseCase::new(Arc::new(
+            StubLocationRepository::with_points(Vec::new()),
+        ))),
+        OwnTracksControllerSettings {
+            username: "ekuinox".to_string(),
+            password: "secret".to_string(),
+        },
+    );
+    owntracks.merge(viewer(repo))
+}
+
 fn json(body: &[u8]) -> Value {
     serde_json::from_slice(body).expect("body should be JSON")
 }
@@ -257,6 +271,38 @@ async fn history_rejects_ranges_longer_than_ten_years() {
     assert!(ranges.lock().unwrap().is_empty());
 }
 
+/// 10 年ちょうど (3659 日の差) の範囲は受け付けることを確認する。
+#[tokio::test]
+async fn history_accepts_ranges_of_exactly_ten_years() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, _, _) = send(
+        router,
+        "192.168.1.10",
+        get("/viewer/api/history?from=2016-01-01&to=2026-01-07"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// 開始日と終了日の差が 3660 日になると 400 を返すことを確認する。
+#[tokio::test]
+async fn history_rejects_ranges_one_day_over_ten_years() {
+    let repo = StubLocationRepository::with_points(Vec::new());
+    let ranges = repo.ranges.clone();
+
+    let (status, _, _) = send(
+        viewer(repo),
+        "192.168.1.10",
+        get("/viewer/api/history?from=2016-01-01&to=2026-01-08"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(ranges.lock().unwrap().is_empty());
+}
+
 /// 年が 1 から 9999 の外にある日付は、リポジトリを読まずに 400 を返すことを確認する。
 ///
 /// chrono で表せる端の日付は、翌日や前日の 0 時を求める段でパニックを起こすため。
@@ -324,16 +370,7 @@ async fn unknown_api_paths_return_json_not_found() {
 /// cloudflared は loopback から届くため、ガードを `/pub` にかけると位置の受信が止まる。
 #[tokio::test]
 async fn pub_still_accepts_loopback_requests_when_merged() {
-    let owntracks = owntracks_router(
-        Arc::new(RecordLocationUseCase::new(Arc::new(
-            StubLocationRepository::with_points(Vec::new()),
-        ))),
-        OwnTracksControllerSettings {
-            username: "ekuinox".to_string(),
-            password: "secret".to_string(),
-        },
-    );
-    let router = owntracks.merge(viewer(StubLocationRepository::with_points(Vec::new())));
+    let router = merged(StubLocationRepository::with_points(Vec::new()));
     let request = Request::builder()
         .method("POST")
         .uri("/pub")
@@ -359,20 +396,30 @@ async fn pub_still_accepts_loopback_requests_when_merged() {
 /// 誤解を招く warn ログも出てしまうため。
 #[tokio::test]
 async fn unmatched_paths_stay_not_found_when_merged_with_owntracks() {
-    let owntracks = owntracks_router(
-        Arc::new(RecordLocationUseCase::new(Arc::new(
-            StubLocationRepository::with_points(Vec::new()),
-        ))),
-        OwnTracksControllerSettings {
-            username: "ekuinox".to_string(),
-            password: "secret".to_string(),
-        },
-    );
-    let router = owntracks.merge(viewer(StubLocationRepository::with_points(Vec::new())));
+    let router = merged(StubLocationRepository::with_points(Vec::new()));
 
     let (status, _, _) = send(router, "127.0.0.1", get("/foo")).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// OwnTracks のルータと合わせた本番と同じ形でも、loopback からのビューアの API は 403 になることを確認する。
+///
+/// merge の後でもガードがビューアのルートにかかっていることを、本番の組み立て方で確かめるため。
+#[tokio::test]
+async fn history_rejects_loopback_peers_when_merged_with_owntracks() {
+    let repo = StubLocationRepository::with_points(Vec::new());
+    let ranges = repo.ranges.clone();
+
+    let (status, _, _) = send(
+        merged(repo),
+        "127.0.0.1",
+        get("/viewer/api/history?from=2026-09-01&to=2026-09-01"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(ranges.lock().unwrap().is_empty());
 }
 
 /// LAN の送信元でも、Host が許可していない名前なら拒否し、リポジトリを読まないことを確認する。
