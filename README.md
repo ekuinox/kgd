@@ -97,11 +97,15 @@ just run import-owntracks /path/to/location-logs/
 [location.viewer]
 # ビューアに届いてよい送信元 (省略時: LAN のプライベート帯。loopback は含まない)
 allowed_cidrs = ["192.168.0.0/16"]
+# IP アドレス以外で Host に来てよい名前 (省略時: 空。IP アドレスで開くなら不要)
+allowed_hosts = ["aoi.local"]
 # 地図に返す軌跡の点数の上限 (省略時: 20000)
 max_track_points = 20000
 ```
 
 ビューアにはログインが無い。代わりに、送信元が `allowed_cidrs` に無いリクエストと、Cloudflare を経由したリクエスト (`Cf-Connecting-IP` などのヘッダを持つもの) を 403 で拒否する。同じホストの cloudflared は 127.0.0.1 から接続してくるため、本番では `allowed_cidrs` に loopback を入れないこと。
+
+DNS rebinding (攻撃者のページが自分の名前を kgd の LAN のアドレスへ向け直し、LAN のブラウザに API を読ませる攻撃) を防ぐため、`Host` が IP アドレスでも `allowed_hosts` にある名前でもないリクエストも 403 で拒否する。`http://192.168.1.5:8081/viewer/` のように IP アドレスで開くなら何も書かなくてよい。`http://aoi.local:8081/viewer/` のように名前で開くなら、その名前をポート無しで `allowed_hosts` に書く (大文字小文字と末尾のドットは区別しない)。
 
 有効にする手順は次のとおり。順番を守ると、途中でビューアがインターネットに出ることが無い。
 
@@ -120,7 +124,7 @@ just web-check     # 型チェック、lint、テスト
 just gen-api       # Rust の API の型を変えたら、画面側のスキーマを作り直す
 ```
 
-開発サーバーからのプロキシは 127.0.0.1 から届くため、手元の `config.toml` でだけ `allowed_cidrs` に `"127.0.0.1/32"` を足す。
+開発サーバーからのプロキシは 127.0.0.1 から届き、`Host` は `localhost:5173` のまま渡すため、手元の `config.toml` でだけ `allowed_cidrs` に `"127.0.0.1/32"` を、`allowed_hosts` に `"localhost"` を足す。
 
 ## テストカバレッジ
 

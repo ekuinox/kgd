@@ -146,13 +146,21 @@ write_channel_id = 123456789012345678
 
 # Browser viewer for location history, served at http://<host>:<listen port>/viewer/
 # Omit this section to disable the viewer.
-# The viewer has no login. It is protected by the source address allowlist below and
-# by rejecting requests that came through Cloudflare (Cf-Connecting-IP / Cf-Ray / Cdn-Loop).
+# The viewer has no login. It is protected by the source address allowlist below, by
+# rejecting requests that came through Cloudflare (Cf-Connecting-IP / Cf-Ray / Cdn-Loop),
+# and by the Host allowlist below (against DNS rebinding).
 # Also restrict the cloudflared ingress for the OwnTracks hostname to ^/(pub|healthz)$.
 # [location.viewer]
 # Source networks allowed to reach the viewer (default: private LAN ranges, loopback excluded)
 # A local cloudflared connects from 127.0.0.1, so do not add loopback in production.
 # For local development through the Vite dev server proxy, add "127.0.0.1/32".
 # allowed_cidrs = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
+# Host names (without port) allowed in the Host header (default: none)
+# Opening the viewer by IP address (http://192.168.1.5:8081/viewer/) needs nothing here.
+# Opening it by name (http://aoi.local:8081/viewer/) requires listing that name.
+# Other names are rejected so that a malicious page cannot reach the viewer through
+# DNS rebinding. Names are compared case-insensitively, ignoring a trailing dot.
+# For local development through the Vite dev server proxy, add "localhost".
+# allowed_hosts = ["aoi.local"]
 # Maximum number of track points returned to the map. Longer tracks are simplified (default: 20000)
 # max_track_points = 20000

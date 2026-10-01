@@ -161,7 +161,7 @@ DTO から schemars で `web/src/api/schema.json` を書き出し、自前の変
 型を変えたら `just gen-api` で両方を作り直す。
 生成し忘れは、Rust のテストと CI の web ジョブがそれぞれ検出する。
 
-ビューアは OwnTracks の受け口と同じ待ち受けに置き、ログインの代わりに送信元の許可リストと Cloudflare 経由の印で守る ([ADR-0013](adr/0013-guard-viewer-sharing-the-owntracks-listener.md))。
+ビューアは OwnTracks の受け口と同じ待ち受けに置き、ログインの代わりに Cloudflare 経由の印、送信元の許可リスト、`Host` の許可リスト (DNS rebinding の対策) で守る ([ADR-0013](adr/0013-guard-viewer-sharing-the-owntracks-listener.md))。
 
 ```mermaid
 sequenceDiagram
@@ -172,7 +172,7 @@ sequenceDiagram
     participant R as LocationRepository
 
     B->>G: GET /viewer/api/history?from&to
-    G->>G: 送信元の許可リスト / Cloudflare の印
+    G->>G: Cloudflare の印 / 送信元の許可リスト / Host の許可リスト
     G->>A: 通す
     A->>U: browse(from, to)
     U->>R: locations_between (1 回)

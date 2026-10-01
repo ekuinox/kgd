@@ -30,13 +30,20 @@ OwnTracks の受け口 (`[location] listen`、既定 8081) は cloudflared を�
 3. `Cf-Connecting-IP`、`Cf-Ray`、`Cdn-Loop: cloudflare` のいずれかがあれば拒否する。
    Cloudflare のエッジが付与するヘッダで、インターネット側の利用者には取り除けないため、
    cloudflared が別のホストへ移ってもトンネル経由のリクエストを止められる
-4. cloudflared の ingress で、OwnTracks のホスト名に `path: ^/(pub|healthz)$` を付ける
-5. `just check-exposure` で、デプロイ後に外から `/viewer/` が見えないことを確かめる
+4. `Host` (HTTP/2 では URI の authority) からポートを除いた部分が、IP アドレスか `allowed_hosts` にある名前のときだけ応答する。
+   `Host` が無いか形が不正なら拒否する。
+   ブラウザが攻撃者の名前を IP アドレスの形で送ることは無いため、IP アドレスは名前の許可リストと照合しない
+5. cloudflared の ingress で、OwnTracks のホスト名に `path: ^/(pub|healthz)$` を付ける
+6. `just check-exposure` で、デプロイ後に外から `/viewer/` が見えないことを確かめる
 
-ガード 2 と 3 はビューアのルートだけにかけ、`/pub` と `/healthz` には影響させない。
+ガード 2 から 4 はビューアのルートだけにかけ、`/pub` と `/healthz` には影響させない。
+ガードは Cloudflare の印、送信元、`Host` の順に調べ、すべてを満たすときだけ通す。
 axum の `route_layer` でかけるため、OwnTracks のルータと merge しても、どのルートにも一致しないパスは素の 404 のままになる。
 
 ## 結果
+
+ガード 4 により、攻撃者の名前を LAN のアドレスへ向け直す DNS rebinding で、LAN のブラウザにビューアの API を読ませることはできない。
+名前でビューアを開くときは、その名前を `allowed_hosts` に書く必要がある。
 
 ガード 2 と 3 は、前に立つのが cloudflared であることを前提にしている。
 Cloudflare 以外のリバースプロキシ (aoi の Web サーバーを一元管理する入口や、Docker の
@@ -49,3 +56,4 @@ Cloudflare の印も付かないため、ビューアに認証なしで届く。
 
 手元で Vite の開発サーバーからプロキシするときは、手元の設定でだけ `allowed_cidrs` に
 `127.0.0.1/32` を足す。loopback を含む許可リストで起動すると、kgd は警告のログを出す。
+プロキシは `Host` を `localhost:5173` のまま渡すため、`allowed_hosts` にも `localhost` を足す。

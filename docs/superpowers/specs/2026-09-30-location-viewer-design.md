@@ -30,7 +30,7 @@ OwnTracks の位置情報は #88 で kgd が受信して PostgreSQL に保存し
 | 項目 | 決定 |
 |---|---|
 | アクセス | LAN のみ。OwnTracks の受け口 (`[location] listen`、既定 8081) と同じ待ち受けに同居させ、`/viewer/` の下に置く |
-| 保護 | 5 つの独立したガードを重ねる (「アクセスの保護」を参照) |
+| 保護 | 6 つの独立したガードを重ねる (「アクセスの保護」を参照) |
 | 画面 | React、Vite、TypeScript。パッケージマネージャーは aube |
 | 配布 | Dockerfile のビルド専用の Node の段でビルドし、rust-embed でバイナリに埋め込む |
 | 地図 | MapLibre GL JS と `@vis.gl/react-maplibre`。タイルは OpenFreeMap のベクタータイルをブラウザから直接取得する |
@@ -64,6 +64,8 @@ bootstrap がビューアのルータを OwnTracks のルータへ merge する�
 [location.viewer]
 # ビューアに届いてよい送信元。既定は LAN のプライベート帯で、loopback は含まない
 # allowed_cidrs = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
+# IP アドレス以外で Host に来てよい名前。既定は空で、IP アドレスで開くときだけ通す
+# allowed_hosts = ["aoi.local"]
 # 地図に返す軌跡の点数の上限。超えたら形を保って間引く
 # max_track_points = 20000
 ```
@@ -74,6 +76,12 @@ kgd を更新しただけでビューアが動き出すことは無い。
 
 待ち受けのアドレスは `[location] listen` を共有する。
 精度のしきい値は `[location] max_accuracy_m` を、タイムゾーンは `diary.timezone` を使う。
+
+`allowed_hosts` は名前で開くときだけ書く。
+`http://192.168.1.5:8081/viewer/` のように IP アドレスで開くなら何も書かなくてよい。
+`http://aoi.local:8081/viewer/` のように名前で開くなら、その名前 (`aoi.local`) を書く。
+ポートは書かず、大文字小文字と末尾のドットは区別しない。
+空の名前と、`:` か `/` を含む名前は起動時の検証で弾く。
 
 `max_track_points` の既定値 20000 は、1 日に 1000 点ほど記録されている現状で、およそ 20 日ぶんにあたる。
 
@@ -88,13 +96,21 @@ cloudflared は host ネットワークから `127.0.0.1` で kgd に接続す�
 1. **明示的な有効化**：`[location.viewer]` を書いたときだけビューアのルートを登録する
 2. **送信元 IP の許可リスト**：ソケットの相手アドレス (axum の `ConnectInfo<SocketAddr>`) が `allowed_cidrs` に含まれるときだけ応答する。既定値に loopback を含めないため、同じホストの cloudflared から届くリクエストはこれだけで拒否される。`X-Forwarded-For` などのヘッダは判定に使わない。`listen` を `[::]` にしたときは IPv4 の相手が `::ffff:192.168.1.10` のような IPv4 射影アドレスで届くため、IPv4 のアドレスに戻してから照合する
 3. **Cloudflare 経由の印による拒否**：`Cf-Connecting-IP`、`Cf-Ray`、`Cdn-Loop: cloudflare` のいずれかがあれば、送信元 IP によらず拒否する。これらは Cloudflare のエッジが付与し、インターネット側の利用者には取り除けない。cloudflared が別のホストへ移り、送信元が LAN のアドレスになってもトンネル経由のリクエストを止められる
-4. **cloudflared のパスの許可リスト**：`owntracks.` のホスト名の ingress に `path: ^/(pub|healthz)$` を付け、それ以外のパスを 404 にする。拒否リストではなく許可リストにするため、ビューアのパスが増えても cloudflared の設定を直す必要が無い
-5. **公開状態の確認コマンド**：`just check-exposure <URL>` で、外から `/viewer/` と `/viewer/api/history` が 404 か 403 になること、`/healthz` が 200 になることを確かめる。デプロイの後に実行する
+4. **Host の許可リスト**：`Host` ヘッダ (HTTP/2 では URI の authority) からポートを除いた部分が、IP アドレスか `allowed_hosts` にある名前のときだけ応答する。`Host` が無いか形が不正なら拒否する
+5. **cloudflared のパスの許可リスト**：`owntracks.` のホスト名の ingress に `path: ^/(pub|healthz)$` を付け、それ以外のパスを 404 にする。拒否リストではなく許可リストにするため、ビューアのパスが増えても cloudflared の設定を直す必要が無い
+6. **公開状態の確認コマンド**：`just check-exposure <URL>` で、外から `/viewer/` と `/viewer/api/history` が 404 か 403 になること、`/healthz` が 200 になることを確かめる。デプロイの後に実行する
 
-ガード 2 と 3 はビューアのルートだけにかける。
+ガード 4 は DNS rebinding を防ぐためにある。
+LAN の端末のブラウザで攻撃者のページを開くと、攻撃者は自分の名前 (`attacker.example`) を aoi の LAN のアドレスへ向け直せる。
+するとブラウザは `http://attacker.example:8081/viewer/api/history` を同じオリジンとして読み、送信元は LAN のアドレスで Cloudflare の印も付かないため、ガード 2 と 3 を通ってしまう。
+このとき `Host` には攻撃者の名前が入るため、名前を許可リストで絞れば止められる。
+ブラウザが攻撃者の名前を IP アドレスの形で送ることは無いため、IP アドレスの `Host` は名前の許可リストと照合せずに通す。
+
+ガードは Cloudflare の印、送信元、`Host` の順に調べ、すべてを満たすときだけ通す。
+ガード 2 から 4 はビューアのルートだけにかける。
 `/pub` と `/healthz` はこれまでどおり cloudflared 経由で届き、`/pub` は既存の Basic 認証で守る。
 
-拒否したときは 403 を返し、拒否の理由 (許可リスト外、Cloudflare の印) と送信元を warn のログに残す。
+拒否したときは 403 を返し、拒否の理由 (許可リスト外、Cloudflare の印、許可していない `Host`) と送信元と `Host` を warn のログに残す。
 
 ガード 2 と 3 は、将来 Cloudflare Access を前に立ててトンネルから公開したくなったときにも公開を止める。
 これは意図した挙動であり、公開するときは設定を明示的に変え、同時にオリジン側での Access の JWT 検証を足す。
@@ -212,7 +228,7 @@ GET /viewer/api/history?from=2026-09-01&to=2026-09-30
 
 | 状況 | 応答 |
 |---|---|
-| 日付の形式が不正、または `from` が `to` より後、または 10 年 (3660 日) を超える範囲 | 400、`{ "error": "<理由>" }` |
+| 日付の形式が不正、年が 1 から 9999 の外、`from` が `to` より後、または 10 年 (3660 日) を超える範囲 | 400、`{ "error": "<理由>" }` |
 | DB のエラー | 500、`{ "error": "internal error" }`。詳細は error のログにだけ残す |
 | 範囲に点が無い | 200。`days` は集計が 0 の日を並べ、`track` は空の FeatureCollection にする |
 | ガードで拒否 | 403 |
@@ -294,6 +310,7 @@ MapLibre GL JS を `@vis.gl/react-maplibre` から使い、OpenFreeMap のスタ
 データの取得は、fetch と valibot の `parse` を包んだ自前のフックで行う。
 期間を変えたら、前のリクエストを AbortController で取り消す。
 取得の失敗やスキーマに合わない応答は画面にエラーとして表示し、詳細をコンソールに出す。
+読み込み中は直前の期間の結果を残すが、取得に失敗したら結果を消し、前の期間の地図や集計を新しい期間の下に出さない。
 TanStack Query のようなライブラリは使わない。
 
 ### 道具
@@ -337,6 +354,7 @@ rust-embed はフォルダが無くてもビルドを通すため、この確認
 
 Vite の開発サーバーからのプロキシは `127.0.0.1` から届くため、既定の許可リストでは 403 になる。
 手元の `config.toml` でだけ `allowed_cidrs` に `127.0.0.1/32` を足す。
+プロキシは `Host` を `localhost:5173` のまま渡すため、`allowed_hosts` にも `localhost` を足す。
 `config.example.toml` にこの旨を書く。
 Cloudflare の印による拒否は開発中も有効である。
 
@@ -379,9 +397,11 @@ mise で Node と aube を入れ、`aube ci`、型チェック、lint、テス�
 ### kgd-presentation
 
 - ガードの判定関数を、送信元のアドレスと Cloudflare の印の組み合わせの表でテストする。IPv4 射影アドレスで届いた LAN の相手を通すことも含める
+- `Host` の判定関数を、IP アドレス (IPv4、角括弧付きの IPv6、ポートの有無)、許可した名前 (大文字小文字、末尾のドット、ポート)、未知の名前、`Host` が無い場合の表でテストする
 - ルータのテストでは、axum の `MockConnectInfo` で送信元を差し替え、次を確かめる
   - loopback からのリクエストは 403
   - LAN のアドレスでも Cloudflare の印があれば 403
+  - LAN のアドレスでも `Host` が許可していない名前か、`Host` が無ければ 403
   - LAN のアドレスからは 200
   - `/pub` はこれまでどおり `127.0.0.1` から Basic 認証で通る
   - `/viewer/` 以下の未知のパスに `index.html` を返す
