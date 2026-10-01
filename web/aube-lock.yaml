@@ -11,6 +11,9 @@ importers:
       '@daypicker/react':
         specifier: ^10.0.2
         version: 10.0.2(@types/react@19.3.0)(react@19.3.0)
+      '@maplibre/maplibre-gl-style-spec':
+        specifier: ^26.4.4
+        version: 26.4.4
       '@vis.gl/react-maplibre':
         specifier: ^8.1.3
         version: 8.1.3(maplibre-gl@6.11.2)(react@19.3.0)(react-dom@19.3.0(react@19.3.0))
