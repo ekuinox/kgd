@@ -257,6 +257,37 @@ async fn history_rejects_ranges_longer_than_ten_years() {
     assert!(ranges.lock().unwrap().is_empty());
 }
 
+/// 年が 1 から 9999 の外にある日付は、リポジトリを読まずに 400 を返すことを確認する。
+///
+/// chrono で表せる端の日付は、翌日や前日の 0 時を求める段でパニックを起こすため。
+#[tokio::test]
+async fn history_rejects_years_out_of_range() {
+    for (from, to) in [
+        ("%2B262142-12-31", "%2B262142-12-31"),
+        ("-262143-01-01", "-262143-01-01"),
+        ("0000-12-31", "0000-12-31"),
+        ("%2B10000-01-01", "%2B10000-01-01"),
+    ] {
+        let repo = StubLocationRepository::with_points(Vec::new());
+        let ranges = repo.ranges.clone();
+
+        let (status, body, _) = send(
+            viewer(repo),
+            "192.168.1.10",
+            get(&format!("/viewer/api/history?from={from}&to={to}")),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{from}..{to}");
+        assert!(
+            json(&body)["error"].as_str().unwrap().contains("year"),
+            "{from}..{to}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        assert!(ranges.lock().unwrap().is_empty(), "{from}..{to}");
+    }
+}
+
 /// リポジトリが失敗したら、中身を出さずに 500 と `internal error` を返すことを確認する。
 #[tokio::test]
 async fn history_hides_repository_errors() {

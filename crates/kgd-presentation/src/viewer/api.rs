@@ -1,6 +1,6 @@
 //! `/viewer/api/` 以下のハンドラ。
 
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use axum::{
     Json,
@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use chrono::Datelike as _;
 use tracing::error;
 
 use kgd_application::BrowseLocationHistoryUseCase;
@@ -23,6 +24,12 @@ use super::{
 /// 日ごとの集計を作らないよう、10 年を超える範囲だけは拒否する。
 const MAX_RANGE_DAYS: i64 = 3660;
 
+/// 受け付ける日付の年の範囲。
+///
+/// chrono で表せる端の日付では、翌日や前日の 0 時を求める段でパニックが起きる。
+/// 実際の記録が入りうる年に絞り、その手前で 400 にする。
+const YEAR_RANGE: RangeInclusive<i32> = 1..=9999;
+
 /// `GET /viewer/api/history`。期間の集計と地図用の軌跡を返す。
 pub(super) async fn handle_history(
     State(use_case): State<Arc<BrowseLocationHistoryUseCase>>,
@@ -32,6 +39,16 @@ pub(super) async fn handle_history(
         Ok(query) => query,
         Err(rejection) => return error_response(StatusCode::BAD_REQUEST, rejection.body_text()),
     };
+    if !YEAR_RANGE.contains(&query.from.year()) || !YEAR_RANGE.contains(&query.to.year()) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "the year must be in {}-{}",
+                YEAR_RANGE.start(),
+                YEAR_RANGE.end()
+            ),
+        );
+    }
     if query.from > query.to {
         return error_response(
             StatusCode::BAD_REQUEST,
