@@ -11,7 +11,7 @@ kgd はクリーンアーキテクチャに沿って、ワークスペースを�
 graph TD
     subgraph outer["外側 (フレームワーク・IO)"]
         BIN["kgd (binary)<br>main / config / version /<br>bootstrap (Composition Root)"]
-        PRES["kgd-presentation<br>Controller (DiscordController / owntracks_router) / Presenter"]
+        PRES["kgd-presentation<br>Controller (DiscordController / owntracks_router / viewer_router) / Presenter"]
         INFRA["kgd-infrastructure<br>ポートの実装 (アダプタ)<br>serenity / sqlx / reqwest / notion-client"]
     end
     APP["kgd-application<br>ユースケース / ポート (trait) / 入出力 DTO"]
@@ -40,7 +40,7 @@ graph TD
 | kgd-domain | エンティティ (DiaryEntry, SyncMessage など)、純粋関数 (URL 解析、OGP 解析、自動クローズ判定、転記本文の組み立て) | IO ライブラリへの依存すべて (serenity / sqlx / reqwest / tokio) |
 | kgd-application | ユースケース (Interactor)、ポート (trait)、設定 DTO、ScheduledJob | ポートの実装、serenity / sqlx / reqwest への依存 |
 | kgd-infrastructure | ポートの実装 (アダプタ)、マイグレーション、Scheduler ランナー | ビジネスロジック・判断ロジック |
-| kgd-presentation | Discord イベントを受ける Controller (DiscordController)、OwnTracks の HTTP 受け口 (owntracks_router)、結果を文言・embed に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
+| kgd-presentation | Discord イベントを受ける Controller (DiscordController)、OwnTracks の HTTP 受け口 (owntracks_router)、位置ログのビューア (viewer_router、埋め込んだ画面の配信)、結果を文言・embed・API の応答に変換する Presenter | ビジネスロジック (ユースケース呼び出しに徹する) |
 | kgd (binary) | 設定の読み込み、各層の組み立てと配線 (bootstrap) | 上記以外のロジック |
 
 新しいコードを足すときの判断基準:
@@ -84,6 +84,7 @@ graph TD
 | RecordLocationUseCase | OwnTracks から受信したメッセージを解釈して保存する |
 | BuildLocationReportUseCase | 日報日の位置ログから地図画像と集計値を作る (届け先は知らない) |
 | PublishDiaryPostUseCase | bot が作った内容を日報日のスレッドと Notion ページへ載せ、段ごとに完了を記録する |
+| BrowseLocationHistoryUseCase | 暦日で選んだ期間の位置ログを、日ごとの集計と地図用の軌跡 (上限を超えたら間引く) にまとめる |
 
 ## 代表的な処理フロー
 
@@ -148,6 +149,36 @@ sequenceDiagram
 
 ジョブの追加は ScheduledJob trait の実装と bootstrap での register のみ
 ([ADR-0004](adr/0004-minimal-scheduler-with-job-self-decision.md))。
+
+## 位置ログのビューア (web/)
+
+ブラウザで位置ログを見る画面は、リポジトリ直下の `web/` にある React、Vite、TypeScript のアプリである。
+Docker のビルドの段でビルドし、kgd-presentation が rust-embed で `web/dist` をバイナリに埋め込んで `/viewer/` 以下で配信する ([ADR-0014](adr/0014-build-viewer-with-react-and-embed-it.md))。
+
+API の入出力の型は kgd-presentation の DTO を正とする。
+DTO から schemars で `web/src/api/schema.json` を書き出し、自前の変換スクリプトで `web/src/api/schema.gen.ts` (valibot のスキーマ) を作る。
+画面は応答を必ずこのスキーマで検証してから使う。
+型を変えたら `just gen-api` で両方を作り直す。
+生成し忘れは、Rust のテストと CI の web ジョブがそれぞれ検出する。
+
+ビューアは OwnTracks の受け口と同じ待ち受けに置き、ログインの代わりに送信元の許可リストと Cloudflare 経由の印で守る ([ADR-0013](adr/0013-guard-viewer-sharing-the-owntracks-listener.md))。
+
+```mermaid
+sequenceDiagram
+    participant B as ブラウザ (LAN)
+    participant G as guard (presentation)
+    participant A as handle_history (presentation)
+    participant U as BrowseLocationHistoryUseCase
+    participant R as LocationRepository
+
+    B->>G: GET /viewer/api/history?from&to
+    G->>G: 送信元の許可リスト / Cloudflare の印
+    G->>A: 通す
+    A->>U: browse(from, to)
+    U->>R: locations_between (1 回)
+    U->>U: 暦日ごとに集計、軌跡を間引く (domain 純粋関数)
+    A->>B: JSON (Presenter が DTO に変換)
+```
 
 ## テスト戦略
 
