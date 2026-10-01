@@ -22,6 +22,9 @@ protocol: http2
 ingress:
   # `cloudflared tunnel route dns <名前> <ホスト名>` で割り当てたホスト名を、
   # kgd の [location] listen が待ち受けるポートへ向ける。
+  # 通すのは OwnTracks の受け口だけにする。同じポートの /viewer/ (位置ログのビューア) には
+  # ログインが無いため、トンネルに出さない (ADR-0013)。
   - hostname: owntracks.example.com
+    path: ^/(pub|healthz)$
     service: http://127.0.0.1:8081
   - service: http_status:404

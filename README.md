@@ -77,6 +77,41 @@ ingress 設定をダッシュボードではなくファイルで持つのは、
 
 Cloudflare Access は使わない。OwnTracks はブラウザではないため Access のログイン画面を通過できない。公開 URL を守るのは `[location]` の Basic 認証のみになる。
 
+同じポートには位置ログのビューア (`/viewer/`) も載る。ビューアにはログインが無いため、ingress の `path: ^/(pub|healthz)$` で OwnTracks の受け口だけをトンネルに通す。雛形 (`cloudflared.example/config.yml`) より前に作った `cloudflared/config.yml` にはこの行が無いので、足してから cloudflared を再起動すること。
+
+### 位置ログのビューア
+
+記録した軌跡と集計を、LAN の中からブラウザで見られる。`[location]` に `[location.viewer]` を足すと有効になり、`http://<host>:8081/viewer/` で開ける。
+
+```toml
+[location.viewer]
+# ビューアに届いてよい送信元 (省略時: LAN のプライベート帯。loopback は含まない)
+allowed_cidrs = ["192.168.0.0/16"]
+# 地図に返す軌跡の点数の上限 (省略時: 20000)
+max_track_points = 20000
+```
+
+ビューアにはログインが無い。代わりに、送信元が `allowed_cidrs` に無いリクエストと、Cloudflare を経由したリクエスト (`Cf-Connecting-IP` などのヘッダを持つもの) を 403 で拒否する。同じホストの cloudflared は 127.0.0.1 から接続してくるため、本番では `allowed_cidrs` に loopback を入れないこと。
+
+有効にする手順は次のとおり。順番を守ると、途中でビューアがインターネットに出ることが無い。
+
+1. 本番の `cloudflared/config.yml` の OwnTracks のホスト名に `path: ^/(pub|healthz)$` を足し、`docker compose --profile tunnel restart tunnel` で反映する
+2. `config.toml` に `[location.viewer]` を足し、kgd を新しいイメージで起動し直す
+3. `just check-exposure https://<OwnTracks のホスト名>` を実行し、すべて `ok` になることを確かめる
+4. LAN の端末のブラウザで `http://<host>:8081/viewer/` を開く
+
+画面は `web/` にある React のアプリで、Docker のイメージをビルドするときにビルドしてバイナリに埋め込む。手元で開発するときは次のようにする。
+
+```bash
+just web-install   # 依存を入れる (mise で node と aube を入れておく)
+just web-dev       # Vite の開発サーバー。/viewer/api は 127.0.0.1:8081 の kgd へ流す
+just web-build     # web/dist にビルドする (デバッグビルドの kgd はここを直接読む)
+just web-check     # 型チェック、lint、テスト
+just gen-api       # Rust の API の型を変えたら、画面側のスキーマを作り直す
+```
+
+開発サーバーからのプロキシは 127.0.0.1 から届くため、手元の `config.toml` でだけ `allowed_cidrs` に `"127.0.0.1/32"` を足す。
+
 それとは別に、以前運用していた HTTP 受け口が書き溜めた JSONL ログを取り込むには `import-owntracks` サブコマンドを使う。
 
 ```bash
