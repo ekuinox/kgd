@@ -119,7 +119,7 @@ DNS rebinding (攻撃者のページが自分の名前を kgd の LAN のアド�
 ```bash
 just web-install   # 依存を入れる (mise で node と aube を入れておく)
 just web-dev       # Vite の開発サーバー。/viewer/api は 127.0.0.1:8081 の kgd へ流す
-just web-build     # web/dist にビルドする (デバッグビルドの kgd はここを直接読む)
+just web-build     # web/dist にビルドする (デバッグビルドの kgd はここを直接読み、リリースビルドは kgd をビルドし直すと埋め込まれる)
 just web-check     # 型チェック、lint、テスト
 just gen-api       # Rust の API の型を変えたら、画面側のスキーマを作り直す
 ```

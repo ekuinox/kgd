@@ -7,10 +7,9 @@ use axum::{
 };
 use rust_embed::{Embed, EmbeddedFile};
 
-use super::api;
-
 /// ビルドした画面。`web/dist` が無くてもビルドは通り、そのときは空になる。
 ///
+/// `web/dist` の中身が変わったら `build.rs` がこのクレートを作り直させる。
 /// Docker のイメージでは、ビルドの段で index.html があることを確かめてから埋め込む。
 #[derive(Embed)]
 #[folder = "../../web/dist"]
@@ -22,7 +21,7 @@ const NOT_BUILT_PAGE: &str = r#"<!doctype html>
 <html lang="ja">
 <head><meta charset="utf-8"><title>位置ログ</title></head>
 <body>
-<p>画面が未ビルドです。リポジトリで <code>just web-build</code> を実行してから kgd を起動し直してください。</p>
+<p>画面が未ビルドです。リポジトリで <code>just web-build</code> を実行し、kgd をビルドし直してから起動し直してください。</p>
 </body>
 </html>
 "#;
@@ -39,12 +38,9 @@ pub(super) async fn handle_index() -> Response {
 
 /// `/viewer/` 以下のファイルを返す。
 ///
-/// 見つからないパスには index.html を返す。ただし `api/` 以下は JSON の 404、
-/// `assets/` 以下は 404 にする (JS や CSS の代わりに HTML を返さないため)。
+/// 見つからないパスには index.html を返す。ただし `assets/` 以下は 404 にする
+/// (JS や CSS の代わりに HTML を返さないため)。`api/` 以下はこのハンドラに届かない。
 pub(super) async fn handle_asset(Path(path): Path<String>) -> Response {
-    if path.starts_with("api/") {
-        return api::not_found();
-    }
     match WebAssets::get(&path) {
         Some(file) => file_response(&path, file),
         None if path.starts_with("assets/") => StatusCode::NOT_FOUND.into_response(),

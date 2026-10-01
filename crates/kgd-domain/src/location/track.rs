@@ -71,12 +71,13 @@ pub fn filter_accurate(points: Vec<TrackPoint>, max_accuracy_m: i32) -> (Vec<Tra
 ///
 /// 欠損は補完せず、`None` を 1 つの種別として扱う。
 /// 区間の境目で線が途切れないよう、2 つ目以降の区間は直前の区間の最後の点から始める。
-pub fn split_segments(points: &[TrackPoint]) -> Vec<TrackSegment> {
+/// 点は複製せずに区間へ移す。
+pub fn split_segments(points: impl IntoIterator<Item = TrackPoint>) -> Vec<TrackSegment> {
     let mut segments: Vec<TrackSegment> = Vec::new();
     for point in points {
         match segments.last_mut() {
             Some(current) if current.activity == point.activity => {
-                current.points.push(point.clone());
+                current.points.push(point);
             }
             Some(current) => {
                 let bridge = current
@@ -86,12 +87,12 @@ pub fn split_segments(points: &[TrackPoint]) -> Vec<TrackSegment> {
                     .expect("segments always hold at least one point");
                 segments.push(TrackSegment {
                     activity: point.activity,
-                    points: vec![bridge, point.clone()],
+                    points: vec![bridge, point],
                 });
             }
             None => segments.push(TrackSegment {
                 activity: point.activity,
-                points: vec![point.clone()],
+                points: vec![point],
             }),
         }
     }
@@ -157,7 +158,7 @@ pub(crate) mod tests {
     /// 空の点列からは区間が生まれないことを確認する。
     #[test]
     fn split_segments_returns_nothing_for_empty_input() {
-        assert!(split_segments(&[]).is_empty());
+        assert!(split_segments(Vec::new()).is_empty());
     }
 
     /// 移動種別が変わるたびに区間が分かれ、新しい区間は直前の区間の最後の点から始まることを確認する。
@@ -170,7 +171,7 @@ pub(crate) mod tests {
         let car1 = point(2, 35.002, 139.0, Some(Activity::Automotive));
         let car2 = point(3, 35.003, 139.0, Some(Activity::Automotive));
 
-        let segments = split_segments(&[walk1.clone(), walk2.clone(), car1.clone(), car2.clone()]);
+        let segments = split_segments([walk1.clone(), walk2.clone(), car1.clone(), car2.clone()]);
 
         assert_eq!(
             segments,
@@ -194,7 +195,7 @@ pub(crate) mod tests {
         let missing1 = point(1, 35.001, 139.0, None);
         let missing2 = point(2, 35.002, 139.0, None);
 
-        let segments = split_segments(&[walk, missing1, missing2]);
+        let segments = split_segments([walk, missing1, missing2]);
 
         let activities: Vec<Option<Activity>> = segments.iter().map(|s| s.activity).collect();
         assert_eq!(activities, vec![Some(Activity::Walking), None]);
@@ -206,7 +207,7 @@ pub(crate) mod tests {
     fn split_segments_groups_all_missing_points_into_one_segment() {
         let points: Vec<TrackPoint> = (0..3).map(|m| point(m, 35.0, 139.0, None)).collect();
 
-        let segments = split_segments(&points);
+        let segments = split_segments(points);
 
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].activity, None);

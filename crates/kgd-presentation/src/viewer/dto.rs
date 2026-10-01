@@ -7,6 +7,13 @@ use chrono::{DateTime, NaiveDate, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// `GET /viewer/api/calendar` の応答。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub(super) struct CalendarResponse {
+    /// 暦日を区切るタイムゾーン (IANA 名)。画面はこの暦で「今日」を決める
+    pub timezone: String,
+}
+
 /// `GET /viewer/api/history` のクエリ。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 pub(super) struct HistoryQuery {
@@ -191,6 +198,8 @@ mod tests {
     #[allow(dead_code)] // スキーマを作るためだけの型で、値は作らない
     #[derive(JsonSchema)]
     struct ViewerApi {
+        /// `GET /viewer/api/calendar` の応答
+        calendar_response: CalendarResponse,
         /// `GET /viewer/api/history` のクエリ
         history_query: HistoryQuery,
         /// `GET /viewer/api/history` の応答

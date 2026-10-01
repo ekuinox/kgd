@@ -4,6 +4,9 @@ import * as v from 'valibot';
 export const ActivityKindSchema = v.picklist(["walking","cycling","automotive","stationary","unknown"]);
 export type ActivityKind = v.InferOutput<typeof ActivityKindSchema>;
 
+export const CalendarResponseSchema = v.object({ "timezone": v.string() });
+export type CalendarResponse = v.InferOutput<typeof CalendarResponseSchema>;
+
 export const DistanceByActivitySchema = v.object({ "automotive": v.number(), "cycling": v.number(), "unknown": v.number(), "walking": v.number() });
 export type DistanceByActivity = v.InferOutput<typeof DistanceByActivitySchema>;
 
@@ -49,5 +52,5 @@ export type TrackMeta = v.InferOutput<typeof TrackMetaSchema>;
 export const HistoryResponseSchema = v.object({ "days": v.array(DailySummarySchema), "range": HistoryRangeSchema, "total": HistorySummarySchema, "track": TrackSchema, "track_meta": TrackMetaSchema });
 export type HistoryResponse = v.InferOutput<typeof HistoryResponseSchema>;
 
-export const ViewerApiSchema = v.object({ "error_response": ErrorResponseSchema, "history_query": HistoryQuerySchema, "history_response": HistoryResponseSchema });
+export const ViewerApiSchema = v.object({ "calendar_response": CalendarResponseSchema, "error_response": ErrorResponseSchema, "history_query": HistoryQuerySchema, "history_response": HistoryResponseSchema });
 export type ViewerApi = v.InferOutput<typeof ViewerApiSchema>;

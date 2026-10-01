@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 
 use kgd_domain::{
@@ -71,7 +71,11 @@ impl BuildLocationReportUseCase {
         date: NaiveDate,
         until: Option<DateTime<Utc>>,
     ) -> Result<LocationReport> {
-        let (start, day_end) = self.settings.calendar.day_range(date);
+        let (start, day_end) = self
+            .settings
+            .calendar
+            .day_range(date)
+            .with_context(|| format!("diary date {date} is out of the representable range"))?;
         let end = until.map_or(day_end, |until| until.clamp(start, day_end));
 
         let raw = if end > start {
@@ -89,7 +93,7 @@ impl BuildLocationReportUseCase {
         ) {
             Some(viewport) => Some(
                 self.renderer
-                    .render(&viewport, &split_segments(&points))
+                    .render(&viewport, &split_segments(points))
                     .await?,
             ),
             None => None,

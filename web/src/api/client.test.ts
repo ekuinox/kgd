@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, fetchHistory, historyUrl } from './client.ts';
+import { ApiError, calendarUrl, fetchCalendar, fetchHistory, historyUrl } from './client.ts';
 import { historyFixture } from './fixture.ts';
 
 const range = { from: '2026-09-01', to: '2026-09-01' };
@@ -74,5 +74,25 @@ describe('fetchHistory', () => {
     controller.abort();
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('fetchCalendar', () => {
+  it('requests the calendar API under the viewer base path', () => {
+    expect(calendarUrl()).toBe('/viewer/api/calendar');
+  });
+
+  it('returns the time zone the server uses to split days', async () => {
+    respondWith({ timezone: 'Asia/Tokyo' });
+
+    await expect(fetchCalendar()).resolves.toEqual({ timezone: 'Asia/Tokyo' });
+  });
+
+  it('throws ApiError with the server message on error responses', async () => {
+    respondWith({ error: 'not found' }, 404);
+
+    await expect(fetchCalendar()).rejects.toEqual(
+      expect.objectContaining({ name: 'ApiError', status: 404, message: 'not found' }),
+    );
   });
 });

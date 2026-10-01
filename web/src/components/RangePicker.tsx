@@ -8,8 +8,8 @@ import styles from './RangePicker.module.css';
 type Props = {
   /** 選んでいる期間 */
   range: DateRange;
-  /** 今日 (これより後の日は選べない) */
-  today: Date;
+  /** サーバーの暦での今日 (`YYYY-MM-DD`)。これより後の日は選べない */
+  today: string;
   /** 期間を変えたときに呼ぶ */
   onChange: (range: DateRange) => void;
 };
@@ -53,7 +53,8 @@ export function RangePicker({ range, today, onChange }: Props) {
             selected={draft}
             onSelect={(next) => setDraft(next ?? { from: undefined })}
             defaultMonth={draft.from}
-            disabled={{ after: today }}
+            today={fromIsoDate(today)}
+            disabled={{ after: fromIsoDate(today) }}
           />
           <button type="button" disabled={!draft.from} onClick={apply}>
             この期間を表示

@@ -19,6 +19,22 @@ use tracing::warn;
 /// エッジが付与するため、インターネット側の利用者には取り除けない。
 const CLOUDFLARE_HEADERS: [&str; 2] = ["cf-connecting-ip", "cf-ray"];
 
+/// Host の許可リストに書ける名前かを返す。
+///
+/// 英数字、`-`、`_`、`.` だけからなり、空でなく、先頭のドットや連続するドットを含まない名前を
+/// 受け付ける。末尾の 1 つのドットは照合のときに除くため許す。これ以外の名前 (ポートやパス、
+/// `user@` や空白を含むものなど) は Host と決して一致しないため、設定の検証で弾くために使う。
+pub fn is_valid_allowed_host(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
 /// ガードが照合する許可リスト。
 #[derive(Debug)]
 pub(super) struct Allowlists {
@@ -84,33 +100,6 @@ pub(super) fn request_host<'a>(headers: &'a HeaderMap, uri: &'a Uri) -> Option<&
     }
 }
 
-/// Host からポートを除いた部分を返す。形が不正なら `None` を返す。
-///
-/// `[fd00::1]:8081` のような角括弧付きの IPv6 は、括弧を外したアドレスを返す。
-fn host_name(host: &str) -> Option<&str> {
-    if let Some(rest) = host.strip_prefix('[') {
-        let (address, after) = rest.split_once(']')?;
-        address.parse::<Ipv6Addr>().ok()?;
-        return (after.is_empty() || is_port(after.strip_prefix(':')?)).then_some(address);
-    }
-    let name = match host.rsplit_once(':') {
-        Some((name, port)) if is_port(port) => name,
-        Some(_) => return None,
-        None => host,
-    };
-    (!name.is_empty() && !name.contains([':', '@'])).then_some(name)
-}
-
-/// ポート番号として読める数字の並びかを返す。
-fn is_port(value: &str) -> bool {
-    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// 名前を比べられる形に揃える。末尾のドットを 1 つ除き、小文字にする。
-fn normalize_name(name: &str) -> String {
-    name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase()
-}
-
 /// Host から、リクエストを通すかどうかを決める。
 ///
 /// IP アドレスなら通し、名前なら `allowed` にあるときだけ通す。名前は大文字小文字と
@@ -160,6 +149,33 @@ pub(super) async fn guard(
             StatusCode::FORBIDDEN.into_response()
         }
     }
+}
+
+/// Host からポートを除いた部分を返す。形が不正なら `None` を返す。
+///
+/// `[fd00::1]:8081` のような角括弧付きの IPv6 は、括弧を外したアドレスを返す。
+fn host_name(host: &str) -> Option<&str> {
+    if let Some(rest) = host.strip_prefix('[') {
+        let (address, after) = rest.split_once(']')?;
+        address.parse::<Ipv6Addr>().ok()?;
+        return (after.is_empty() || is_port(after.strip_prefix(':')?)).then_some(address);
+    }
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if is_port(port) => name,
+        Some(_) => return None,
+        None => host,
+    };
+    (!name.is_empty() && !name.contains([':', '@'])).then_some(name)
+}
+
+/// ポート番号として読める数字の並びかを返す。
+fn is_port(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// 名前を比べられる形に揃える。末尾のドットを 1 つ除き、小文字にする。
+fn normalize_name(name: &str) -> String {
+    name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -238,6 +254,51 @@ mod tests {
 
         for (host, expected) in cases {
             assert_eq!(decide_host(host, &allowed), expected, "host = {host:?}");
+        }
+    }
+
+    /// 許可リストに書ける名前は、その名前で開いたときに必ず通ることを確認する。
+    ///
+    /// 検証を通るのに決して一致しない名前があると、起動はできるのに名前で開くと
+    /// 常に 403 になり、設定の誤りに気づけないため。
+    #[test]
+    fn valid_allowed_hosts_always_match_their_own_host() {
+        for name in [
+            "aoi.local",
+            "AOI.Local",
+            "aoi.local.",
+            "localhost",
+            "my_host-1",
+        ] {
+            assert!(is_valid_allowed_host(name), "{name}");
+            let allowed = [name.to_string()];
+            assert_eq!(decide_host(Some(name), &allowed), Ok(()), "{name}");
+            assert_eq!(
+                decide_host(Some(&format!("{name}:8081")), &allowed),
+                Ok(()),
+                "{name}:8081"
+            );
+        }
+    }
+
+    /// Host と決して一致しない名前は、許可リストに書けないことを確認する。
+    #[test]
+    fn is_valid_allowed_host_rejects_names_that_never_match() {
+        for name in [
+            "",
+            ".",
+            ".aoi.local",
+            "aoi..local",
+            "aoi.local..",
+            "aoi.local:8081",
+            "http://aoi.local",
+            "aoi.local/viewer",
+            "me@aoi.local",
+            " aoi.local",
+            "aoi.local ",
+            "[fd00::1]",
+        ] {
+            assert!(!is_valid_allowed_host(name), "{name:?}");
         }
     }
 

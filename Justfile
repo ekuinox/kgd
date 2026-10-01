@@ -107,6 +107,7 @@ check-exposure url:
       fi
     }
     check /viewer/ "403 404"
+    check /viewer/api/calendar "403 404"
     check "/viewer/api/history?from=2026-01-01&to=2026-01-01" "403 404"
     check /healthz "200"
     exit "$fail"

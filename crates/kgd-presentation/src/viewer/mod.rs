@@ -22,6 +22,8 @@ mod presenter;
 #[cfg(test)]
 mod tests;
 
+pub use self::guard::is_valid_allowed_host;
+
 /// ビューアの設定。
 #[derive(Debug, Clone)]
 pub struct ViewerSettings {
@@ -50,7 +52,11 @@ pub fn viewer_router(
         .route("/viewer", get(assets::redirect_to_index))
         .route("/viewer/", get(assets::handle_index))
         .route("/viewer/{*path}", get(assets::handle_asset))
+        .route("/viewer/api/calendar", get(api::handle_calendar))
         .route("/viewer/api/history", get(api::handle_history))
+        // `{*rest}` は空の残りに当たらないため、`/viewer/api` と `/viewer/api/` も別に受ける
+        .route("/viewer/api", any(api::handle_not_found))
+        .route("/viewer/api/", any(api::handle_not_found))
         .route("/viewer/api/{*rest}", any(api::handle_not_found))
         .with_state(use_case)
         .route_layer(middleware::from_fn_with_state(allowlists, guard::guard))

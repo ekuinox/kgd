@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode, useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -11,28 +11,42 @@ import {
 } from 'recharts';
 import { ACTIVITY_COLORS, ACTIVITY_LABELS, DISTANCE_ACTIVITIES } from '../activity.ts';
 import type { HistoryResponse } from '../api/schema.gen.ts';
-import { type ChartRow, toChartRows } from '../charts.ts';
+import { type ChartGranularity, type ChartRow, chartGranularity, toChartRows } from '../charts.ts';
+import type { DateRange } from '../range.ts';
 import styles from './DailyCharts.module.css';
 
 type Props = {
   /** 日ごとの集計 */
   days: HistoryResponse['days'];
-  /** 棒をクリックした日 (`YYYY-MM-DD`) を受け取る */
-  onSelectDay: (date: string) => void;
+  /** 棒をクリックしたとき、その棒にまとめた期間を受け取る */
+  onSelectRange: (range: DateRange) => void;
 };
 
-/** 日ごとの移動距離、移動と静止の時間、記録点数のグラフ。 */
-export function DailyCharts({ days, onSelectDay }: Props) {
-  const rows = toChartRows(days);
+/** 棒にまとめた長さごとの説明。 */
+const HINTS: Record<ChartGranularity, string> = {
+  day: '棒をクリックすると、その日だけを表示します',
+  week: '期間が長いため週ごとにまとめています。棒をクリックすると、その週だけを表示します',
+  month: '期間が長いため月ごとにまとめています。棒をクリックすると、その月だけを表示します',
+};
+
+/**
+ * 移動距離、移動と静止の時間、記録点数のグラフ。
+ *
+ * 長い期間は週や月ごとにまとめて棒の数を抑える。行の計算はメモ化し、
+ * 読み込み中の表示の切り替えなどで親が描き直されても作り直さない。
+ */
+export const DailyCharts = memo(function DailyCharts({ days, onSelectRange }: Props) {
+  const granularity = chartGranularity(days.length);
+  const rows = useMemo(() => toChartRows(days, granularity), [days, granularity]);
   const select = (item: { payload?: ChartRow }) => {
     if (item.payload) {
-      onSelectDay(item.payload.date);
+      onSelectRange({ from: item.payload.from, to: item.payload.to });
     }
   };
 
   return (
     <div className={styles.charts}>
-      <p className={styles.hint}>棒をクリックすると、その日だけを表示します</p>
+      <p className={styles.hint}>{HINTS[granularity]}</p>
       <Chart title="移動距離 (km)" rows={rows}>
         {DISTANCE_ACTIVITIES.map((activity) => (
           <Bar
@@ -84,7 +98,7 @@ export function DailyCharts({ days, onSelectDay }: Props) {
       </Chart>
     </div>
   );
-}
+});
 
 /** 1 つの棒グラフ。 */
 function Chart({

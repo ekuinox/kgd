@@ -156,6 +156,7 @@ write_channel_id = 123456789012345678
 # For local development through the Vite dev server proxy, add "127.0.0.1/32".
 # allowed_cidrs = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
 # Host names (without port) allowed in the Host header (default: none)
+# Names may contain only letters, digits, '-', '_' and '.' (no port, path, user@ or spaces).
 # Opening the viewer by IP address (http://192.168.1.5:8081/viewer/) needs nothing here.
 # Opening it by name (http://aoi.local:8081/viewer/) requires listing that name.
 # Other names are rejected so that a malicious page cannot reach the viewer through

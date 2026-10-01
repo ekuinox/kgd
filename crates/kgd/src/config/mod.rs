@@ -14,6 +14,7 @@ use serde_with::{DisplayFromStr, serde_as};
 
 use kgd_domain::{ServerTarget, UrlRuleConfig};
 use kgd_infrastructure::NotionTagConfig;
+use kgd_presentation::is_valid_allowed_host;
 
 mod defaults;
 
@@ -80,9 +81,9 @@ impl Config {
                 );
                 for host in &viewer.allowed_hosts {
                     ensure!(
-                        !host.is_empty() && !host.contains([':', '/']),
-                        "location.viewer.allowed_hosts must be host names without a port or path, \
-                         but got {host:?}"
+                        is_valid_allowed_host(host),
+                        "location.viewer.allowed_hosts must be host names made of letters, digits, \
+                         '-', '_' and '.' without a port, path or user, but got {host:?}"
                     );
                 }
             }

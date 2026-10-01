@@ -10,15 +10,16 @@ use super::{summary::LocationSummary, track::TrackPoint};
 /// 開始日から終了日まで (どちらも含む) の範囲を、UTC の半開区間で返す。
 ///
 /// 開始は開始日の 0 時、終了は終了日の翌日の 0 時 (含まない) とする。
+/// chrono で表せる端の日付のように、どちらかの 0 時を表せないときは `None` を返す。
 pub fn calendar_day_range(
     timezone: Tz,
     from: NaiveDate,
     to: NaiveDate,
-) -> (DateTime<Utc>, DateTime<Utc>) {
+) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
     let calendar = midnight_calendar(timezone);
-    let (start, _) = calendar.day_range(from);
-    let (_, end) = calendar.day_range(to);
-    (start, end)
+    let (start, _) = calendar.day_range(from)?;
+    let (_, end) = calendar.day_range(to)?;
+    Some((start, end))
 }
 
 /// 時刻順の点列を暦日ごとに分ける。
@@ -160,10 +161,20 @@ mod tests {
     /// 終了日もその日を含むため。Asia/Tokyo の 0 時は UTC の前日 15 時にあたる。
     #[test]
     fn calendar_day_range_spans_from_first_midnight_to_midnight_after_last_day() {
-        let (start, end) = calendar_day_range(chrono_tz::Asia::Tokyo, date(9, 1), date(9, 2));
+        let (start, end) =
+            calendar_day_range(chrono_tz::Asia::Tokyo, date(9, 1), date(9, 2)).unwrap();
 
         assert_eq!(start, Utc.with_ymd_and_hms(2026, 8, 31, 15, 0, 0).unwrap());
         assert_eq!(end, Utc.with_ymd_and_hms(2026, 9, 2, 15, 0, 0).unwrap());
+    }
+
+    /// 終了日の翌日を表せない端の日付では、パニックせずに `None` を返すことを確認する。
+    #[test]
+    fn calendar_day_range_returns_none_when_the_end_is_not_representable() {
+        assert_eq!(
+            calendar_day_range(chrono_tz::Asia::Tokyo, date(9, 1), NaiveDate::MAX),
+            None
+        );
     }
 
     /// 0 時の直前と直後の点が別の日に入り、点の無い日も空の列として含まれることを確認する。

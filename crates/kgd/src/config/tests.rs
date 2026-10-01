@@ -314,13 +314,20 @@ fn location_viewer_parses_allowed_hosts() {
     assert_eq!(viewer.allowed_hosts, vec!["aoi.local", "localhost"]);
 }
 
-/// Host の許可リストに、空の名前やポート、パスを含む名前を書くと検証で弾かれることを確認する。
+/// Host の許可リストに、空の名前やポート、パス、`user@`、空白を含む名前を書くと検証で弾かれることを確認する。
 ///
 /// 照合するのはポートを除いた名前だけなので、`aoi.local:8081` のような書き方は決して一致せず、
 /// 設定の誤りに気づきにくいため。
 #[test]
 fn validate_rejects_malformed_allowed_hosts() {
-    for host in ["", "aoi.local:8081", "http://aoi.local", "aoi.local/viewer"] {
+    for host in [
+        "",
+        "aoi.local:8081",
+        "http://aoi.local",
+        "aoi.local/viewer",
+        "me@aoi.local",
+        " aoi.local",
+    ] {
         let config: Config = toml::from_str(&location_config_toml(&format!(
             "[location.viewer]\nallowed_hosts = [\"{host}\"]\n"
         )))

@@ -1,15 +1,42 @@
 import { useEffect, useState } from 'react';
 import styles from './App.module.css';
+import { useCalendar } from './api/useCalendar.ts';
 import { useHistory } from './api/useHistory.ts';
 import { DailyCharts } from './components/DailyCharts.tsx';
 import { RangePicker } from './components/RangePicker.tsx';
 import { SummaryPanel } from './components/SummaryPanel.tsx';
 import { TrackMap } from './components/TrackMap.tsx';
 import { type DateRange, rangeFromSearch, rangeToSearch } from './range.ts';
+import { useToday } from './useToday.ts';
 
-/** 位置ログのビューア。期間は URL のクエリに持ち、再読み込みやブックマークでも同じ期間を開く。 */
+/**
+ * 位置ログのビューア。
+ *
+ * 「今日」はサーバーと同じ暦で決めるため、先にサーバーの暦を取得してから画面を出す。
+ */
 export function App() {
-  const [today] = useState(() => new Date());
+  const calendar = useCalendar();
+
+  if (calendar.timezone === null) {
+    return (
+      <div className={styles.app}>
+        <header className={styles.header}>
+          <h1>位置ログ</h1>
+        </header>
+        {calendar.error ? (
+          <p className={styles.error}>読み込めませんでした: {calendar.error}</p>
+        ) : (
+          <div className={styles.status}>読み込み中…</div>
+        )}
+      </div>
+    );
+  }
+  return <Viewer timezone={calendar.timezone} />;
+}
+
+/** 期間は URL のクエリに持ち、再読み込みやブックマークでも同じ期間を開く。 */
+function Viewer({ timezone }: { timezone: string }) {
+  const today = useToday(timezone);
   const [range, setRange] = useState<DateRange>(() =>
     rangeFromSearch(window.location.search, today),
   );
@@ -44,10 +71,7 @@ export function App() {
           {data && (
             <>
               <SummaryPanel summary={data.total} timezone={data.range.timezone} />
-              <DailyCharts
-                days={data.days}
-                onSelectDay={(date) => setRange({ from: date, to: date })}
-              />
+              <DailyCharts days={data.days} onSelectRange={setRange} />
             </>
           )}
         </aside>

@@ -129,11 +129,10 @@ impl DiaryCalendar {
     /// 日報日の開始時刻と終了時刻 (終了は含まない) を UTC で返す。
     ///
     /// 開始は `date` の `day_start_hour`、終了は翌日の `day_start_hour` とする。
-    pub fn day_range(&self, date: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
-        let next = date
-            .succ_opt()
-            .expect("diary date overflowed the representable range");
-        (self.at_day_start(date), self.at_day_start(next))
+    /// chrono で表せる端の日付のように、翌日や UTC の時刻を表せないときは `None` を返す。
+    pub fn day_range(&self, date: NaiveDate) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+        let next = date.succ_opt()?;
+        Some((self.at_day_start(date)?, self.at_day_start(next)?))
     }
 
     /// 日報日の暦日 0 時をタイムゾーン基準で表した UTC 時刻を返す。
@@ -141,10 +140,11 @@ impl DiaryCalendar {
     /// 日報エントリの `date` 列はこの表現で保存されている。
     pub fn start_of(&self, date: NaiveDate) -> DateTime<Utc> {
         resolve_local(date.and_time(NaiveTime::MIN), self.timezone)
+            .expect("diary date overflowed the representable range")
     }
 
     /// 指定した暦日の `day_start_hour` をタイムゾーン基準で表した UTC 時刻を返す。
-    fn at_day_start(&self, date: NaiveDate) -> DateTime<Utc> {
+    fn at_day_start(&self, date: NaiveDate) -> Option<DateTime<Utc>> {
         let naive = date
             .and_hms_opt(self.day_start_hour, 0, 0)
             .expect("day_start_hour is validated to be in 0-23");
@@ -158,17 +158,18 @@ impl DiaryCalendar {
 /// 1 時間進めた時刻で解決し、2 回現れる時刻 (fall-back の重なり) は
 /// 早い方の瞬間を採る。`LocalResult::unwrap` は両方のケースでパニックし、
 /// tick 内のパニックはスケジューラのタスクを丸ごと止めてしまうため。
-fn resolve_local(naive: NaiveDateTime, timezone: Tz) -> DateTime<Utc> {
+/// chrono で表せる端の日付のように、1 時間進めても解決できないときは `None` を返す。
+fn resolve_local(naive: NaiveDateTime, timezone: Tz) -> Option<DateTime<Utc>> {
     naive
         .and_local_timezone(timezone)
         .earliest()
         .or_else(|| {
-            (naive + TimeDelta::hours(1))
+            naive
+                .checked_add_signed(TimeDelta::hours(1))?
                 .and_local_timezone(timezone)
                 .earliest()
         })
-        .expect("could not resolve local time even after advancing by one hour")
-        .to_utc()
+        .map(|local| local.to_utc())
 }
 
 #[cfg(test)]
@@ -296,7 +297,7 @@ mod tests {
         let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 8);
         let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
 
-        let (start, end) = calendar.day_range(date);
+        let (start, end) = calendar.day_range(date).unwrap();
 
         assert_eq!(start, jst(2026, 9, 28, 8, 0));
         assert_eq!(end, jst(2026, 9, 29, 8, 0));
@@ -308,7 +309,7 @@ mod tests {
         let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 0);
         let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
 
-        let (start, end) = calendar.day_range(date);
+        let (start, end) = calendar.day_range(date).unwrap();
 
         assert_eq!(start, jst(2026, 9, 28, 0, 0));
         assert_eq!(end, jst(2026, 9, 29, 0, 0));
@@ -351,7 +352,7 @@ mod tests {
         let calendar = DiaryCalendar::new(chrono_tz::America::New_York, 2);
         let date = NaiveDate::from_ymd_opt(2026, 3, 8).unwrap();
 
-        let (start, end) = calendar.day_range(date);
+        let (start, end) = calendar.day_range(date).unwrap();
 
         // 02:00 は存在しないため、次に存在する 03:00 EDT (=07:00 UTC) から始まる。
         assert_eq!(start, utc(2026, 3, 8, 7, 0));
@@ -367,10 +368,21 @@ mod tests {
         let calendar = DiaryCalendar::new(chrono_tz::America::New_York, 1);
         let date = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
 
-        let (start, end) = calendar.day_range(date);
+        let (start, end) = calendar.day_range(date).unwrap();
 
         // 01:00 の早い方 (EDT, UTC-4) = 05:00 UTC を採る。
         assert_eq!(start, utc(2026, 11, 1, 5, 0));
         assert_eq!(end, utc(2026, 11, 2, 6, 0));
+    }
+
+    /// chrono で表せる端の日付では、パニックせずに `None` を返すことを確認する。
+    ///
+    /// 最後の日は翌日を表せず、最初の日は UTC へ直すと表せる範囲の前にはみ出すため。
+    #[test]
+    fn day_range_returns_none_at_the_representable_edges() {
+        let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 0);
+
+        assert_eq!(calendar.day_range(NaiveDate::MAX), None);
+        assert_eq!(calendar.day_range(NaiveDate::MIN), None);
     }
 }

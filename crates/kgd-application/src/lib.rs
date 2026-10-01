@@ -21,7 +21,8 @@ mod test_support;
 mod wake_server;
 
 pub use browse_location_history::{
-    BrowseLocationHistoryUseCase, DailyLocationSummary, LocationHistory, LocationHistorySettings,
+    BrowseLocationHistoryError, BrowseLocationHistoryUseCase, DailyLocationSummary,
+    HistoryRangeError, LocationHistory, LocationHistorySettings,
 };
 pub use build_location_report::{
     BuildLocationReportUseCase, LocationReport, LocationReportSettings,

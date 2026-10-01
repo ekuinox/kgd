@@ -161,6 +161,12 @@ DTO から schemars で `web/src/api/schema.json` を書き出し、自前の変
 型を変えたら `just gen-api` で両方を作り直す。
 生成し忘れは、Rust のテストと CI の web ジョブがそれぞれ検出する。
 
+`web/dist` が無くても kgd はビルドでき、そのときは未ビルドの案内を返す。
+`web/dist` の中身が変わると kgd-presentation の `build.rs` がクレートを作り直させるため、`just web-build` のあとに kgd をビルドし直せば新しい画面が埋め込まれる。
+
+画面は「今日」やよく使う範囲を、ブラウザの現地ではなくサーバーの暦で決める。
+起動時に `GET /viewer/api/calendar` で日を区切るタイムゾーンを受け取り、開いたまま 0 時を過ぎたら追いかける。
+
 ビューアは OwnTracks の受け口と同じ待ち受けに置き、ログインの代わりに Cloudflare 経由の印、送信元の許可リスト、`Host` の許可リスト (DNS rebinding の対策) で守る ([ADR-0013](adr/0013-guard-viewer-sharing-the-owntracks-listener.md))。
 
 ```mermaid
@@ -175,10 +181,14 @@ sequenceDiagram
     G->>G: Cloudflare の印 / 送信元の許可リスト / Host の許可リスト
     G->>A: 通す
     A->>U: browse(from, to)
+    U->>U: 期間を検証 (逆向き、10 年超、年の範囲外は 400)
     U->>R: locations_between (1 回)
-    U->>U: 暦日ごとに集計、軌跡を間引く (domain 純粋関数)
+    U->>U: 暦日ごとに集計、軌跡を間引く (domain 純粋関数、spawn_blocking)
     A->>B: JSON (Presenter が DTO に変換)
 ```
+
+集計と間引きは CPU を長く使うため、`spawn_blocking` で非同期のワーカーの外に出し、OwnTracks の受け口や Discord の処理を止めないようにする。
+長い期間はメモリも多く使うため、同時にまとめる期間は 1 つに絞る。
 
 ## テスト戦略
 

@@ -305,7 +305,7 @@ async fn history_rejects_ranges_one_day_over_ten_years() {
 
 /// 年が 1 から 9999 の外にある日付は、リポジトリを読まずに 400 を返すことを確認する。
 ///
-/// chrono で表せる端の日付は、翌日や前日の 0 時を求める段でパニックを起こすため。
+/// chrono で表せる端の日付も含め、パニックせずに利用者の誤りとして扱うため。
 #[tokio::test]
 async fn history_rejects_years_out_of_range() {
     for (from, to) in [
@@ -547,4 +547,56 @@ async fn unknown_api_paths_are_not_served_as_pages() {
 
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(content_type.as_deref(), Some("application/json"));
+}
+
+/// `/viewer/api` と `/viewer/api/` そのものと、GET 以外の未知の API にも JSON の 404 を返すことを確認する。
+///
+/// 画面を配信するルートは GET だけで、`api/` の判定をそちらに持たないため、
+/// API のルートだけでこれらを受け止める必要がある。
+#[tokio::test]
+async fn api_root_and_non_get_unknown_api_paths_return_json_not_found() {
+    let requests = [
+        get("/viewer/api"),
+        get("/viewer/api/"),
+        Request::builder()
+            .method("POST")
+            .uri("/viewer/api/histroy")
+            .header(header::HOST, LAN_HOST)
+            .body(Body::empty())
+            .unwrap(),
+    ];
+
+    for request in requests {
+        let uri = request.uri().clone();
+        let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+        let (status, body, content_type) = send(router, "192.168.1.10", request).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        assert_eq!(content_type.as_deref(), Some("application/json"), "{uri}");
+        assert!(json(&body)["error"].is_string(), "{uri}");
+    }
+}
+
+/// 暦日を区切るタイムゾーンを返すことを確認する。
+///
+/// 画面はこれを使って、ブラウザの現地ではなくサーバーの暦で「今日」を決める。
+#[tokio::test]
+async fn calendar_returns_the_configured_timezone() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, body, _) = send(router, "192.168.1.10", get("/viewer/api/calendar")).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&body)["timezone"], "Asia/Tokyo");
+}
+
+/// 暦のタイムゾーンも、ほかのビューアのルートと同じくガードで守られることを確認する。
+#[tokio::test]
+async fn calendar_rejects_loopback_peers() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, _, _) = send(router, "127.0.0.1", get("/viewer/api/calendar")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
