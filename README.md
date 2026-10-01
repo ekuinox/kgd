@@ -79,6 +79,16 @@ Cloudflare Access は使わない。OwnTracks はブラウザではないため 
 
 同じポートには位置ログのビューア (`/viewer/`) も載る。ビューアにはログインが無いため、ingress の `path: ^/(pub|healthz)$` で OwnTracks の受け口だけをトンネルに通す。雛形 (`cloudflared.example/config.yml`) より前に作った `cloudflared/config.yml` にはこの行が無いので、足してから cloudflared を再起動すること。
 
+それとは別に、以前運用していた HTTP 受け口が書き溜めた JSONL ログを取り込むには `import-owntracks` サブコマンドを使う。
+
+```bash
+just run import-owntracks /path/to/location-logs/
+```
+
+ファイルまたはディレクトリのどちらも指定でき、ディレクトリを渡した場合は配下の `*.jsonl` を再帰的に取り込む。`<user>-<device>/<date>.jsonl` という親ディレクトリ名からユーザー・端末識別子を復元するため、そのディレクトリ構成のまま渡すこと。壊れた行は読み飛ばし、終了時に取り込み件数・既存件数・スキップ件数 (`imported` / `existing` / `skipped`) をログへ出力する。データベース接続は `[diary].database_url` を使うため `[location]` セクションは無くても実行できる。
+
+同じ JSONL を再度取り込んでも重複行は増えない（`user_id, device_id, msg_type, tst` が一致する行は無視される）。ただし `tst` を持たないメッセージ（`waypoints` など）は重複判定できず、再実行のたびに増え続けるので注意。
+
 ### 位置ログのビューア
 
 記録した軌跡と集計を、LAN の中からブラウザで見られる。`[location]` に `[location.viewer]` を足すと有効になり、`http://<host>:8081/viewer/` で開ける。
@@ -111,16 +121,6 @@ just gen-api       # Rust の API の型を変えたら、画面側のスキー�
 ```
 
 開発サーバーからのプロキシは 127.0.0.1 から届くため、手元の `config.toml` でだけ `allowed_cidrs` に `"127.0.0.1/32"` を足す。
-
-それとは別に、以前運用していた HTTP 受け口が書き溜めた JSONL ログを取り込むには `import-owntracks` サブコマンドを使う。
-
-```bash
-just run import-owntracks /path/to/location-logs/
-```
-
-ファイルまたはディレクトリのどちらも指定でき、ディレクトリを渡した場合は配下の `*.jsonl` を再帰的に取り込む。`<user>-<device>/<date>.jsonl` という親ディレクトリ名からユーザー・端末識別子を復元するため、そのディレクトリ構成のまま渡すこと。壊れた行は読み飛ばし、終了時に取り込み件数・既存件数・スキップ件数 (`imported` / `existing` / `skipped`) をログへ出力する。データベース接続は `[diary].database_url` を使うため `[location]` セクションは無くても実行できる。
-
-同じ JSONL を再度取り込んでも重複行は増えない（`user_id, device_id, msg_type, tst` が一致する行は無視される）。ただし `tst` を持たないメッセージ（`waypoints` など）は重複判定できず、再実行のたびに増え続けるので注意。
 
 ## テストカバレッジ
 
