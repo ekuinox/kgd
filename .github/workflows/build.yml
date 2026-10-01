@@ -48,6 +48,41 @@ jobs:
       - name: check source
         run: just ci
 
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install aube
+        run: npm install -g --ignore-scripts=false @endevco/aube@2.6.1
+
+      - name: Install dependencies
+        run: aube install --frozen-lockfile
+
+      - name: Typecheck
+        run: aube run --no-install typecheck
+
+      - name: Lint
+        run: aube run --no-install lint
+
+      - name: Test
+        run: aube run --no-install test
+
+      # Rust の型から作った schema.json と、そこから作る valibot のスキーマがずれていないか確かめる。
+      # schema.json 自体のずれは check ジョブの cargo test (api_schema_matches_committed_file) が見つける。
+      - name: Check generated API schema is up to date
+        run: |
+          aube run --no-install gen
+          git diff --exit-code -- src/api/schema.gen.ts
+
   coverage:
     runs-on: ubuntu-latest
     steps:
