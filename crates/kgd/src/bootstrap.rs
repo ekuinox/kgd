@@ -272,6 +272,7 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
                 browse,
                 ViewerSettings {
                     allowed_cidrs: viewer_config.allowed_cidrs.clone(),
+                    allowed_hosts: viewer_config.allowed_hosts.clone(),
                 },
             ));
             info!("Location viewer enabled at /viewer/");

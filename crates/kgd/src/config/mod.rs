@@ -78,6 +78,13 @@ impl Config {
                     !viewer.allowed_cidrs.is_empty(),
                     "location.viewer.allowed_cidrs must not be empty"
                 );
+                for host in &viewer.allowed_hosts {
+                    ensure!(
+                        !host.is_empty() && !host.contains([':', '/']),
+                        "location.viewer.allowed_hosts must be host names without a port or path, \
+                         but got {host:?}"
+                    );
+                }
             }
         }
         Ok(())
@@ -258,6 +265,12 @@ pub struct ViewerConfig {
     /// トンネル経由のリクエストを送信元では拒否できなくなる。
     #[serde(default = "default_viewer_allowed_cidrs")]
     pub allowed_cidrs: Vec<IpNet>,
+    /// IP アドレス以外で `Host` に来てよい名前（デフォルト: 空。IP アドレスで開くときは不要）
+    ///
+    /// DNS rebinding で攻撃者の名前を LAN のアドレスへ向け直されても、その名前を Host に持つ
+    /// リクエストを拒否するため、名前で開くときはここに書いたものだけを通す。
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
     /// 地図に返す軌跡の点数の上限。超えたら形を保って間引く（デフォルト: 20000）
     #[serde(default = "default_viewer_max_track_points")]
     pub max_track_points: usize,

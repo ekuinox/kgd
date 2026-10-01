@@ -227,7 +227,8 @@ fn location_viewer_is_disabled_by_default() {
     assert_eq!(config.location.expect("should be present").viewer, None);
 }
 
-/// [location.viewer] を書くと、許可リストが LAN のプライベート帯、点数の上限が 20000 になることを確認する。
+/// [location.viewer] を書くと、送信元の許可リストが LAN のプライベート帯、名前の許可リストが空、
+/// 点数の上限が 20000 になることを確認する。
 ///
 /// 同じホストの cloudflared から届くリクエストを拒否するため、既定の許可リストに loopback を含めない。
 #[test]
@@ -245,6 +246,7 @@ fn location_viewer_has_private_ranges_and_point_limit_by_default() {
         .map(|net| net.parse().unwrap())
         .collect();
     assert_eq!(viewer.allowed_cidrs, expected);
+    assert!(viewer.allowed_hosts.is_empty());
     assert_eq!(viewer.max_track_points, 20000);
     assert!(
         !viewer
@@ -297,4 +299,37 @@ fn validate_rejects_empty_allowed_cidrs() {
 
     let error = config.validate().expect_err("should be rejected");
     assert!(error.to_string().contains("allowed_cidrs"));
+}
+
+/// Host の許可リストに名前を書け、検証も通ることを確認する。
+#[test]
+fn location_viewer_parses_allowed_hosts() {
+    let config: Config = toml::from_str(&location_config_toml(
+        "[location.viewer]\nallowed_hosts = [\"aoi.local\", \"localhost\"]\n",
+    ))
+    .expect("should parse");
+
+    assert!(config.validate().is_ok());
+    let viewer = config.location.unwrap().viewer.unwrap();
+    assert_eq!(viewer.allowed_hosts, vec!["aoi.local", "localhost"]);
+}
+
+/// Host の許可リストに、空の名前やポート、パスを含む名前を書くと検証で弾かれることを確認する。
+///
+/// 照合するのはポートを除いた名前だけなので、`aoi.local:8081` のような書き方は決して一致せず、
+/// 設定の誤りに気づきにくいため。
+#[test]
+fn validate_rejects_malformed_allowed_hosts() {
+    for host in ["", "aoi.local:8081", "http://aoi.local", "aoi.local/viewer"] {
+        let config: Config = toml::from_str(&location_config_toml(&format!(
+            "[location.viewer]\nallowed_hosts = [\"{host}\"]\n"
+        )))
+        .expect("should parse");
+
+        let error = config.validate().expect_err("should be rejected");
+        assert!(
+            error.to_string().contains("allowed_hosts"),
+            "{host}: {error}"
+        );
+    }
 }

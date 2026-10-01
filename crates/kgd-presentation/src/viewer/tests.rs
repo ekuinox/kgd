@@ -89,7 +89,10 @@ fn point() -> TrackPoint {
     }
 }
 
-/// ビューアのルータを作る。許可リストは 192.168.0.0/16 だけにする。
+/// テストのリクエストが既定で持つ Host。LAN の端末が IP アドレスで開いたときの形。
+const LAN_HOST: &str = "192.168.1.5:8081";
+
+/// ビューアのルータを作る。送信元の許可リストは 192.168.0.0/16、Host の許可リストは aoi.local だけにする。
 fn viewer(repo: StubLocationRepository) -> Router {
     let use_case = Arc::new(BrowseLocationHistoryUseCase::new(
         Arc::new(repo),
@@ -103,6 +106,7 @@ fn viewer(repo: StubLocationRepository) -> Router {
         use_case,
         ViewerSettings {
             allowed_cidrs: vec!["192.168.0.0/16".parse().unwrap()],
+            allowed_hosts: vec!["aoi.local".to_string()],
         },
     )
 }
@@ -128,8 +132,18 @@ async fn send(
     (status, body.to_vec(), content_type)
 }
 
+/// `Host` を `LAN_HOST` にした GET のリクエストを作る。
 fn get(uri: &str) -> Request<Body> {
-    Request::builder().uri(uri).body(Body::empty()).unwrap()
+    get_with_host(uri, Some(LAN_HOST))
+}
+
+/// `Host` を指定した GET のリクエストを作る。`None` なら `Host` を付けない。
+fn get_with_host(uri: &str, host: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder().uri(uri);
+    if let Some(host) = host {
+        builder = builder.header(header::HOST, host);
+    }
+    builder.body(Body::empty()).unwrap()
 }
 
 fn json(body: &[u8]) -> Value {
@@ -181,6 +195,7 @@ async fn history_rejects_requests_through_cloudflare() {
     let ranges = repo.ranges.clone();
     let request = Request::builder()
         .uri("/viewer/api/history?from=2026-09-01&to=2026-09-01")
+        .header(header::HOST, LAN_HOST)
         .header("Cf-Connecting-IP", "203.0.113.5")
         .body(Body::empty())
         .unwrap();
@@ -327,6 +342,71 @@ async fn unmatched_paths_stay_not_found_when_merged_with_owntracks() {
     let (status, _, _) = send(router, "127.0.0.1", get("/foo")).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// LAN の送信元でも、Host が許可していない名前なら拒否し、リポジトリを読まないことを確認する。
+///
+/// DNS rebinding では、攻撃者の名前を LAN のアドレスへ向け直し、LAN のブラウザから
+/// 同じオリジンとして API を読ませる。そのとき Host には攻撃者の名前が入る。
+#[tokio::test]
+async fn history_rejects_unknown_host_names() {
+    let repo = StubLocationRepository::with_points(Vec::new());
+    let ranges = repo.ranges.clone();
+
+    let (status, _, _) = send(
+        viewer(repo),
+        "192.168.1.10",
+        get_with_host(
+            "/viewer/api/history?from=2026-09-01&to=2026-09-01",
+            Some("attacker.example:8081"),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(ranges.lock().unwrap().is_empty());
+}
+
+/// Host が IP アドレスか許可した名前なら、LAN の送信元に応答することを確認する。
+#[tokio::test]
+async fn history_accepts_ip_literal_and_allowed_hosts() {
+    for host in [
+        "192.168.1.5:8081",
+        "[fd00::1]:8081",
+        "aoi.local:8081",
+        "AOI.local.",
+    ] {
+        let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+        let (status, _, _) = send(
+            router,
+            "192.168.1.10",
+            get_with_host(
+                "/viewer/api/history?from=2026-09-01&to=2026-09-01",
+                Some(host),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{host}");
+    }
+}
+
+/// Host が無いリクエストは拒否することを確認する。
+///
+/// 名前を確かめられないリクエストを通すと、Host の検査を抜け道にできるため。
+#[tokio::test]
+async fn history_rejects_requests_without_host() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, _, _) = send(
+        router,
+        "192.168.1.10",
+        get_with_host("/viewer/api/history?from=2026-09-01&to=2026-09-01", None),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 /// `/viewer` は `/viewer/` へ転送することを確認する。

@@ -1,7 +1,7 @@
 //! ブラウザで位置ログを見るビューアのコントローラ。
 //!
 //! OwnTracks の受け口と同じ待ち受けで `/viewer/` 以下に置く。ログインは無く、
-//! 送信元の許可リストと Cloudflare 経由の印で守る (ADR-0013)。
+//! Cloudflare 経由の印、送信元の許可リスト、Host の許可リストで守る (ADR-0013)。
 
 use std::sync::Arc;
 
@@ -27,6 +27,8 @@ mod tests;
 pub struct ViewerSettings {
     /// ビューアに届いてよい送信元
     pub allowed_cidrs: Vec<IpNet>,
+    /// IP アドレス以外で Host に来てよい名前 (DNS rebinding を防ぐ)
+    pub allowed_hosts: Vec<String>,
 }
 
 /// ビューアのルータを組み立てる。
@@ -40,7 +42,10 @@ pub fn viewer_router(
     use_case: Arc<BrowseLocationHistoryUseCase>,
     settings: ViewerSettings,
 ) -> Router {
-    let allowed: Arc<[IpNet]> = settings.allowed_cidrs.into();
+    let allowlists = Arc::new(guard::Allowlists {
+        cidrs: settings.allowed_cidrs,
+        hosts: settings.allowed_hosts,
+    });
     Router::new()
         .route("/viewer", get(assets::redirect_to_index))
         .route("/viewer/", get(assets::handle_index))
@@ -48,5 +53,5 @@ pub fn viewer_router(
         .route("/viewer/api/history", get(api::handle_history))
         .route("/viewer/api/{*rest}", any(api::handle_not_found))
         .with_state(use_case)
-        .route_layer(middleware::from_fn_with_state(allowed, guard::guard))
+        .route_layer(middleware::from_fn_with_state(allowlists, guard::guard))
 }
