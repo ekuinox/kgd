@@ -1,4 +1,22 @@
 # ========================================
+# Stage 0: Web (build the location viewer)
+# ========================================
+# 成果物は静的ファイルでアーキテクチャに依存しないため、ビルドするマシンのネイティブで動かす
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
+
+# aube の公式 npm パッケージ。ネイティブバイナリを install スクリプトで取得する
+RUN npm install -g --ignore-scripts=false @endevco/aube@2.6.1
+
+WORKDIR /web
+
+# 依存だけを先に入れて、ソースの変更でキャッシュが切れないようにする
+COPY web/package.json web/aube-lock.yaml ./
+RUN aube install --frozen-lockfile
+
+COPY web/ ./
+RUN aube run --no-install build
+
+# ========================================
 # Stage 1: Chef base (install cargo-chef)
 # ========================================
 FROM rust:bookworm AS chef
@@ -42,6 +60,11 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code and build application
 COPY . .
+
+# 画面を埋め込む。rust-embed はフォルダが無くてもビルドを通すため、ここで有無を確かめる
+COPY --from=web /web/dist web/dist
+RUN test -f web/dist/index.html
+
 RUN cargo build --release --bin kgd
 
 # ========================================

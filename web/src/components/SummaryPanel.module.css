@@ -1,0 +1,14 @@
+.summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.summary dt {
+  color: #6c757d;
+}
+
+.summary dd {
+  margin: 0;
+}

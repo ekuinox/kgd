@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, path::PathBuf};
 
+use ipnet::IpNet;
+
 use super::*;
 
 /// 同梱の config.example.toml を Config にパースし、
@@ -205,4 +207,136 @@ fn validate_rejects_too_large_image_size() {
     let config: Config = toml::from_str(&toml_text).expect("should parse");
     let error = config.validate().expect_err("should be rejected");
     assert!(error.to_string().contains("image_width"));
+}
+
+/// [location] と、その後ろに続けるテキストから設定 TOML を作る。
+fn location_config_toml(extra: &str) -> String {
+    format!(
+        "{}\n[location]\nusername = \"ekuinox\"\npassword = \"secret\"\n{extra}",
+        minimal_config_toml("")
+    )
+}
+
+/// [location.viewer] を書かなければビューアは無効 (None) になることを確認する。
+///
+/// kgd を更新しただけでビューアが動き出さないようにするため。
+#[test]
+fn location_viewer_is_disabled_by_default() {
+    let config: Config = toml::from_str(&location_config_toml("")).expect("should parse");
+
+    assert_eq!(config.location.expect("should be present").viewer, None);
+}
+
+/// [location.viewer] を書くと、送信元の許可リストが LAN のプライベート帯、名前の許可リストが空、
+/// 点数の上限が 20000 になることを確認する。
+///
+/// 同じホストの cloudflared から届くリクエストを拒否するため、既定の許可リストに loopback を含めない。
+#[test]
+fn location_viewer_has_private_ranges_and_point_limit_by_default() {
+    let config: Config =
+        toml::from_str(&location_config_toml("[location.viewer]\n")).expect("should parse");
+
+    let viewer = config
+        .location
+        .expect("should be present")
+        .viewer
+        .expect("viewer should be enabled");
+    let expected: Vec<IpNet> = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
+        .iter()
+        .map(|net| net.parse().unwrap())
+        .collect();
+    assert_eq!(viewer.allowed_cidrs, expected);
+    assert!(viewer.allowed_hosts.is_empty());
+    assert_eq!(viewer.max_track_points, 20000);
+    assert!(
+        !viewer
+            .allowed_cidrs
+            .iter()
+            .any(|net| net.contains(&"127.0.0.1".parse::<std::net::IpAddr>().unwrap()))
+    );
+}
+
+/// 許可リストと点数の上限を書き換えられることを確認する。
+#[test]
+fn location_viewer_parses_custom_values() {
+    let config: Config = toml::from_str(&location_config_toml(
+        "[location.viewer]\nallowed_cidrs = [\"192.168.1.0/24\", \"127.0.0.1/32\"]\nmax_track_points = 500\n",
+    ))
+    .expect("should parse");
+
+    let viewer = config.location.unwrap().viewer.unwrap();
+    assert_eq!(
+        viewer.allowed_cidrs,
+        vec![
+            "192.168.1.0/24".parse::<IpNet>().unwrap(),
+            "127.0.0.1/32".parse::<IpNet>().unwrap(),
+        ]
+    );
+    assert_eq!(viewer.max_track_points, 500);
+}
+
+/// 点数の上限に 0 を書くと検証で弾かれることを確認する。
+#[test]
+fn validate_rejects_zero_max_track_points() {
+    let config: Config = toml::from_str(&location_config_toml(
+        "[location.viewer]\nmax_track_points = 0\n",
+    ))
+    .expect("should parse");
+
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("max_track_points"));
+}
+
+/// 許可リストを空にすると検証で弾かれることを確認する。
+///
+/// 空だとどこからも見られず、設定の誤りに気づきにくいため。
+#[test]
+fn validate_rejects_empty_allowed_cidrs() {
+    let config: Config = toml::from_str(&location_config_toml(
+        "[location.viewer]\nallowed_cidrs = []\n",
+    ))
+    .expect("should parse");
+
+    let error = config.validate().expect_err("should be rejected");
+    assert!(error.to_string().contains("allowed_cidrs"));
+}
+
+/// Host の許可リストに名前を書け、検証も通ることを確認する。
+#[test]
+fn location_viewer_parses_allowed_hosts() {
+    let config: Config = toml::from_str(&location_config_toml(
+        "[location.viewer]\nallowed_hosts = [\"aoi.local\", \"localhost\"]\n",
+    ))
+    .expect("should parse");
+
+    assert!(config.validate().is_ok());
+    let viewer = config.location.unwrap().viewer.unwrap();
+    assert_eq!(viewer.allowed_hosts, vec!["aoi.local", "localhost"]);
+}
+
+/// Host の許可リストに、空の名前やポート、パス、`user@`、空白を含む名前を書くと検証で弾かれることを確認する。
+///
+/// 照合するのはポートを除いた名前だけなので、`aoi.local:8081` のような書き方は決して一致せず、
+/// 設定の誤りに気づきにくいため。
+#[test]
+fn validate_rejects_malformed_allowed_hosts() {
+    for host in [
+        "",
+        "aoi.local:8081",
+        "http://aoi.local",
+        "aoi.local/viewer",
+        "me@aoi.local",
+        " aoi.local",
+    ] {
+        let config: Config = toml::from_str(&location_config_toml(&format!(
+            "[location.viewer]\nallowed_hosts = [\"{host}\"]\n"
+        )))
+        .expect("should parse");
+
+        let error = config.validate().expect_err("should be rejected");
+        assert!(
+            error.to_string().contains("allowed_hosts"),
+            "{host}: {error}"
+        );
+    }
 }

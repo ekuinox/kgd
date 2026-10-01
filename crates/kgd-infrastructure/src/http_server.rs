@@ -25,9 +25,13 @@ pub async fn bind_http(listen: SocketAddr) -> Result<TcpListener> {
 /// 待ち受けソケットで HTTP サーバーを起動し、終了するまで待つ。
 ///
 /// bind は [`bind_http`] で済んでいる前提。ここで発生するのは接続を
-/// 受け付け始めた後の実行時エラーのみ。
+/// 受け付け始めた後の実行時エラーのみ。ハンドラが `ConnectInfo<SocketAddr>` で
+/// 接続元のアドレスを取れるようにして起動する (ビューアのガードが使う)。
 pub async fn serve_http(listener: TcpListener, router: Router) -> Result<()> {
-    axum::serve(listener, router)
-        .await
-        .context("HTTP server error")
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .context("HTTP server error")
 }

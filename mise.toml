@@ -1,2 +1,4 @@
 [tools]
 "npm:@openai/codex" = "latest"
+node = "22"
+"github:aubepkg/aube" = "2.6.1"

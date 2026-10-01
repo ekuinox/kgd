@@ -1,6 +1,10 @@
 //! 各層の実装を組み立てて Bot を起動する Composition Root。
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context as _, Result};
 use serenity::{
@@ -8,12 +12,13 @@ use serenity::{
     prelude::*,
 };
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 
 use kgd_application::{
-    AutoCloseJob, BuildLocationReportUseCase, DailyLocationReportJob, DiaryLifecycleSettings,
-    DiaryMaintenanceSettings, HourlySyncJob, LocationReportSettings, ManageDiaryLifecycleUseCase,
-    PublishDiaryPostUseCase, RecordLocationUseCase, RelaySettings, RelayWriteChannelMessageUseCase,
+    AutoCloseJob, BrowseLocationHistoryUseCase, BuildLocationReportUseCase, DailyLocationReportJob,
+    DiaryLifecycleSettings, DiaryMaintenanceSettings, HourlySyncJob, LocationHistorySettings,
+    LocationReportSettings, ManageDiaryLifecycleUseCase, PublishDiaryPostUseCase,
+    RecordLocationUseCase, RelaySettings, RelayWriteChannelMessageUseCase,
     RunDiaryMaintenanceUseCase, SyncDiaryMessageUseCase, WakeServerUseCase,
     ports::{
         AttachmentDownloader, Clock, DiaryPostRepository, DiaryRepository, DiscordGateway,
@@ -29,8 +34,8 @@ use kgd_infrastructure::{
 };
 use kgd_presentation::{
     DiscordController, DiscordControllerSettings, LocationReportCommand,
-    OwnTracksControllerSettings, StatusNotifier, VersionInfo, owntracks_router,
-    run_status_receiver,
+    OwnTracksControllerSettings, StatusNotifier, VersionInfo, ViewerSettings, owntracks_router,
+    run_status_receiver, viewer_router,
 };
 
 use crate::{config::Config, version};
@@ -231,14 +236,47 @@ pub async fn run(config: Config, status_rx: mpsc::Receiver<Vec<ServerStatus>>) -
     if let Some(location_config) = config.location.clone() {
         let location_store: Arc<dyn LocationRepository> =
             Arc::new(LocationStore::new(pool.clone()));
-        let record_location = Arc::new(RecordLocationUseCase::new(location_store));
-        let router = owntracks_router(
+        let record_location = Arc::new(RecordLocationUseCase::new(location_store.clone()));
+        let mut router = owntracks_router(
             record_location,
             OwnTracksControllerSettings {
                 username: location_config.username.clone(),
                 password: location_config.password.clone(),
             },
         );
+        // ビューアは `[location.viewer]` を書いたときだけ有効にする (ADR-0013)。
+        if let Some(viewer_config) = &location_config.viewer {
+            let loopbacks = [
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
+            ];
+            if viewer_config
+                .allowed_cidrs
+                .iter()
+                .any(|net| loopbacks.iter().any(|ip| net.contains(ip)))
+            {
+                warn!(
+                    "location.viewer.allowed_cidrs includes loopback. Requests through a local \
+                     cloudflared are then blocked only by the Cloudflare header check"
+                );
+            }
+            let browse = Arc::new(BrowseLocationHistoryUseCase::new(
+                location_store,
+                LocationHistorySettings {
+                    timezone: diary_config.timezone,
+                    max_accuracy_m: location_config.max_accuracy_m,
+                    max_track_points: viewer_config.max_track_points,
+                },
+            ));
+            router = router.merge(viewer_router(
+                browse,
+                ViewerSettings {
+                    allowed_cidrs: viewer_config.allowed_cidrs.clone(),
+                    allowed_hosts: viewer_config.allowed_hosts.clone(),
+                },
+            ));
+            info!("Location viewer enabled at /viewer/");
+        }
         let listener = bind_http(location_config.listen)
             .await
             .context("Failed to start OwnTracks HTTP receiver")?;

@@ -26,9 +26,9 @@ pub use diary::{
 pub use diary_post::{DiaryPost, DiaryPostImage, DiaryPostRecord};
 pub use location::{
     Activity, LocationReportText, LocationSummary, OSM_ATTRIBUTION, TILE_SIZE, TilePlacement,
-    TrackPoint, TrackSegment, Viewport, filter_accurate, fit_viewport,
-    format_empty_location_report, format_location_report, haversine_m, split_segments, summarize,
-    world_pixel,
+    TrackPoint, TrackSegment, Viewport, calendar_day_range, count_points, filter_accurate,
+    fit_viewport, format_empty_location_report, format_location_report, group_by_calendar_day,
+    haversine_m, simplify_segments, split_segments, sum_summaries, summarize, world_pixel,
 };
 pub use maintenance::{
     DiaryHourlySyncSlot, HourlySyncDecision, decide_hourly_sync, should_attempt_auto_close,

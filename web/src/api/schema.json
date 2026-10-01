@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ViewerApi",
+  "description": "画面側へ渡す API の型をまとめた、スキーマ生成専用の型。\n\nJSON Schema の `$defs` に各型を並べ、ルートからそれらを参照させるために使う。",
+  "type": "object",
+  "properties": {
+    "calendar_response": {
+      "description": "`GET /viewer/api/calendar` の応答",
+      "$ref": "#/$defs/CalendarResponse"
+    },
+    "error_response": {
+      "description": "エラーの応答",
+      "$ref": "#/$defs/ErrorResponse"
+    },
+    "history_query": {
+      "description": "`GET /viewer/api/history` のクエリ",
+      "$ref": "#/$defs/HistoryQuery"
+    },
+    "history_response": {
+      "description": "`GET /viewer/api/history` の応答",
+      "$ref": "#/$defs/HistoryResponse"
+    }
+  },
+  "required": [
+    "calendar_response",
+    "history_query",
+    "history_response",
+    "error_response"
+  ],
+  "$defs": {
+    "ActivityKind": {
+      "description": "移動種別。",
+      "oneOf": [
+        {
+          "description": "徒歩",
+          "type": "string",
+          "const": "walking"
+        },
+        {
+          "description": "自転車",
+          "type": "string",
+          "const": "cycling"
+        },
+        {
+          "description": "車などの乗り物",
+          "type": "string",
+          "const": "automotive"
+        },
+        {
+          "description": "静止",
+          "type": "string",
+          "const": "stationary"
+        },
+        {
+          "description": "不明",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "CalendarResponse": {
+      "description": "`GET /viewer/api/calendar` の応答。",
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "description": "暦日を区切るタイムゾーン (IANA 名)。画面はこの暦で「今日」を決める",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timezone"
+      ]
+    },
+    "DailySummary": {
+      "description": "1 日ぶんの集計。",
+      "type": "object",
+      "properties": {
+        "date": {
+          "description": "暦日",
+          "type": "string",
+          "format": "date"
+        },
+        "summary": {
+          "description": "その日の集計",
+          "$ref": "#/$defs/HistorySummary"
+        }
+      },
+      "required": [
+        "date",
+        "summary"
+      ]
+    },
+    "DistanceByActivity": {
+      "description": "移動種別ごとの距離 (メートル)。静止は距離を持たないため含めない。",
+      "type": "object",
+      "properties": {
+        "automotive": {
+          "description": "車などの乗り物",
+          "type": "number",
+          "format": "double"
+        },
+        "cycling": {
+          "description": "自転車",
+          "type": "number",
+          "format": "double"
+        },
+        "unknown": {
+          "description": "移動種別が不明",
+          "type": "number",
+          "format": "double"
+        },
+        "walking": {
+          "description": "徒歩",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "walking",
+        "cycling",
+        "automotive",
+        "unknown"
+      ]
+    },
+    "ErrorResponse": {
+      "description": "エラーの応答。",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "エラーの理由",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ]
+    },
+    "FeatureCollectionType": {
+      "description": "GeoJSON の FeatureCollection の種別。",
+      "oneOf": [
+        {
+          "description": "FeatureCollection",
+          "type": "string",
+          "const": "FeatureCollection"
+        }
+      ]
+    },
+    "FeatureType": {
+      "description": "GeoJSON の Feature の種別。",
+      "oneOf": [
+        {
+          "description": "Feature",
+          "type": "string",
+          "const": "Feature"
+        }
+      ]
+    },
+    "HistoryQuery": {
+      "description": "`GET /viewer/api/history` のクエリ。",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "開始日 (含む)",
+          "type": "string",
+          "format": "date"
+        },
+        "to": {
+          "description": "終了日 (含む)",
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "HistoryRange": {
+      "description": "対象の期間。",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "開始日 (含む)",
+          "type": "string",
+          "format": "date"
+        },
+        "timezone": {
+          "description": "暦日を区切ったタイムゾーン (IANA 名)",
+          "type": "string"
+        },
+        "to": {
+          "description": "終了日 (含む)",
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "timezone"
+      ]
+    },
+    "HistoryResponse": {
+      "description": "`GET /viewer/api/history` の応答。",
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "日ごとの集計。期間のすべての日を日付順に並べる",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DailySummary"
+          }
+        },
+        "range": {
+          "description": "対象の期間",
+          "$ref": "#/$defs/HistoryRange"
+        },
+        "total": {
+          "description": "期間全体の集計 (日ごとの集計の和)",
+          "$ref": "#/$defs/HistorySummary"
+        },
+        "track": {
+          "description": "地図に描く軌跡 (GeoJSON の FeatureCollection)",
+          "$ref": "#/$defs/Track"
+        },
+        "track_meta": {
+          "description": "軌跡の間引きの情報",
+          "$ref": "#/$defs/TrackMeta"
+        }
+      },
+      "required": [
+        "range",
+        "total",
+        "days",
+        "track",
+        "track_meta"
+      ]
+    },
+    "HistorySummary": {
+      "description": "位置ログの集計。",
+      "type": "object",
+      "properties": {
+        "distance_by_activity": {
+          "description": "移動種別ごとの距離 (メートル)",
+          "$ref": "#/$defs/DistanceByActivity"
+        },
+        "distance_m": {
+          "description": "移動距離の合計 (メートル)",
+          "type": "number",
+          "format": "double"
+        },
+        "excluded_count": {
+          "description": "精度不足で除外した点の数",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "first_at": {
+          "description": "最初の記録時刻。点が無ければ null",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "last_at": {
+          "description": "最後の記録時刻。点が無ければ null",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "moving_s": {
+          "description": "移動していた時間 (秒)",
+          "type": "integer",
+          "format": "int64"
+        },
+        "point_count": {
+          "description": "集計に使った点の数",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "stationary_s": {
+          "description": "静止していた時間 (秒)",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "distance_m",
+        "distance_by_activity",
+        "moving_s",
+        "stationary_s",
+        "point_count",
+        "excluded_count"
+      ]
+    },
+    "LineString": {
+      "description": "GeoJSON の LineString。",
+      "type": "object",
+      "properties": {
+        "coordinates": {
+          "description": "`[経度, 緯度]` の列",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "type": {
+          "description": "GeoJSON の種別",
+          "$ref": "#/$defs/LineStringType"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ]
+    },
+    "LineStringType": {
+      "description": "GeoJSON の LineString の種別。",
+      "oneOf": [
+        {
+          "description": "LineString",
+          "type": "string",
+          "const": "LineString"
+        }
+      ]
+    },
+    "Track": {
+      "description": "地図に描く軌跡 (GeoJSON の FeatureCollection)。",
+      "type": "object",
+      "properties": {
+        "features": {
+          "description": "移動種別が続く区間ごとの線",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrackFeature"
+          }
+        },
+        "type": {
+          "description": "GeoJSON の種別",
+          "$ref": "#/$defs/FeatureCollectionType"
+        }
+      },
+      "required": [
+        "type",
+        "features"
+      ]
+    },
+    "TrackFeature": {
+      "description": "移動種別が続く 1 区間の線 (GeoJSON の Feature)。",
+      "type": "object",
+      "properties": {
+        "geometry": {
+          "description": "区間の線",
+          "$ref": "#/$defs/LineString"
+        },
+        "properties": {
+          "description": "区間の属性",
+          "$ref": "#/$defs/TrackProperties"
+        },
+        "type": {
+          "description": "GeoJSON の種別",
+          "$ref": "#/$defs/FeatureType"
+        }
+      },
+      "required": [
+        "type",
+        "properties",
+        "geometry"
+      ]
+    },
+    "TrackMeta": {
+      "description": "軌跡の間引きの情報。",
+      "type": "object",
+      "properties": {
+        "original_points": {
+          "description": "間引く前の点数 (区間の境目の点は両方の区間で数える)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "returned_points": {
+          "description": "間引いた後の点数 (数え方は `original_points` と同じ)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "simplified": {
+          "description": "間引いたかどうか",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "original_points",
+        "returned_points",
+        "simplified"
+      ]
+    },
+    "TrackProperties": {
+      "description": "区間の属性。",
+      "type": "object",
+      "properties": {
+        "activity": {
+          "description": "区間の移動種別",
+          "$ref": "#/$defs/ActivityKind"
+        }
+      },
+      "required": [
+        "activity"
+      ]
+    }
+  }
+}

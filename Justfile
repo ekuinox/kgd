@@ -68,6 +68,50 @@ compose-local *args:
 compose-local-down *args:
     docker compose -f compose.yml -f compose.local.yml down {{args}}
 
+# Install viewer dependencies (web/)
+web-install:
+    cd web && aube install
+
+# Start the viewer dev server (proxies /viewer/api to 127.0.0.1:8081)
+web-dev:
+    cd web && aube run dev
+
+# Build the viewer into web/dist (embedded into the kgd binary)
+web-build:
+    cd web && aube run build
+
+# Check the viewer (typecheck, lint, test)
+web-check:
+    cd web && aube run typecheck && aube run lint && aube run test
+
+# Regenerate the viewer API schemas (Rust DTO -> web/src/api/schema.json -> schema.gen.ts)
+gen-api:
+    UPDATE_API_SCHEMA=1 cargo test -p kgd-presentation viewer::dto
+    cd web && aube run gen
+
+# Check that only the OwnTracks endpoints are reachable at the given base URL
+# (e.g. just check-exposure https://owntracks.example.com)
+check-exposure url:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail=0
+    check() {
+      local path="$1" expected="$2" status
+      # 接続できないときも 000 として FAIL を出す (set -e で止めない)
+      status=$(curl -s -o /dev/null --max-time 10 -w '%{http_code}' "{{url}}$path") || true
+      if [[ " $expected " == *" $status "* ]]; then
+        echo "ok   $path -> $status"
+      else
+        echo "FAIL $path -> $status (expected: $expected)"
+        fail=1
+      fi
+    }
+    check /viewer/ "403 404"
+    check /viewer/api/calendar "403 404"
+    check "/viewer/api/history?from=2026-01-01&to=2026-01-01" "403 404"
+    check /healthz "200"
+    exit "$fail"
+
 # Clean build artifacts
 clean:
     @echo "Cleaning build artifacts..."
