@@ -97,7 +97,8 @@ check-exposure url:
     fail=0
     check() {
       local path="$1" expected="$2" status
-      status=$(curl -s -o /dev/null -w '%{http_code}' "{{url}}$path")
+      # 接続できないときも 000 として FAIL を出す (set -e で止めない)
+      status=$(curl -s -o /dev/null --max-time 10 -w '%{http_code}' "{{url}}$path") || true
       if [[ " $expected " == *" $status "* ]]; then
         echo "ok   $path -> $status"
       else
