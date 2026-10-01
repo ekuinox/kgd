@@ -13,15 +13,10 @@ export class ApiError extends Error {
   }
 }
 
-// Vite の base ('/viewer/'、vite.config.ts 参照) を固定で使う。
-// import.meta.env.BASE_URL は SSR/Vitest (node 環境) では '/' になり、
-// ブラウザでの実配信パスと食い違うため使わない。
-const BASE_URL = '/viewer/';
-
 /** 期間の位置ログを返す API の URL。 */
 export function historyUrl(range: DateRange): string {
   const query = new URLSearchParams({ from: range.from, to: range.to });
-  return `${BASE_URL}api/history?${query}`;
+  return `${import.meta.env.BASE_URL}api/history?${query}`;
 }
 
 /**

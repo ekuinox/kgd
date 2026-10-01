@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, fetchHistory, historyUrl } from './client.ts';
 import { historyFixture } from './fixture.ts';
 
@@ -11,8 +11,15 @@ function respondWith(body: unknown, status = 200) {
   );
 }
 
+beforeEach(() => {
+  // vite.config.ts の base ('/viewer/') を模す。Vitest (node 環境) では
+  // import.meta.env.BASE_URL が既定で '/' になるため、ここで明示的に揃える。
+  vi.stubEnv('BASE_URL', '/viewer/');
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('fetchHistory', () => {
