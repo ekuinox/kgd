@@ -68,6 +68,22 @@ compose-local *args:
 compose-local-down *args:
     docker compose -f compose.yml -f compose.local.yml down {{args}}
 
+# Install viewer dependencies (web/)
+web-install:
+    cd web && aube install
+
+# Start the viewer dev server (proxies /viewer/api to 127.0.0.1:8081)
+web-dev:
+    cd web && aube run dev
+
+# Build the viewer into web/dist (embedded into the kgd binary)
+web-build:
+    cd web && aube run build
+
+# Check the viewer (typecheck, lint, test)
+web-check:
+    cd web && aube run typecheck && aube run lint && aube run test
+
 # Clean build artifacts
 clean:
     @echo "Cleaning build artifacts..."

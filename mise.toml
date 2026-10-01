@@ -1,2 +1,4 @@
 [tools]
 "npm:@openai/codex" = "latest"
+node = "22"
+aube = "2.6"
