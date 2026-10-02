@@ -244,3 +244,40 @@ async fn get_healthz_returns_ok() {
 
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+/// 未知のパスには、本文と `text/plain` の種類を付けた 404 を返すことを確認する。
+///
+/// 本文も種類も無い応答は、ブラウザによってはページとして表示されずダウンロードされるため。
+#[tokio::test]
+async fn unknown_paths_return_plain_text_not_found() {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/viewer/")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = test_router().oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+    assert!(
+        content_type.is_some_and(|value| value.to_str().unwrap().starts_with("text/plain")),
+        "content-type should be text/plain"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(!body.is_empty());
+}
+
+/// 受け口に POST 以外で来たときは、未知のパスの 404 ではなく 405 のままであることを確認する。
+#[tokio::test]
+async fn get_pub_stays_method_not_allowed() {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/pub")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = test_router().oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}

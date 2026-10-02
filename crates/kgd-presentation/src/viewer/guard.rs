@@ -122,7 +122,7 @@ pub(super) fn decide_host(host: Option<&str>, allowed: &[String]) -> Result<(), 
     }
 }
 
-/// ビューアのルートにかけるミドルウェア。拒否したら 403 を返し、理由を warn のログに残す。
+/// ビューアのルートにかけるミドルウェア。拒否したら `text/plain` の 403 を返し、理由を warn のログに残す。
 ///
 /// Cloudflare 経由の印、送信元、Host の順に調べ、すべてを満たすときだけ通す。
 /// 送信元はソケットの相手アドレスだけを使い、`X-Forwarded-For` などのヘッダは見ない。
@@ -146,7 +146,8 @@ pub(super) async fn guard(
                 path = %request.uri().path(),
                 "Rejected location viewer request"
             );
-            StatusCode::FORBIDDEN.into_response()
+            // 本文も種類も無い応答は、ブラウザによってはダウンロードされるため本文を付ける
+            (StatusCode::FORBIDDEN, "forbidden").into_response()
         }
     }
 }
