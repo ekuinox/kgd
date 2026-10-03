@@ -389,7 +389,7 @@ async fn pub_still_accepts_loopback_requests_when_merged() {
 }
 
 /// OwnTracks のルータと合わせたとき、未登録のパスへの loopback からのリクエストは
-/// ガードにかからず、素の 404 のままであることを確認する。
+/// ガードにかからず、OwnTracks のルータの本文付きの 404 のままであることを確認する。
 ///
 /// `.layer` だとルータ全体のフォールバックにもガードがかかり、cloudflared が届ける
 /// `/favicon.ico` のような未登録パスまで「ビューアへの拒否」として 403 になり、
@@ -398,9 +398,14 @@ async fn pub_still_accepts_loopback_requests_when_merged() {
 async fn unmatched_paths_stay_not_found_when_merged_with_owntracks() {
     let router = merged(StubLocationRepository::with_points(Vec::new()));
 
-    let (status, _, _) = send(router, "127.0.0.1", get("/foo")).await;
+    let (status, body, content_type) = send(router, "127.0.0.1", get("/foo")).await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(
+        content_type.is_some_and(|value| value.starts_with("text/plain")),
+        "the 404 should be plain text so that browsers show it"
+    );
+    assert!(!body.is_empty());
 }
 
 /// OwnTracks のルータと合わせた本番と同じ形でも、loopback からのビューアの API は 403 になることを確認する。
@@ -599,4 +604,26 @@ async fn calendar_rejects_loopback_peers() {
     let (status, _, _) = send(router, "127.0.0.1", get("/viewer/api/calendar")).await;
 
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// ガードが拒否したときは、本文と `text/plain` の種類を付けた 403 を返すことを確認する。
+///
+/// 許可していない名前で開いたときなどに、ブラウザがページを表示せずダウンロードしないようにするため。
+#[tokio::test]
+async fn rejected_pages_return_plain_text_forbidden() {
+    let router = viewer(StubLocationRepository::with_points(Vec::new()));
+
+    let (status, body, content_type) = send(
+        router,
+        "192.168.1.10",
+        get_with_host("/viewer/", Some("attacker.example:8081")),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        content_type.is_some_and(|value| value.starts_with("text/plain")),
+        "the 403 should be plain text so that browsers show it"
+    );
+    assert!(!body.is_empty());
 }

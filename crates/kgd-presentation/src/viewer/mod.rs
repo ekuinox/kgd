@@ -37,7 +37,7 @@ pub struct ViewerSettings {
 ///
 /// ガードはこのルータに登録したルート (`/viewer` および `/viewer/...`) にだけかかる。
 /// `.route_layer` を使うため、フォールバック (未登録のパス全般) には影響しない。OwnTracks のルータへ
-/// merge すると、そのルータのフォールバック (通常は素の 404) が全体のフォールバックに
+/// merge すると、そのルータのフォールバック (本文付きの 404) が全体のフォールバックに
 /// なるが、ここにガードはかからない。送信元を取るため、サーバーは
 /// `into_make_service_with_connect_info::<SocketAddr>()` で起動すること。
 pub fn viewer_router(

@@ -57,6 +57,9 @@ struct DeviceQuery {
 }
 
 /// OwnTracks 受信用のルータを組み立てる。
+///
+/// 未知のパスには本文付きの 404 を返す。ビューアのルータを merge すると、
+/// この 404 が待ち受け全体のフォールバックになる。
 pub fn owntracks_router(
     use_case: Arc<RecordLocationUseCase>,
     settings: OwnTracksControllerSettings,
@@ -64,6 +67,7 @@ pub fn owntracks_router(
     Router::new()
         .route("/pub", post(handle_pub))
         .route("/healthz", get(handle_healthz))
+        .fallback(handle_not_found)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(OwnTracksState { use_case, settings })
 }
@@ -71,6 +75,14 @@ pub fn owntracks_router(
 /// 死活確認。
 async fn handle_healthz() -> Json<Value> {
     Json(json!({ "ok": true }))
+}
+
+/// 未知のパスに 404 を返す。
+///
+/// 本文も種類も無い応答は、ブラウザによってはページとして表示されずダウンロードされるため、
+/// `text/plain` の本文を付ける。
+async fn handle_not_found() -> (StatusCode, &'static str) {
+    (StatusCode::NOT_FOUND, "not found")
 }
 
 /// メッセージを受け取って保存する。
