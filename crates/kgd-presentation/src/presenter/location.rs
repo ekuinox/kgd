@@ -39,13 +39,21 @@ pub fn resolve_report_date(
     let Some(input) = input else {
         return Ok(current);
     };
+    let date = parse_diary_date(input)?;
+    if date > current {
+        return Err(ReportDateError::NotStarted);
+    }
+    Ok(date)
+}
+
+/// コマンドの YYYY-MM-DD の日付入力を日報日として解釈する。
+///
+/// まだ始まっていない日報日かどうかは判断しない。
+pub fn parse_diary_date(input: &str) -> Result<NaiveDate, ReportDateError> {
     let date = NaiveDate::parse_from_str(input.trim(), "%Y-%m-%d")
         .map_err(|_| ReportDateError::InvalidFormat)?;
     if !(2000..=9999).contains(&date.year()) {
         return Err(ReportDateError::InvalidFormat);
-    }
-    if date > current {
-        return Err(ReportDateError::NotStarted);
     }
     Ok(date)
 }
@@ -135,6 +143,30 @@ mod tests {
         );
         assert_eq!(
             resolve_report_date(Some("yesterday"), &calendar(), jst(29, 9, 0)),
+            Err(ReportDateError::InvalidFormat)
+        );
+    }
+
+    /// YYYY-MM-DD の日付を、まだ始まっていない日報日でも受け付けることを確認する。
+    ///
+    /// 早出しで次の日報日が既に始まっていることがあるため、未来かどうかは判断しない。
+    #[test]
+    fn parse_diary_date_accepts_future_date() {
+        assert_eq!(
+            parse_diary_date(" 2026-09-30 "),
+            Ok(NaiveDate::from_ymd_opt(2026, 9, 30).unwrap())
+        );
+    }
+
+    /// 書式の違う日付と極端な年を弾くことを確認する。
+    #[test]
+    fn parse_diary_date_rejects_invalid_input() {
+        assert_eq!(
+            parse_diary_date("2026/09/28"),
+            Err(ReportDateError::InvalidFormat)
+        );
+        assert_eq!(
+            parse_diary_date("1999-12-31"),
             Err(ReportDateError::InvalidFormat)
         );
     }

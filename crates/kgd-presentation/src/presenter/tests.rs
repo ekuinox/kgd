@@ -1,4 +1,7 @@
+use chrono::{NaiveDate, Utc};
 use macaddr::MacAddr6;
+
+use kgd_domain::DiaryEntry;
 
 use super::*;
 
@@ -83,6 +86,35 @@ fn present_diary_create_outcome_formats_each_variant() {
     assert!(created.contains("日報を作成しました"));
     assert!(created.contains("<#3>"));
     assert!(created.contains("https://notion.example/x"));
+}
+
+/// 日報が見つかったとき、日報日・スレッドへのリンク・Notion ページの URL を返すことを確認する。
+#[test]
+fn present_diary_link_formats_found_entry() {
+    let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+    let entry = DiaryEntry {
+        thread_id: 100,
+        page_id: "page".to_string(),
+        page_url: "https://notion.example/page".to_string(),
+        date: Utc::now(),
+        created_at: Utc::now(),
+    };
+
+    assert_eq!(
+        present_diary_link(date, Some(&entry)),
+        "2026-09-28 の日報\nスレッド: <#100>\nNotion: https://notion.example/page"
+    );
+}
+
+/// 日報が見つからないとき、その日の日報が無いことを伝えることを確認する。
+#[test]
+fn present_diary_link_reports_missing_entry() {
+    let date = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+
+    assert_eq!(
+        present_diary_link(date, None),
+        "2026-09-28 の日報は見つかりませんでした"
+    );
 }
 
 /// CloseAndNewPrecheck の各バリアントを渡すと、AlreadyLatest と LatestExists は

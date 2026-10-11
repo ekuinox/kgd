@@ -1,15 +1,15 @@
 //! 日報スラッシュコマンドの処理。
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serenity::{
     all::{
-        ChannelType, CommandInteraction, CreateInteractionResponse,
+        ChannelType, CommandDataOptionValue, CommandInteraction, CreateInteractionResponse,
         CreateInteractionResponseMessage, EditInteractionResponse,
     },
     client::Context as SerenityContext,
 };
 
-use crate::presenter::present_diary_create_outcome;
+use crate::presenter::{parse_diary_date, present_diary_create_outcome, present_diary_link};
 
 use super::DiscordController;
 
@@ -29,6 +29,7 @@ impl DiscordController {
             "new" => self.handle_diary_new(ctx, command).await,
             "close" => self.handle_diary_close(ctx, command).await,
             "sync" => self.handle_diary_sync(ctx, command).await,
+            "link" => self.handle_diary_link(ctx, command).await,
             _ => Ok(()),
         }
     }
@@ -44,6 +45,44 @@ impl DiscordController {
             .content(present_diary_create_outcome(&outcome))
             .ephemeral(false);
 
+        command
+            .create_response(&ctx.http, CreateInteractionResponse::Message(response))
+            .await?;
+
+        Ok(())
+    }
+
+    /// 日報日を指定して、その日の日報スレッドと Notion ページへのリンクを本人だけに返す。
+    async fn handle_diary_link(
+        &self,
+        ctx: &SerenityContext,
+        command: &CommandInteraction,
+    ) -> Result<()> {
+        let subcommand = command
+            .data
+            .options
+            .first()
+            .context("Subcommand not provided")?;
+        let CommandDataOptionValue::SubCommand(options) = &subcommand.value else {
+            bail!("Unexpected option value for /diary link");
+        };
+        let input = options
+            .iter()
+            .find(|option| option.name == "date")
+            .and_then(|option| option.value.as_str())
+            .context("Date not provided")?;
+
+        let content = match parse_diary_date(input) {
+            Ok(date) => {
+                let entry = self.lifecycle.find_by_date(date).await?;
+                present_diary_link(date, entry.as_ref())
+            }
+            Err(error) => error.message().to_string(),
+        };
+
+        let response = CreateInteractionResponseMessage::new()
+            .content(content)
+            .ephemeral(true);
         command
             .create_response(&ctx.http, CreateInteractionResponse::Message(response))
             .await?;

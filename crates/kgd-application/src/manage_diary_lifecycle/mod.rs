@@ -1,8 +1,9 @@
-//! 日報スレッドのライフサイクル（作成・再開・クローズ）を管理するユースケース。
+//! 日報スレッドのライフサイクル（作成・再開・クローズ・取得）を管理するユースケース。
 
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use chrono::NaiveDate;
 use tracing::{info, warn};
 
 use kgd_domain::DiaryEntry;
@@ -119,6 +120,20 @@ impl ManageDiaryLifecycleUseCase {
             page_url,
             reused_page,
         })
+    }
+
+    /// 日報日を指定して日報エントリを取得する。無ければ `None` を返す。
+    ///
+    /// 古い日報は `date` 列の表現が違うため、[`DiaryCalendar::stored_dates`] の候補を順に引く。
+    ///
+    /// [`DiaryCalendar::stored_dates`]: kgd_domain::DiaryCalendar::stored_dates
+    pub async fn find_by_date(&self, date: NaiveDate) -> Result<Option<DiaryEntry>> {
+        for stored in self.settings.calendar.stored_dates(date) {
+            if let Some(entry) = self.repo.get_by_date(stored).await? {
+                return Ok(Some(entry));
+            }
+        }
+        Ok(None)
     }
 
     /// 既存の Notion ページを検索し、なければ新規作成する。

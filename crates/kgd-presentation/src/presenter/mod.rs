@@ -5,11 +5,12 @@
 
 use std::time::Duration;
 
+use chrono::NaiveDate;
 use serenity::all::CreateEmbed;
 use serenity::builder::CreateEmbedFooter;
 
 use kgd_application::{CloseAndNewPrecheck, DiaryCreateOutcome, WakeOutcome};
-use kgd_domain::{ServerStatus, ServerTarget};
+use kgd_domain::{DiaryEntry, ServerStatus, ServerTarget};
 
 /// バージョン情報の表示用 DTO。
 ///
@@ -165,6 +166,18 @@ pub fn present_diary_create_outcome(outcome: &DiaryCreateOutcome) -> String {
     }
 }
 
+/// 日報日を指定した日報の取得（/diary link）結果のメッセージを組み立てる。
+pub fn present_diary_link(date: NaiveDate, entry: Option<&DiaryEntry>) -> String {
+    let date = date.format("%Y-%m-%d");
+    match entry {
+        Some(entry) => format!(
+            "{} の日報\nスレッド: <#{}>\nNotion: {}",
+            date, entry.thread_id, entry.page_url
+        ),
+        None => format!("{} の日報は見つかりませんでした", date),
+    }
+}
+
 /// クローズ & 新規作成の事前確認結果のメッセージを組み立てる。
 ///
 /// `ReadyToCreate` の場合は実処理に進むため `None` を返す。
@@ -206,7 +219,7 @@ pub fn render_embed(spec: &EmbedSpec) -> CreateEmbed {
 
 mod location;
 
-pub(crate) use location::{present_location_report, resolve_report_date};
+pub(crate) use location::{parse_diary_date, present_location_report, resolve_report_date};
 
 #[cfg(test)]
 mod tests;
