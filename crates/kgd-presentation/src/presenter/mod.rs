@@ -217,9 +217,11 @@ pub fn render_embed(spec: &EmbedSpec) -> CreateEmbed {
     embed
 }
 
+mod date_input;
 mod location;
 
-pub(crate) use location::{parse_diary_date, present_location_report, resolve_report_date};
+pub(crate) use date_input::{parse_diary_date, resolve_report_date};
+pub(crate) use location::present_location_report;
 
 #[cfg(test)]
 mod tests;

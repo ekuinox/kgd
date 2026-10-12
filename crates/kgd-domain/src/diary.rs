@@ -145,16 +145,22 @@ impl DiaryCalendar {
 
     /// 日報日のエントリが `date` 列に保存されうる時刻の候補を返す。
     ///
-    /// 今の表現である [`Self::start_of`] に加え、`date` 列を TIMESTAMPTZ に変えた
-    /// マイグレーションが 'YYYY-MM-DD' を UTC の 0 時として変換した古い表現も含める。
+    /// 今の表現である [`Self::start_of`] に加え、UTC の 0 時という古い表現も含める。
+    /// 古い表現の日報は次の 2 つから生まれた。
+    ///
+    /// - `date` 列を TIMESTAMPTZ に変えたマイグレーション (2026-01-25) が、
+    ///   それまでの 'YYYY-MM-DD' を UTC の 0 時として変換した
+    /// - 2026-01-25 から 2026-01-27 まで日付を `chrono::Local` で求めており、
+    ///   TZ を設定していないコンテナでは UTC の 0 時で保存された可能性がある
+    ///
     /// 両者が一致するとき (タイムゾーンが UTC など) は 1 つだけ返す。
+    /// 暦から消えた日 (日付変更線をまたいだ日など) は今の表現を求められないため、古い表現だけを返す。
+    /// 引数はユーザーの入力に由来しうるため、[`Self::start_of`] と違ってパニックしない。
     pub fn stored_dates(&self, date: NaiveDate) -> Vec<DateTime<Utc>> {
-        let current = self.start_of(date);
         let legacy = date.and_time(NaiveTime::MIN).and_utc();
-        if current == legacy {
-            vec![current]
-        } else {
-            vec![current, legacy]
+        match resolve_local(date.and_time(NaiveTime::MIN), self.timezone) {
+            Some(current) if current != legacy => vec![current, legacy],
+            _ => vec![legacy],
         }
     }
 
@@ -359,26 +365,37 @@ mod tests {
     /// 日報エントリの date 列の候補が、今の表現 (タイムゾーン基準の暦日 0 時) と
     /// 古い表現 (UTC の 0 時) の 2 つになることを確認する。
     ///
-    /// date 列を TIMESTAMPTZ に変えたマイグレーションが、それまでの 'YYYY-MM-DD' を
-    /// UTC の 0 時として変換したため、古い日報は UTC の 0 時で保存されている。
+    /// 2026-01-25 ごろまでの日報は、マイグレーションの変換や `chrono::Local` での計算により
+    /// UTC の 0 時で保存されている。
     #[test]
     fn stored_dates_include_current_and_legacy_representations() {
         let calendar = DiaryCalendar::new(chrono_tz::Asia::Tokyo, 8);
-        let date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap();
+        let date = NaiveDate::from_ymd_opt(2026, 1, 26).unwrap();
 
         assert_eq!(
             calendar.stored_dates(date),
-            vec![jst(2025, 1, 20, 0, 0), utc(2025, 1, 20, 0, 0)]
+            vec![jst(2026, 1, 26, 0, 0), utc(2026, 1, 26, 0, 0)]
         );
+    }
+
+    /// 暦から消えた日は今の表現を求められないため、パニックせずに古い表現だけを返すことを確認する。
+    ///
+    /// Pacific/Apia は 2011-12-29 の終わりに日付変更線をまたいだため、2011-12-30 が存在しない。
+    #[test]
+    fn stored_dates_skips_current_representation_for_a_skipped_day() {
+        let calendar = DiaryCalendar::new(chrono_tz::Pacific::Apia, 0);
+        let date = NaiveDate::from_ymd_opt(2011, 12, 30).unwrap();
+
+        assert_eq!(calendar.stored_dates(date), vec![utc(2011, 12, 30, 0, 0)]);
     }
 
     /// タイムゾーンが UTC のときは 2 つの表現が一致するため、候補が 1 つになることを確認する。
     #[test]
     fn stored_dates_deduplicates_when_timezone_is_utc() {
         let calendar = DiaryCalendar::new(chrono_tz::UTC, 0);
-        let date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap();
+        let date = NaiveDate::from_ymd_opt(2026, 1, 26).unwrap();
 
-        assert_eq!(calendar.stored_dates(date), vec![utc(2025, 1, 20, 0, 0)]);
+        assert_eq!(calendar.stored_dates(date), vec![utc(2026, 1, 26, 0, 0)]);
     }
 
     /// サマータイム開始で存在しない時刻をまたぐ場合、1 時間進めた時刻まで
