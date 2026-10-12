@@ -52,9 +52,11 @@ password = "CHANGE_ME"
 端末が外出先から受け口へ届くように、Cloudflare の名前付きトンネルを compose に同梱している。トンネルの作成には `cloudflared tunnel login` 済みのマシンが要る。
 
 ```bash
-cloudflared tunnel create kgd-owntracks
-cloudflared tunnel route dns kgd-owntracks <ホスト名>
+cloudflared tunnel create kgd-owntracks    # 出力された UUID を控える
+cloudflared tunnel route dns <UUID> <ホスト名>
 ```
+
+`route dns` にはトンネルを名前ではなく UUID で渡す。名前で渡したとき、手元の cloudflared の設定 (`config.yml` の `credentials-file` や環境変数 `TUNNEL_CRED_FILE`) が認証情報ファイルを指していると、cloudflared はそのファイルのトンネル ID を名前と照合せずに使う。そのファイルが別のトンネルのものなら、そちらを指す CNAME ができる。実行後に出力される `tunnelID` が控えた UUID と一致することを確かめる。
 
 作成すると `~/.cloudflared/<UUID>.json` に認証情報が出力される。これと ingress 設定を、kgd を動かすホストの `cloudflared/` ディレクトリに置く。
 
@@ -75,7 +77,7 @@ docker compose --profile tunnel up -d
 
 ingress 設定をダッシュボードではなくファイルで持つのは、`cloudflared tunnel create` で作ったトンネルがダッシュボードから ingress を受け取れないため。設定が無いと全てのリクエストに 503 を返す。
 
-Cloudflare Access は使わない。OwnTracks はブラウザではないため Access のログイン画面を通過できない。公開 URL を守るのは `[location]` の Basic 認証のみになる。
+このトンネルには Cloudflare Access を使わない。OwnTracks はブラウザではないため Access のログイン画面を通過できない。公開 URL を守るのは `[location]` の Basic 認証のみになる。
 
 同じポートには位置ログのビューア (`/viewer/`) も載る。ビューアにはログインが無いため、ingress の `path: ^/(pub|healthz)$` で OwnTracks の受け口だけをトンネルに通す。雛形 (`cloudflared.example/config.yml`) より前に作った `cloudflared/config.yml` にはこの行が無いので、足してから cloudflared を再起動すること。
 
@@ -125,6 +127,14 @@ just gen-api       # Rust の API の型を変えたら、画面側のスキー�
 ```
 
 開発サーバーからのプロキシは 127.0.0.1 から届き、`Host` は `localhost:5173` のまま渡すため、手元の `config.toml` でだけ `allowed_cidrs` に `"127.0.0.1/32"` を、`allowed_hosts` に `"localhost"` を足す。
+
+#### 外出先から開く (aoi-gateway)
+
+aoi で動かしている場合は、dotfiles の aoi-gateway を通して `https://kgd-aoi.ekuinox.dev/viewer/` からも開ける。Cloudflare Access のログインを経たリクエストだけが届く。aoi-gateway の構成と展開手順は [dotfiles の設計](https://github.com/ekuinox/.dotfiles/blob/master/docs/superpowers/specs/2026-10-12-aoi-gateway-design.md) にある。
+
+kgd 側で要るのは、`allowed_hosts` に `kgd-aoi.ekuinox.dev` を足して kgd を起動し直すことだけである。aoi-gateway は kgd へ aoi の LAN アドレスで転送するため、そのアドレスが `allowed_cidrs` に含まれている必要がある (既定値なら含まれる)。
+
+aoi-gateway は転送の前に `Cf-*` のヘッダを削るため、この経路ではガードの「Cloudflare を経由したリクエストの拒否」は働かない。代わりに、aoi-gateway の cloudflared が Access の JWT を検証する。判断の経緯は [ADR-0015](docs/adr/0015-publish-viewer-through-aoi-gateway.md) にある。
 
 ## テストカバレッジ
 

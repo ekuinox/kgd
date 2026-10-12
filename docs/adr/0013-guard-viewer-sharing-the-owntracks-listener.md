@@ -4,6 +4,11 @@
 
 受理 (2026-09-30)
 
+結果のうち、Cloudflare 以外のリバースプロキシや Cloudflare Access を前に置くときの扱いは
+[ADR-0015](0015-publish-viewer-through-aoi-gateway.md) で改めた。
+aoi-gateway を通る経路は、ガード 2 と 3 に代えて Access と cloudflared の JWT 検証が守る。
+OwnTracks のトンネルと LAN からの経路については、この決定は有効である。
+
 ## 文脈
 
 位置ログをブラウザで見るビューアを作るにあたり、今は LAN の中から見られれば足りる。
