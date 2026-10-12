@@ -19,5 +19,6 @@
 | [0010](0010-do-not-impute-missing-motion.md) | 移動種別の欠損を補完しない | 受理 |
 | [0011](0011-publish-bot-posts-to-diary.md) | bot が作った内容は PublishDiaryPostUseCase を通して日報へ載せる | 受理 (決定の一部を 0012 が更新) |
 | [0012](0012-leave-closed-diary-threads-untouched.md) | クローズ済みの日報スレッドには触れず Notion だけに載せる | 受理 |
-| [0013](0013-guard-viewer-sharing-the-owntracks-listener.md) | ビューアを OwnTracks の受け口と同じ待ち受けに置き、多重のガードで守る | 受理 |
+| [0013](0013-guard-viewer-sharing-the-owntracks-listener.md) | ビューアを OwnTracks の受け口と同じ待ち受けに置き、多重のガードで守る | 受理 (結果の一部を 0015 が更新) |
 | [0014](0014-build-viewer-with-react-and-embed-it.md) | ビューアの画面は React と Vite で作り、バイナリに埋め込み、API の型は Rust から生成する | 受理 |
+| [0015](0015-publish-viewer-through-aoi-gateway.md) | ビューアを aoi-gateway 経由でも公開し、Access と cloudflared の検証に任せる | 受理 |

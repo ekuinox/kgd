@@ -162,6 +162,7 @@ write_channel_id = 123456789012345678
 # Other names are rejected so that a malicious page cannot reach the viewer through
 # DNS rebinding. Names are compared case-insensitively, ignoring a trailing dot.
 # For local development through the Vite dev server proxy, add "localhost".
+# To open it through aoi-gateway (https://kgd-aoi.ekuinox.dev/viewer/), also list that name (ADR-0015).
 # allowed_hosts = ["aoi.local"]
 # Maximum number of track points returned to the map. Longer tracks are simplified (default: 20000)
 # max_track_points = 20000
