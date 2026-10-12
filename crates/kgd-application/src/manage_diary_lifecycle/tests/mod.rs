@@ -8,6 +8,7 @@ use super::*;
 
 mod close;
 mod create;
+mod find;
 
 /// テスト用の設定を作る。
 fn settings() -> DiaryLifecycleSettings {

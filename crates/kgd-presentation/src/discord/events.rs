@@ -56,7 +56,22 @@ impl EventHandler for DiscordController {
                     CommandOptionType::SubCommand,
                     "sync",
                     "Sync unsynced messages in this diary thread",
-                )),
+                ))
+                .add_option(
+                    CreateCommandOption::new(
+                        CommandOptionType::SubCommand,
+                        "link",
+                        "指定した日の日報へのリンクを本人だけに表示する",
+                    )
+                    .add_sub_option(
+                        CreateCommandOption::new(
+                            CommandOptionType::String,
+                            "date",
+                            "日報日 (YYYY-MM-DD)",
+                        )
+                        .required(true),
+                    ),
+                ),
         );
 
         // 位置ログのコマンドは [location] があるときだけ登録する
