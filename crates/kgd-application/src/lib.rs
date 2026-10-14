@@ -30,7 +30,8 @@ pub use build_location_report::{
 pub use check_server_status::CheckServerStatusUseCase;
 pub use daily_location_report::DailyLocationReportJob;
 pub use manage_diary_lifecycle::{
-    CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings, ManageDiaryLifecycleUseCase,
+    CloseAndNewOutcome, CloseAndNewPrecheck, DiaryCreateOutcome, DiaryLifecycleSettings,
+    ManageDiaryLifecycleUseCase,
 };
 pub use publish_diary_post::{PublishDiaryPostUseCase, PublishOutcome};
 pub use record_location::{RecordLocationUseCase, RecordOutcome};

@@ -9,7 +9,7 @@ use chrono::NaiveDate;
 use serenity::all::CreateEmbed;
 use serenity::builder::CreateEmbedFooter;
 
-use kgd_application::{CloseAndNewPrecheck, DiaryCreateOutcome, WakeOutcome};
+use kgd_application::{CloseAndNewOutcome, CloseAndNewPrecheck, DiaryCreateOutcome, WakeOutcome};
 use kgd_domain::{DiaryEntry, ServerStatus, ServerTarget};
 
 /// バージョン情報の表示用 DTO。
@@ -191,6 +191,22 @@ pub fn present_close_and_new_precheck(precheck: &CloseAndNewPrecheck) -> Option<
             Some(format!("今日の最新の日報はこちらです: <#{}>", thread_id))
         }
         CloseAndNewPrecheck::ReadyToCreate => None,
+    }
+}
+
+/// クローズ & 新規作成の結果のうち、ユーザーへ伝える必要があるものをメッセージにする。
+///
+/// 作成できた場合は新スレッドへの案内を別途送るため、ここでは何も返さない。
+/// 既に同じ日報日のスレッドがあった場合は、「作成しています...」の表示のまま
+/// 残らないようそのスレッドへ案内する。
+pub fn present_close_and_new_outcome(outcome: &CloseAndNewOutcome) -> Option<String> {
+    match outcome {
+        CloseAndNewOutcome::Created { .. } => None,
+        CloseAndNewOutcome::AlreadyExists { thread_id } => {
+            present_close_and_new_precheck(&CloseAndNewPrecheck::LatestExists {
+                thread_id: *thread_id,
+            })
+        }
     }
 }
 

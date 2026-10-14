@@ -6,7 +6,9 @@ use tracing::{info, warn};
 
 use kgd_domain::DiaryEntry;
 
-use super::{CloseAndNewPrecheck, DiaryCloseOutcome, ManageDiaryLifecycleUseCase};
+use super::{
+    CloseAndNewOutcome, CloseAndNewPrecheck, DiaryCloseOutcome, ManageDiaryLifecycleUseCase,
+};
 
 impl ManageDiaryLifecycleUseCase {
     /// クローズ & 新規作成を実行してよいか確認する。
@@ -39,8 +41,26 @@ impl ManageDiaryLifecycleUseCase {
     /// 現在のスレッドをクローズし、今日の日報スレッドを新規作成する。
     ///
     /// 事前に [`Self::close_and_new_precheck`] で `ReadyToCreate` を確認してから呼ぶこと。
-    pub async fn close_and_create_new(&self, current_channel_id: u64) -> Result<u64> {
+    pub async fn close_and_create_new(
+        &self,
+        current_channel_id: u64,
+    ) -> Result<CloseAndNewOutcome> {
+        // 二重押下で同じ日報日のスレッドが二つできないよう、作成処理全体を直列化する
+        let _guard = self.creation_lock.lock().await;
+
         let target_date = self.new_diary_date();
+
+        // 直前の押下がロックを持っている間に作成を終えていることがあるため、ここで再確認する
+        if let Some(existing) = self.repo.get_by_date(target_date).await? {
+            info!(
+                thread_id = existing.thread_id,
+                "Diary thread for the target diary day already exists; skipping creation"
+            );
+            return Ok(CloseAndNewOutcome::AlreadyExists {
+                thread_id: existing.thread_id,
+            });
+        }
+
         let date_str = self.settings.calendar.format(target_date);
 
         // クローズ対象のスレッドを決める
@@ -105,7 +125,9 @@ impl ManageDiaryLifecycleUseCase {
             );
         }
 
-        Ok(new_thread_id)
+        Ok(CloseAndNewOutcome::Created {
+            thread_id: new_thread_id,
+        })
     }
 
     /// 日報スレッドをクローズする。
