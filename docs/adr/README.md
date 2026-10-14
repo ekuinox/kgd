@@ -21,3 +21,4 @@
 | [0012](0012-leave-closed-diary-threads-untouched.md) | クローズ済みの日報スレッドには触れず Notion だけに載せる | 受理 |
 | [0013](0013-guard-viewer-sharing-the-owntracks-listener.md) | ビューアを OwnTracks の受け口と同じ待ち受けに置き、多重のガードで守る | 受理 |
 | [0014](0014-build-viewer-with-react-and-embed-it.md) | ビューアの画面は React と Vite で作り、バイナリに埋め込み、API の型は Rust から生成する | 受理 |
+| [0015](0015-serialize-diary-thread-creation.md) | 日報スレッドの作成はロックで直列化し、作成直前に再確認する | 受理 |

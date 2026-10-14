@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use chrono::NaiveDate;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use kgd_domain::DiaryEntry;
@@ -15,7 +16,8 @@ mod close;
 mod types;
 
 pub use types::{
-    CloseAndNewPrecheck, DiaryCloseOutcome, DiaryCreateOutcome, DiaryLifecycleSettings,
+    CloseAndNewOutcome, CloseAndNewPrecheck, DiaryCloseOutcome, DiaryCreateOutcome,
+    DiaryLifecycleSettings,
 };
 
 /// ボタン有無を確認する際に遡るメッセージ数。
@@ -33,6 +35,12 @@ pub struct ManageDiaryLifecycleUseCase {
     clock: Arc<dyn Clock>,
     /// ライフサイクル設定
     settings: DiaryLifecycleSettings,
+    /// 日報スレッド作成の直列化用ロック
+    ///
+    /// serenity はイベントごとに独立したタスクで処理するため、ボタンの二重押下や
+    /// コマンドとの同時実行で「存在確認 → 作成」が交錯し、同じ日報日のスレッドが
+    /// 二つできることがある。作成処理全体をこのロックで直列化して防ぐ。
+    creation_lock: Mutex<()>,
 }
 
 impl ManageDiaryLifecycleUseCase {
@@ -50,11 +58,14 @@ impl ManageDiaryLifecycleUseCase {
             gateway,
             clock,
             settings,
+            creation_lock: Mutex::new(()),
         }
     }
 
     /// 今日の日報を作成する。既に存在する場合は再開を試みる。
     pub async fn create_or_reopen(&self) -> Result<DiaryCreateOutcome> {
+        let _guard = self.creation_lock.lock().await;
+
         let calendar = &self.settings.calendar;
         let now = self.clock.now();
         let date = calendar.today(now);

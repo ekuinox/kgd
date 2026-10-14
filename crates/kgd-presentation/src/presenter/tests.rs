@@ -117,6 +117,20 @@ fn present_diary_link_reports_missing_entry() {
     );
 }
 
+/// CloseAndNewOutcome を渡すと、Created では何も返さず、AlreadyExists では
+/// 既存スレッドへの案内を返すことを確認する。
+#[test]
+fn present_close_and_new_outcome_guides_to_existing_thread() {
+    assert_eq!(
+        present_close_and_new_outcome(&CloseAndNewOutcome::Created { thread_id: 7 }),
+        None
+    );
+    assert_eq!(
+        present_close_and_new_outcome(&CloseAndNewOutcome::AlreadyExists { thread_id: 7 }),
+        Some("今日の最新の日報はこちらです: <#7>".to_string())
+    );
+}
+
 /// CloseAndNewPrecheck の各バリアントを渡すと、AlreadyLatest と LatestExists は
 /// 案内メッセージを Some で返し、ReadyToCreate はメッセージなし (None) になることを確認する。
 #[test]

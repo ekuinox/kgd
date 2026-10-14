@@ -53,6 +53,21 @@ pub enum CloseAndNewPrecheck {
     ReadyToCreate,
 }
 
+/// クローズ & 新規作成の実処理の結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAndNewOutcome {
+    /// 新しい日報スレッドを作成した
+    Created {
+        /// 作成したスレッド ID
+        thread_id: u64,
+    },
+    /// 対象の日報日のスレッドが既にあったため作成しなかった
+    AlreadyExists {
+        /// 既存のスレッド ID
+        thread_id: u64,
+    },
+}
+
 /// 日報クローズ（/diary close）の結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiaryCloseOutcome {
